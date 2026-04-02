@@ -1,0 +1,4 @@
+.env
+clientes.json
+__pycache__/
+*.pyc
