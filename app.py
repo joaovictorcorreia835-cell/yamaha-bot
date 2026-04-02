@@ -277,18 +277,17 @@ def processar_mensagem(phone, mensagem, from_me):
 # =========================
 # WEBHOOK
 # =========================
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    if request.method == "GET":
+        return "Webhook online", 200
+
     try:
         data = request.json or {}
         print("Webhook recebido:")
         print(json.dumps(data, indent=4, ensure_ascii=False))
 
-        phone = (
-            data.get("phone")
-            or data.get("from")
-            or ""
-        )
+        phone = data.get("phone") or data.get("from") or ""
 
         mensagem = ""
         if isinstance(data.get("text"), dict):
@@ -304,13 +303,11 @@ def webhook():
 
         processar_mensagem(phone, mensagem, from_me)
 
-        return jsonify({"status": "ok"}), 200
+        return "ok", 200
 
     except Exception as e:
         print("Erro no webhook:", e)
-        return jsonify({"status": "erro", "mensagem": str(e)}), 500
-
-
+        return "ok", 200
 # =========================
 # ROTA INICIAL
 # =========================
