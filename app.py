@@ -14,15 +14,19 @@ ZAPI_URL = os.getenv("ZAPI_URL")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_INSTANCE = os.getenv("ZAPI_INSTANCE")
 
+WEBHOOK_TOKEN = "123456"
+
 PORT = int(os.environ.get("PORT", 10000))
 
 ARQUIVO_CLIENTES = "clientes.json"
+
 
 # =========================
 # CLIENTES
 # =========================
 
 def carregar_clientes():
+
     if not os.path.exists(ARQUIVO_CLIENTES):
         return {}
 
@@ -31,6 +35,7 @@ def carregar_clientes():
 
 
 def salvar_clientes(clientes):
+
     with open(ARQUIVO_CLIENTES, "w", encoding="utf-8") as f:
         json.dump(clientes, f, indent=4, ensure_ascii=False)
 
@@ -53,7 +58,9 @@ def enviar_mensagem(phone, mensagem):
     }
 
     try:
+
         response = requests.post(url, json=payload, headers=headers)
+
         print("Resposta envio:", response.status_code)
 
     except Exception as e:
@@ -69,6 +76,7 @@ def processar_mensagem(phone, mensagem, from_me):
     clientes = carregar_clientes()
 
     if phone not in clientes:
+
         clientes[phone] = {
             "etapa": "inicio",
             "bot_pausado": False,
@@ -80,7 +88,7 @@ def processar_mensagem(phone, mensagem, from_me):
     agora = datetime.now()
 
     # =========================
-    # SE FOI VOCÊ QUE ENVIOU
+    # SE FOI VOCÊ
     # =========================
 
     if from_me:
@@ -93,9 +101,8 @@ def processar_mensagem(phone, mensagem, from_me):
         print("[BOT PAUSADO]", phone)
         return
 
-
     # =========================
-    # REATIVAR APÓS 1H
+    # REATIVAR APÓS 1 HORA
     # =========================
 
     if cliente.get("bot_pausado"):
@@ -115,11 +122,7 @@ def processar_mensagem(phone, mensagem, from_me):
 
                 print("[BOT REATIVADO]", phone)
 
-        else:
-            return
-
     if cliente.get("bot_pausado"):
-        print("[BOT PAUSADO] Sem resposta")
         return
 
     # =========================
@@ -148,11 +151,7 @@ def processar_mensagem(phone, mensagem, from_me):
 
             enviar_mensagem(
                 phone,
-                "Qual modelo da moto?\n\n"
-                "Exemplo:\n"
-                "FZ25\n"
-                "Factor\n"
-                "Lander"
+                "Qual modelo da moto?"
             )
 
             cliente["etapa"] = "modelo"
@@ -197,42 +196,40 @@ def processar_mensagem(phone, mensagem, from_me):
 
         cliente["etapa"] = "km"
 
-
     elif etapa == "km":
-
-        cliente["km"] = mensagem
 
         enviar_mensagem(
             phone,
-            "Perfeito 👍\n\n"
-            "Um consultor irá confirmar."
+            "Perfeito 👍\nUm consultor irá confirmar."
         )
 
         cliente["bot_pausado"] = True
         cliente["ultima_interacao_humana"] = datetime.now().isoformat()
-
 
     elif etapa == "pecas":
 
         enviar_mensagem(
             phone,
-            "Recebido 👍\n\n"
-            "Um consultor irá responder."
+            "Recebido 👍\nUm consultor irá responder."
         )
 
         cliente["bot_pausado"] = True
         cliente["ultima_interacao_humana"] = datetime.now().isoformat()
 
-
     salvar_clientes(clientes)
 
 
 # =========================
-# WEBHOOK ZAPI
+# WEBHOOK
 # =========================
 
-@app.route("/webhook", methods=["GET","POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+
+    token = request.args.get("token")
+
+    if token != WEBHOOK_TOKEN:
+        return "Token inválido", 403
 
     if request.method == "GET":
         return "Webhook online", 200
@@ -259,7 +256,7 @@ def webhook():
 
         from_me = data.get("fromMe", False)
 
-        phone = str(phone).replace("@c.us","").replace("@s.whatsapp.net","")
+        phone = str(phone).replace("@c.us", "").replace("@s.whatsapp.net", "")
 
         processar_mensagem(phone, mensagem, from_me)
 
@@ -271,12 +268,12 @@ def webhook():
 
 
 # =========================
-# ROTA VALIDAÇÃO ZAPI
+# VALIDAÇÃO ZAPI
 # =========================
 
 @app.route("/zapi", methods=["GET","POST"])
 def zapi():
-    return jsonify({"status":"online"}), 200
+    return jsonify({"status": "online"}), 200
 
 
 # =========================
