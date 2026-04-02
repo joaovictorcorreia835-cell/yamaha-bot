@@ -14,17 +14,18 @@ ZAPI_URL = os.getenv("ZAPI_URL")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_INSTANCE = os.getenv("ZAPI_INSTANCE")
 
-PORT = int(os.environ.get("PORT", 5000))
+PORT = int(os.environ.get("PORT", 10000))
 
 ARQUIVO_CLIENTES = "clientes.json"
 
 # =========================
-# UTIL
+# CLIENTES
 # =========================
 
 def carregar_clientes():
     if not os.path.exists(ARQUIVO_CLIENTES):
         return {}
+
     with open(ARQUIVO_CLIENTES, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -33,6 +34,10 @@ def salvar_clientes(clientes):
     with open(ARQUIVO_CLIENTES, "w", encoding="utf-8") as f:
         json.dump(clientes, f, indent=4, ensure_ascii=False)
 
+
+# =========================
+# ENVIO ZAPI
+# =========================
 
 def enviar_mensagem(phone, mensagem):
 
@@ -49,13 +54,14 @@ def enviar_mensagem(phone, mensagem):
 
     try:
         response = requests.post(url, json=payload, headers=headers)
-        print("Resposta envio:", response.status_code, response.text)
+        print("Resposta envio:", response.status_code)
+
     except Exception as e:
         print("Erro envio:", e)
 
 
 # =========================
-# LOGICA BOT
+# BOT
 # =========================
 
 def processar_mensagem(phone, mensagem, from_me):
@@ -74,10 +80,11 @@ def processar_mensagem(phone, mensagem, from_me):
     agora = datetime.now()
 
     # =========================
-    # SE MENSAGEM FOI ENVIADA POR VOCE
+    # SE FOI VOCÊ QUE ENVIOU
     # =========================
 
     if from_me:
+
         cliente["bot_pausado"] = True
         cliente["ultima_interacao_humana"] = agora.isoformat()
 
@@ -86,8 +93,9 @@ def processar_mensagem(phone, mensagem, from_me):
         print("[BOT PAUSADO]", phone)
         return
 
+
     # =========================
-    # REATIVAR APÓS 1 HORA
+    # REATIVAR APÓS 1H
     # =========================
 
     if cliente.get("bot_pausado"):
@@ -95,9 +103,11 @@ def processar_mensagem(phone, mensagem, from_me):
         ultima = cliente.get("ultima_interacao_humana")
 
         if ultima:
+
             ultima = datetime.fromisoformat(ultima)
 
             if agora - ultima > timedelta(hours=1):
+
                 cliente["bot_pausado"] = False
                 cliente["etapa"] = "inicio"
 
@@ -106,15 +116,10 @@ def processar_mensagem(phone, mensagem, from_me):
                 print("[BOT REATIVADO]", phone)
 
         else:
-            print("[BOT PAUSADO] Sem resposta para", phone)
             return
 
-    # =========================
-    # SE BOT PAUSADO
-    # =========================
-
     if cliente.get("bot_pausado"):
-        print("[BOT PAUSADO] Sem resposta para", phone)
+        print("[BOT PAUSADO] Sem resposta")
         return
 
     # =========================
@@ -128,7 +133,7 @@ def processar_mensagem(phone, mensagem, from_me):
         enviar_mensagem(
             phone,
             "Olá 👋\n\n"
-            "Sou o assistente pós-vendas Yamaha\n\n"
+            "Sou o assistente Yamaha\n\n"
             "Como posso ajudar?\n\n"
             "1️⃣ Agendar revisão\n"
             "2️⃣ Orçamento de peças\n"
@@ -156,8 +161,7 @@ def processar_mensagem(phone, mensagem, from_me):
 
             enviar_mensagem(
                 phone,
-                "Informe a peça desejada\n\n"
-                "Ou descreva sua necessidade"
+                "Informe a peça desejada"
             )
 
             cliente["etapa"] = "pecas"
@@ -166,7 +170,6 @@ def processar_mensagem(phone, mensagem, from_me):
 
             enviar_mensagem(
                 phone,
-                "Perfeito 👍\n\n"
                 "Um atendente irá falar com você."
             )
 
@@ -178,8 +181,8 @@ def processar_mensagem(phone, mensagem, from_me):
             enviar_mensagem(
                 phone,
                 "Escolha uma opção válida\n\n"
-                "1️⃣ Agendar revisão\n"
-                "2️⃣ Orçamento de peças\n"
+                "1️⃣ Revisão\n"
+                "2️⃣ Peças\n"
                 "3️⃣ Atendimento humano"
             )
 
@@ -189,14 +192,11 @@ def processar_mensagem(phone, mensagem, from_me):
 
         enviar_mensagem(
             phone,
-            "Qual o KM ou período da revisão?\n\n"
-            "Exemplo:\n"
-            "1000 km\n"
-            "5000 km\n"
-            "1 ano"
+            "Qual KM ou período?"
         )
 
         cliente["etapa"] = "km"
+
 
     elif etapa == "km":
 
@@ -205,22 +205,24 @@ def processar_mensagem(phone, mensagem, from_me):
         enviar_mensagem(
             phone,
             "Perfeito 👍\n\n"
-            "Um consultor irá confirmar seu agendamento."
+            "Um consultor irá confirmar."
         )
 
         cliente["bot_pausado"] = True
         cliente["ultima_interacao_humana"] = datetime.now().isoformat()
+
 
     elif etapa == "pecas":
 
         enviar_mensagem(
             phone,
             "Recebido 👍\n\n"
-            "Um consultor irá verificar e retornar."
+            "Um consultor irá responder."
         )
 
         cliente["bot_pausado"] = True
         cliente["ultima_interacao_humana"] = datetime.now().isoformat()
+
 
     salvar_clientes(clientes)
 
@@ -229,7 +231,7 @@ def processar_mensagem(phone, mensagem, from_me):
 # WEBHOOK ZAPI
 # =========================
 
-@app.route("/webhook", methods=["GET", "POST"])
+@app.route("/webhook", methods=["GET","POST"])
 def webhook():
 
     if request.method == "GET":
@@ -257,7 +259,7 @@ def webhook():
 
         from_me = data.get("fromMe", False)
 
-        phone = str(phone).replace("@c.us", "").replace("@s.whatsapp.net", "").strip()
+        phone = str(phone).replace("@c.us","").replace("@s.whatsapp.net","")
 
         processar_mensagem(phone, mensagem, from_me)
 
@@ -269,12 +271,21 @@ def webhook():
 
 
 # =========================
-# ROTA TESTE
+# ROTA VALIDAÇÃO ZAPI
+# =========================
+
+@app.route("/zapi", methods=["GET","POST"])
+def zapi():
+    return jsonify({"status":"online"}), 200
+
+
+# =========================
+# HOME
 # =========================
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot Z-API online", 200
+    return "Bot Yamaha online", 200
 
 
 # =========================
