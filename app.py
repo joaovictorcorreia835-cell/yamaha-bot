@@ -625,6 +625,10 @@ def webhook():
 
     telefone = data.get("phone")
     mensagem = extrair_mensagem_texto(data)
+    # Ignorar mensagens de grupo
+if telefone and "@g.us" in telefone:
+    print("Mensagem de grupo ignorada")
+    return jsonify({"status": "grupo ignorado"})
 
     # Ignora eventos sem telefone ou sem mensagem textual do cliente
     if not telefone or not mensagem:
