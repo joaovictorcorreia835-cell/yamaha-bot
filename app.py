@@ -19,6 +19,7 @@ print("APP INICIADO RENDER")
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+print("DEPLOY RENDER TESTE")
 
 BASE_URL = os.getenv("BASE_URL", "https://SEU-LINK-NGROK.ngrok-free.app")
 
