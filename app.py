@@ -1454,13 +1454,37 @@ Equipe Motoshow Yamaha"""
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
- 
+
+
+@app.route("/webhook", methods=["GET", "POST"])
+def webhook():
+    if request.method == "GET":
+        return "Webhook online", 200
+
+    data = request.json
+    print("Webhook recebido:", data)
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/dashboard")
 def dashboard():
     db = SessionLocal()
 
     periodo = request.args.get("periodo", "hoje")
     hoje = datetime.now().date()
+
+    if periodo == "7dias":
+        data_inicio = hoje - timedelta(days=6)
+        periodo_label = "Últimos 7 dias"
+    elif periodo == "30dias":
+        data_inicio = hoje - timedelta(days=29)
+        periodo_label = "Últimos 30 dias"
+    elif periodo == "mes":
+        data_inicio = hoje.replace(day=1)
+        periodo_label = "Mês atual"
+    else:
+        periodo = "hoje"
+        data_inicio = hoje
 
     if periodo == "7dias":
         data_inicio = hoje - timedelta(days=6)
