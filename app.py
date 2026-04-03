@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory, render_template
 import requests
 import os
 from dotenv import load_dotenv
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 import threading
 import time
 from sqlalchemy import func
@@ -106,24 +106,18 @@ def resetar_estado_cliente(telefone):
     if telefone not in clientes:
         return
 
-    clientes[telefone]["etapa"] = "menu"
-    clientes[telefone]["origem"] = "Menu Normal"
-    clientes[telefone]["itens_adicionais"] = []
-    clientes[telefone]["menu_venda_casada"] = []
-    clientes[telefone]["horarios_disponiveis"] = {}
+    atendimento_humano = clientes[telefone].get("atendimento_humano", False)
 
-    campos_para_remover = [
-        "modelo_moto", "ano_moto", "nome_cliente", "revisao_numero",
-        "dia_semana", "horario_escolhido", "km_atual",
-        "peca", "modelo", "ano", "cor", "acessorio", "consulta",
-        "acompanhar_nome", "servico_nome",
-        "logista_empresa", "logista_cnpj", "logista_cidade", "logista_pecas",
-        "cadastro_empresa", "cadastro_cnpj", "cadastro_responsavel",
-        "cadastro_cidade", "cadastro_telefone"
-    ]
-
-    for campo in campos_para_remover:
-        clientes[telefone].pop(campo, None)
+    clientes[telefone] = {
+        "etapa": "menu",
+        "atendimento_humano": atendimento_humano,
+        "ultima_interacao": agora_timestamp(),
+        "origem": "Menu Normal",
+        "itens_adicionais": [],
+        "menu_venda_casada": [],
+        "horarios_disponiveis": {},
+        "mensagem_inatividade_enviada": False
+    }
 
 
 def limpar_fluxo_agendamento(telefone):
@@ -397,8 +391,8 @@ def menu_modelos():
 13️⃣ AEROX"""
 
 
-def menu(telefone):
-    texto = """Olá 👋
+def menu_principal_texto():
+    return """Olá 👋
 
 Bem-vindo ao Pós-Vendas Motoshow Yamaha 🏍️
 Estamos prontos para ajudar com revisões, peças, garantia e serviços.
@@ -412,7 +406,10 @@ Estamos prontos para ajudar com revisões, peças, garantia e serviços.
 7️⃣ Falar com Atendente
 
 Digite a opção:"""
-    enviar_mensagem(telefone, texto)
+
+
+def menu(telefone):
+    enviar_mensagem(telefone, menu_principal_texto())
 
 
 def menu_pecas(telefone):
@@ -499,6 +496,20 @@ Digite a opção:"""
     enviar_mensagem(telefone, texto)
 
 
+def menu_garantia(telefone):
+    enviar_mensagem(
+        telefone,
+        """Garantia
+
+1️⃣ Nova Solicitação
+2️⃣ Acompanhar Garantia
+3️⃣ Falar com Atendente
+4️⃣ Voltar ao Menu Principal
+
+Digite a opção:"""
+    )
+
+
 # ===============================
 # PDF
 # ===============================
@@ -543,8 +554,11 @@ Equipe Motoshow Yamaha"""
 # WEBHOOK
 # ===============================
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    if request.method == "GET":
+        return "Webhook online", 200
+
     data = request.json or {}
     print("Webhook recebido:", data)
 
@@ -578,6 +592,13 @@ def webhook():
         clientes[telefone]["origem"] = "Menu Normal"
         clientes[telefone]["atendimento_humano"] = False
         limpar_fluxo_agendamento(telefone)
+        menu(telefone)
+        return jsonify({"status": "ok"})
+
+    # comando opcional para liberar atendimento humano manualmente
+    if msg in ["encerrar atendimento humano", "finalizar atendimento humano", "voltar bot"]:
+        clientes[telefone]["atendimento_humano"] = False
+        clientes[telefone]["etapa"] = "menu"
         menu(telefone)
         return jsonify({"status": "ok"})
 
@@ -798,41 +819,37 @@ Equipe Motoshow Yamaha"""
             clientes[telefone]["origem"] = "Menu Normal"
             limpar_fluxo_agendamento(telefone)
             enviar_mensagem(telefone, menu_modelos())
+            return jsonify({"status": "ok"})
 
         elif mensagem == "2":
             clientes[telefone]["etapa"] = "pecas_menu"
             clientes[telefone]["origem"] = "Menu Normal"
             menu_pecas(telefone)
+            return jsonify({"status": "ok"})
 
         elif mensagem == "3":
             clientes[telefone]["etapa"] = "acompanhar_nome"
             clientes[telefone]["origem"] = "Menu Normal"
             enviar_mensagem(telefone, "Informe seu nome completo:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "4":
             clientes[telefone]["etapa"] = "servico_nome"
             clientes[telefone]["origem"] = "Menu Normal"
             enviar_mensagem(telefone, "Informe seu nome completo:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "5":
             clientes[telefone]["etapa"] = "garantia_menu"
             clientes[telefone]["origem"] = "Menu Normal"
-            enviar_mensagem(
-                telefone,
-                """Garantia
-
-1️⃣ Nova Solicitação
-2️⃣ Acompanhar Garantia
-3️⃣ Falar com Atendente
-4️⃣ Voltar ao Menu Principal
-
-Digite a opção:"""
-            )
+            menu_garantia(telefone)
+            return jsonify({"status": "ok"})
 
         elif mensagem == "6":
             clientes[telefone]["etapa"] = "logista_menu"
             clientes[telefone]["origem"] = "Menu Normal"
             menu_logista(telefone)
+            return jsonify({"status": "ok"})
 
         elif mensagem == "7":
             clientes[telefone]["atendimento_humano"] = True
@@ -853,9 +870,11 @@ Em instantes nossa equipe continuará seu atendimento.
 
 Equipe Motoshow Yamaha"""
             )
+            return jsonify({"status": "ok"})
 
         else:
             menu(telefone)
+            return jsonify({"status": "ok"})
 
     # ===============================
     # SUBMENU PEÇAS
@@ -864,14 +883,17 @@ Equipe Motoshow Yamaha"""
         if mensagem == "1":
             clientes[telefone]["etapa"] = "peca_nome"
             enviar_mensagem(telefone, "Informe o nome da peça:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "2":
             clientes[telefone]["etapa"] = "acessorio_nome"
             enviar_mensagem(telefone, "Informe o nome do acessório:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "3":
             clientes[telefone]["etapa"] = "consulta_nome"
             enviar_mensagem(telefone, "Informe o nome da peça ou acessório:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "4":
             clientes[telefone]["atendimento_humano"] = True
@@ -888,13 +910,16 @@ Equipe Motoshow Yamaha"""
                 telefone,
                 "Seu atendimento foi direcionado para o setor de peças.\n\nEquipe Motoshow Yamaha"
             )
+            return jsonify({"status": "ok"})
 
         elif mensagem == "5":
             clientes[telefone]["etapa"] = "menu"
             menu(telefone)
+            return jsonify({"status": "ok"})
 
         else:
             menu_pecas(telefone)
+            return jsonify({"status": "ok"})
 
     # ===============================
     # PEÇAS
@@ -903,16 +928,19 @@ Equipe Motoshow Yamaha"""
         clientes[telefone]["peca"] = mensagem
         clientes[telefone]["etapa"] = "peca_modelo"
         enviar_mensagem(telefone, "Informe o modelo da moto:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "peca_modelo":
         clientes[telefone]["modelo"] = mensagem
         clientes[telefone]["etapa"] = "peca_ano"
         enviar_mensagem(telefone, "Informe o ano da moto:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "peca_ano":
         clientes[telefone]["ano"] = mensagem
         clientes[telefone]["etapa"] = "peca_cor"
         enviar_mensagem(telefone, "Informe a cor da moto:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "peca_cor":
         clientes[telefone]["cor"] = mensagem
@@ -939,6 +967,7 @@ Equipe Motoshow Yamaha"""
 
         enviar_mensagem(telefone, resumo)
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     # ===============================
     # ACESSÓRIOS
@@ -947,6 +976,7 @@ Equipe Motoshow Yamaha"""
         clientes[telefone]["acessorio"] = mensagem
         clientes[telefone]["etapa"] = "acessorio_modelo"
         enviar_mensagem(telefone, "Informe o modelo da moto:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "acessorio_modelo":
         clientes[telefone]["modelo"] = mensagem
@@ -971,6 +1001,7 @@ Equipe Motoshow Yamaha"""
 
         enviar_mensagem(telefone, resumo)
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     # ===============================
     # CONSULTA
@@ -996,6 +1027,7 @@ Equipe Motoshow Yamaha"""
 
         enviar_mensagem(telefone, resumo)
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     # ===============================
     # LOGISTA / ATACADO
@@ -1004,14 +1036,17 @@ Equipe Motoshow Yamaha"""
         if mensagem == "1":
             clientes[telefone]["etapa"] = "logista_cotacao_empresa"
             enviar_mensagem(telefone, "Perfeito! Vamos preparar sua cotação.\n\nInforme o nome da empresa:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "2":
             clientes[telefone]["etapa"] = "logista_cadastro_empresa"
             enviar_mensagem(telefone, "Vamos realizar seu cadastro de logista.\n\nInforme o nome da empresa:")
+            return jsonify({"status": "ok"})
 
         elif mensagem == "3":
             clientes[telefone]["etapa"] = "logista_catalogo_menu"
             menu_catalogo_atacado(telefone)
+            return jsonify({"status": "ok"})
 
         elif mensagem == "4":
             clientes[telefone]["atendimento_humano"] = True
@@ -1032,28 +1067,34 @@ Um de nossos especialistas irá continuar seu atendimento.
 
 Equipe Motoshow Yamaha"""
             )
+            return jsonify({"status": "ok"})
 
         elif mensagem == "5":
             clientes[telefone]["etapa"] = "menu"
             menu(telefone)
+            return jsonify({"status": "ok"})
 
         else:
             menu_logista(telefone)
+            return jsonify({"status": "ok"})
 
     elif etapa == "logista_cotacao_empresa":
         clientes[telefone]["logista_empresa"] = mensagem
         clientes[telefone]["etapa"] = "logista_cotacao_cnpj"
         enviar_mensagem(telefone, "Informe o CNPJ:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cotacao_cnpj":
         clientes[telefone]["logista_cnpj"] = mensagem
         clientes[telefone]["etapa"] = "logista_cotacao_cidade"
         enviar_mensagem(telefone, "Informe a cidade:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cotacao_cidade":
         clientes[telefone]["logista_cidade"] = mensagem
         clientes[telefone]["etapa"] = "logista_cotacao_pecas"
         enviar_mensagem(telefone, "Informe as peças desejadas (código ou modelo da moto):")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cotacao_pecas":
         clientes[telefone]["logista_pecas"] = mensagem
@@ -1082,26 +1123,31 @@ Equipe Motoshow Yamaha"""
 
         enviar_mensagem(telefone, resumo)
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cadastro_empresa":
         clientes[telefone]["cadastro_empresa"] = mensagem
         clientes[telefone]["etapa"] = "logista_cadastro_cnpj"
         enviar_mensagem(telefone, "Informe o CNPJ:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cadastro_cnpj":
         clientes[telefone]["cadastro_cnpj"] = mensagem
         clientes[telefone]["etapa"] = "logista_cadastro_responsavel"
         enviar_mensagem(telefone, "Informe o nome do responsável:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cadastro_responsavel":
         clientes[telefone]["cadastro_responsavel"] = mensagem
         clientes[telefone]["etapa"] = "logista_cadastro_cidade"
         enviar_mensagem(telefone, "Informe a cidade:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cadastro_cidade":
         clientes[telefone]["cadastro_cidade"] = mensagem
         clientes[telefone]["etapa"] = "logista_cadastro_telefone"
         enviar_mensagem(telefone, "Informe o telefone para contato:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_cadastro_telefone":
         clientes[telefone]["cadastro_telefone"] = mensagem
@@ -1132,12 +1178,14 @@ Equipe Motoshow Yamaha"""
 
         enviar_mensagem(telefone, resumo)
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     elif etapa == "logista_catalogo_menu":
         if mensagem == "1":
             enviar_mensagem(telefone, "Perfeito! Segue nosso catálogo atacado em PDF 📄")
             enviar_pdf(telefone, nome_arquivo="catalogo-atacado.pdf", legenda="📄 Catálogo Atacado Motoshow Yamaha")
             clientes[telefone]["etapa"] = "logista_menu"
+            return jsonify({"status": "ok"})
 
         elif mensagem == "2":
             clientes[telefone]["atendimento_humano"] = True
@@ -1158,13 +1206,16 @@ Um de nossos especialistas irá continuar seu atendimento.
 
 Equipe Motoshow Yamaha"""
             )
+            return jsonify({"status": "ok"})
 
         elif mensagem == "3":
             clientes[telefone]["etapa"] = "logista_menu"
             menu_logista(telefone)
+            return jsonify({"status": "ok"})
 
         else:
             menu_catalogo_atacado(telefone)
+            return jsonify({"status": "ok"})
 
     # ===============================
     # ACOMPANHAR SERVIÇO
@@ -1191,6 +1242,7 @@ Equipe Motoshow Yamaha"""
         )
 
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     # ===============================
     # AGENDAR SERVIÇO / AVALIAÇÃO
@@ -1217,6 +1269,7 @@ Equipe Motoshow Yamaha"""
         )
 
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     # ===============================
     # GARANTIA
@@ -1243,6 +1296,7 @@ Por favor, envie:
 Equipe Motoshow Yamaha"""
             )
             resetar_estado_cliente(telefone)
+            return jsonify({"status": "ok"})
 
         elif mensagem == "2":
             salvar_atendimento(
@@ -1261,6 +1315,7 @@ Por favor, informe seu nome completo para consulta.
 Equipe Motoshow Yamaha"""
             )
             resetar_estado_cliente(telefone)
+            return jsonify({"status": "ok"})
 
         elif mensagem == "3":
             clientes[telefone]["atendimento_humano"] = True
@@ -1277,23 +1332,16 @@ Equipe Motoshow Yamaha"""
                 telefone,
                 "Seu atendimento foi encaminhado para o setor de garantia.\n\nEquipe Motoshow Yamaha"
             )
+            return jsonify({"status": "ok"})
 
         elif mensagem == "4":
             clientes[telefone]["etapa"] = "menu"
             menu(telefone)
+            return jsonify({"status": "ok"})
 
         else:
-            enviar_mensagem(
-                telefone,
-                """Garantia
-
-1️⃣ Nova Solicitação
-2️⃣ Acompanhar Garantia
-3️⃣ Falar com Atendente
-4️⃣ Voltar ao Menu Principal
-
-Digite a opção:"""
-            )
+            menu_garantia(telefone)
+            return jsonify({"status": "ok"})
 
     # ===============================
     # AGENDAMENTO NORMAL
@@ -1302,21 +1350,25 @@ Digite a opção:"""
         clientes[telefone]["modelo_moto"] = obter_modelo_moto(mensagem)
         clientes[telefone]["etapa"] = "agendamento_nome"
         enviar_mensagem(telefone, "Informe seu nome completo:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_nome":
         clientes[telefone]["nome_cliente"] = mensagem
         clientes[telefone]["etapa"] = "agendamento_ano"
         enviar_mensagem(telefone, "Informe o ano da moto:")
+        return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_ano":
         clientes[telefone]["ano_moto"] = mensagem
         clientes[telefone]["etapa"] = "agendamento_revisao"
         menu_revisao_numero(telefone)
+        return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_revisao":
         clientes[telefone]["revisao_numero"] = obter_numero_revisao(mensagem)
         clientes[telefone]["etapa"] = "agendamento_dia"
         menu_dias_semana(telefone)
+        return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_dia":
         dia = obter_dia_semana(mensagem)
@@ -1341,6 +1393,7 @@ Escolha outro dia:"""
         clientes[telefone]["horarios_disponiveis"] = mapa_horarios
         clientes[telefone]["etapa"] = "agendamento_horario"
         enviar_mensagem(telefone, texto_menu)
+        return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_horario":
         mapa_horarios = clientes[telefone].get("horarios_disponiveis", {})
@@ -1355,6 +1408,7 @@ Escolha outro dia:"""
         clientes[telefone]["horario_escolhido"] = horario
         clientes[telefone]["etapa"] = "agendamento_confirma_item"
         menu_confirma_venda_casada(telefone)
+        return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_confirma_item":
         if mensagem == "1":
@@ -1443,12 +1497,12 @@ Equipe Motoshow Yamaha"""
 
         enviar_mensagem(telefone, resumo)
         resetar_estado_cliente(telefone)
+        return jsonify({"status": "ok"})
 
     else:
         clientes[telefone]["etapa"] = "menu"
         menu(telefone)
-
-    return jsonify({"status": "ok"})
+        return jsonify({"status": "ok"})
 
 
 @app.route("/")
@@ -1456,140 +1510,119 @@ def home():
     return "BOT YAMAHA ONLINE"
 
 
-@app.route("/webhook", methods=["GET", "POST"])
-def webhook():
-    if request.method == "GET":
-        return "Webhook online", 200
-
-    data = request.json
-    print("Webhook recebido:", data)
-    return jsonify({"status": "ok"}), 200
-
-
 @app.route("/dashboard")
 def dashboard():
     db = SessionLocal()
 
-    periodo = request.args.get("periodo", "hoje")
-    hoje = datetime.now().date()
+    try:
+        periodo = request.args.get("periodo", "hoje")
+        hoje = datetime.now().date()
 
-    if periodo == "7dias":
-        data_inicio = hoje - timedelta(days=6)
-        periodo_label = "Últimos 7 dias"
-    elif periodo == "30dias":
-        data_inicio = hoje - timedelta(days=29)
-        periodo_label = "Últimos 30 dias"
-    elif periodo == "mes":
-        data_inicio = hoje.replace(day=1)
-        periodo_label = "Mês atual"
-    else:
-        periodo = "hoje"
-        data_inicio = hoje
+        if periodo == "7dias":
+            data_inicio = hoje - timedelta(days=6)
+            periodo_label = "Últimos 7 dias"
+        elif periodo == "30dias":
+            data_inicio = hoje - timedelta(days=29)
+            periodo_label = "Últimos 30 dias"
+        elif periodo == "mes":
+            data_inicio = hoje.replace(day=1)
+            periodo_label = "Mês atual"
+        else:
+            periodo = "hoje"
+            data_inicio = hoje
+            periodo_label = "Hoje"
 
-    if periodo == "7dias":
-        data_inicio = hoje - timedelta(days=6)
-        periodo_label = "Últimos 7 dias"
-    elif periodo == "30dias":
-        data_inicio = hoje - timedelta(days=29)
-        periodo_label = "Últimos 30 dias"
-    elif periodo == "mes":
-        data_inicio = hoje.replace(day=1)
-        periodo_label = "Mês atual"
-    else:
-        periodo = "hoje"
-        data_inicio = hoje
-        periodo_label = "Hoje"
+        base_query = db.query(Atendimento).filter(func.date(Atendimento.data) >= data_inicio)
 
-    base_query = db.query(Atendimento).filter(func.date(Atendimento.data) >= data_inicio)
+        total_atendimentos = base_query.count()
 
-    total_atendimentos = base_query.count()
+        total_agendamentos = base_query.filter(Atendimento.status == "Agendado").count()
 
-    total_agendamentos = base_query.filter(Atendimento.status == "Agendado").count()
+        total_pecas_acessorios = base_query.filter(
+            Atendimento.setor.in_(["Peças", "Acessórios"])
+        ).count()
 
-    total_pecas_acessorios = base_query.filter(
-        Atendimento.setor.in_(["Peças", "Acessórios"])
-    ).count()
+        atendimento_humano = base_query.filter(
+            Atendimento.atendimento_humano == "Sim"
+        ).count()
 
-    atendimento_humano = base_query.filter(
-        Atendimento.atendimento_humano == "Sim"
-    ).count()
+        setores = base_query.with_entities(
+            Atendimento.setor,
+            func.count(Atendimento.id)
+        ).group_by(Atendimento.setor).all()
 
-    setores = base_query.with_entities(
-        Atendimento.setor,
-        func.count(Atendimento.id)
-    ).group_by(Atendimento.setor).all()
+        setores_labels = [s[0] if s[0] else "Não informado" for s in setores]
+        setores_valores = [s[1] for s in setores]
 
-    setores_labels = [s[0] if s[0] else "Não informado" for s in setores]
-    setores_valores = [s[1] for s in setores]
+        origem = base_query.with_entities(
+            Atendimento.origem,
+            func.count(Atendimento.id)
+        ).group_by(Atendimento.origem).all()
 
-    origem = base_query.with_entities(
-        Atendimento.origem,
-        func.count(Atendimento.id)
-    ).group_by(Atendimento.origem).all()
+        origem_labels = [o[0] if o[0] else "Não informado" for o in origem]
+        origem_valores = [o[1] for o in origem]
 
-    origem_labels = [o[0] if o[0] else "Não informado" for o in origem]
-    origem_valores = [o[1] for o in origem]
+        ultimos = base_query.filter(
+            Atendimento.status == "Agendado"
+        ).order_by(Atendimento.id.desc()).limit(10).all()
 
-    ultimos = base_query.filter(
-        Atendimento.status == "Agendado"
-    ).order_by(Atendimento.id.desc()).limit(10).all()
+        evolucao_query = base_query.with_entities(
+            func.date(Atendimento.data),
+            func.count(Atendimento.id)
+        ).group_by(func.date(Atendimento.data)).all()
 
-    evolucao_query = base_query.with_entities(
-        func.date(Atendimento.data),
-        func.count(Atendimento.id)
-    ).group_by(func.date(Atendimento.data)).all()
+        dias = [str(item[0]) for item in evolucao_query]
+        evolucao = [item[1] for item in evolucao_query]
 
-    dias = [str(item[0]) for item in evolucao_query]
-    evolucao = [item[1] for item in evolucao_query]
+        revisoes_query = base_query.with_entities(
+            Atendimento.revisao,
+            func.count(Atendimento.id)
+        ).filter(
+            Atendimento.revisao.isnot(None),
+            Atendimento.revisao != ""
+        ).group_by(Atendimento.revisao).order_by(func.count(Atendimento.id).desc()).limit(10).all()
 
-    revisoes_query = base_query.with_entities(
-        Atendimento.revisao,
-        func.count(Atendimento.id)
-    ).filter(
-        Atendimento.revisao != None,
-        Atendimento.revisao != ""
-    ).group_by(Atendimento.revisao).order_by(func.count(Atendimento.id).desc()).limit(10).all()
+        revisoes = [{"nome": r[0], "total": r[1]} for r in revisoes_query]
 
-    revisoes = [{"nome": r[0], "total": r[1]} for r in revisoes_query]
+        itens_contagem = {}
+        itens_query = base_query.with_entities(Atendimento.itens).all()
 
-    itens_contagem = {}
-    itens_query = base_query.with_entities(Atendimento.itens).all()
+        for registro in itens_query:
+            texto = registro[0]
+            if not texto:
+                continue
 
-    for registro in itens_query:
-        texto = registro[0]
-        if not texto:
-            continue
+            partes = [p.strip() for p in texto.split(",") if p.strip()]
+            for item in partes:
+                itens_contagem[item] = itens_contagem.get(item, 0) + 1
 
-        partes = [p.strip() for p in texto.split(",") if p.strip()]
-        for item in partes:
-            itens_contagem[item] = itens_contagem.get(item, 0) + 1
+        itens_top = sorted(
+            [{"nome": nome, "total": total} for nome, total in itens_contagem.items()],
+            key=lambda x: x["total"],
+            reverse=True
+        )[:10]
 
-    itens_top = sorted(
-        [{"nome": nome, "total": total} for nome, total in itens_contagem.items()],
-        key=lambda x: x["total"],
-        reverse=True
-    )[:10]
+        return render_template(
+            "dashboard.html",
+            periodo=periodo,
+            periodo_label=periodo_label,
+            total_atendimentos=total_atendimentos,
+            total_agendamentos=total_agendamentos,
+            total_pecas_acessorios=total_pecas_acessorios,
+            atendimento_humano=atendimento_humano,
+            setores_labels=setores_labels,
+            setores_valores=setores_valores,
+            origem_labels=origem_labels,
+            origem_valores=origem_valores,
+            ultimos=ultimos,
+            dias=dias,
+            evolucao=evolucao,
+            revisoes=revisoes,
+            itens_top=itens_top
+        )
+    finally:
+        db.close()
 
-    db.close()
-
-    return render_template(
-        "dashboard.html",
-        periodo=periodo,
-        periodo_label=periodo_label,
-        total_atendimentos=total_atendimentos,
-        total_agendamentos=total_agendamentos,
-        total_pecas_acessorios=total_pecas_acessorios,
-        atendimento_humano=atendimento_humano,
-        setores_labels=setores_labels,
-        setores_valores=setores_valores,
-        origem_labels=origem_labels,
-        origem_valores=origem_valores,
-        ultimos=ultimos,
-        dias=dias,
-        evolucao=evolucao,
-        revisoes=revisoes,
-        itens_top=itens_top
-    )
 
 if __name__ == "__main__":
     criar_banco()
