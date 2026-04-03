@@ -1,4 +1,7 @@
-Flask
+flask
 requests
 python-dotenv
 gunicorn
+pandas
+openpyxl
+sqlalchemy

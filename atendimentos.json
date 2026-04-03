@@ -1,0 +1,17 @@
+[
+  {
+    "tipo": "agendar_servico_avaliacao",
+    "telefone": "559492370446",
+    "criado_em": "02/04/2026 21:55:05",
+    "dados": {
+      "nome": "joao",
+      "modelo": "mt03",
+      "descricao": "barulho estranho",
+      "data": "04/04/2026"
+    }
+  },
+  {
+    "tipo": "peca",
+    "dados": "Peça: farol\nModelo: mt03\nAno: 2024\nCor: preta"
+  }
+]

@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+yamaha.db
+clientes.xlsx
