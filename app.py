@@ -14,12 +14,10 @@ load_dotenv()
 app = Flask(__name__)
 
 criar_banco()
-print("APP INICIADO RENDER")
 
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
-print("DEPLOY RENDER TESTE")
 
 BASE_URL = os.getenv("BASE_URL", "https://SEU-LINK-NGROK.ngrok-free.app")
 
@@ -565,6 +563,16 @@ def webhook():
 
     data = request.json or {}
     print("Webhook recebido:", data)
+    # Ignora mensagens enviadas pelo próprio bot/instância
+from_me = (
+    data.get("fromMe")
+    or data.get("from_me")
+    or (isinstance(data.get("message"), dict) and data.get("message", {}).get("fromMe"))
+    or (isinstance(data.get("text"), dict) and data.get("text", {}).get("fromMe"))
+)
+
+if from_me:
+    return jsonify({"status": "ignorado_from_me"})
 
     telefone = data.get("phone")
     mensagem = (
