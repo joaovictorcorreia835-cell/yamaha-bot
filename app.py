@@ -1624,10 +1624,13 @@ def dashboard():
         db.close()
 
 
-if __name__ == "__main__":
-    criar_banco()
-    thread_inatividade = threading.Thread(target=monitorar_inatividade, daemon=True)
-    thread_inatividade.start()
+thread_inatividade = threading.Thread(
+    target=monitorar_inatividade,
+    daemon=True
+)
+thread_inatividade.start()
 
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
