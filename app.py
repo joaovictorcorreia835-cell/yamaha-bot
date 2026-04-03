@@ -690,7 +690,9 @@ def webhook():
         print("PAYLOAD RECEBIDO:", payload)
 
         # 1) IGNORA GRUPO
-        if eh_grupo(payload):
+        is_group = payload.get("isGroup") or payload.get("is_group") or False
+
+        if is_group:
             print("Mensagem de grupo ignorada.")
             return jsonify({"status": "ignored", "reason": "group_message"}), 200
 
@@ -699,20 +701,12 @@ def webhook():
             print("Mensagem do próprio bot ignorada.")
             return jsonify({"status": "ignored", "reason": "from_me"}), 200
 
-        telefone = extrair_telefone(payload)
-        mensagem = extrair_mensagem_texto(payload)
-
-        if not telefone or not mensagem:
-            return jsonify({"status": "ignored", "reason": "missing_phone_or_message"}), 200
-
-        processar_mensagem(telefone, mensagem)
-
-        return jsonify({"status": "success"}), 200
+        # RESTANTE DA SUA LÓGICA AQUI
+        return jsonify({"status": "ok"}), 200
 
     except Exception as e:
-        print("Erro no webhook:", e)
-        return jsonify({"status": "error", "message": str(e)}), 500
-
+        print("ERRO NO WEBHOOK:", str(e))
+        return jsonify({"status": "erro", "detalhe": str(e)}), 500
 
 @app.route("/dashboard")
 def dashboard():
