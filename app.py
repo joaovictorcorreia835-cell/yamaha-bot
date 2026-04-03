@@ -14,6 +14,10 @@ load_dotenv()
 app = Flask(__name__)
 criar_banco()
 
+@app.route("/")
+def home():
+    return "BOT YAMAHA ONLINE"
+
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
