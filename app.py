@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, render_template_string
 import requests
 import os
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
 import time
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, func
@@ -100,7 +100,9 @@ def enviar_mensagem(telefone, mensagem):
     }
 
     try:
-        requests.post(url_envio, json=payload, headers=headers, timeout=20)
+        resposta = requests.post(url_envio, json=payload, headers=headers, timeout=20)
+        print(f"ENVIO MENSAGEM [{telefone}] STATUS:", resposta.status_code)
+        print("RESPOSTA Z-API:", resposta.text)
     except Exception as e:
         print(f"Erro ao enviar mensagem para {telefone}: {e}")
 
@@ -117,7 +119,9 @@ def enviar_pdf(telefone, link_pdf, nome_arquivo="catalogo.pdf"):
     }
 
     try:
-        requests.post(url_documento, json=payload, headers=headers, timeout=20)
+        resposta = requests.post(url_documento, json=payload, headers=headers, timeout=20)
+        print(f"ENVIO PDF [{telefone}] STATUS:", resposta.status_code)
+        print("RESPOSTA Z-API PDF:", resposta.text)
     except Exception as e:
         print(f"Erro ao enviar PDF para {telefone}: {e}")
 
@@ -177,15 +181,15 @@ def menu_principal():
 def horarios_disponiveis(revisao, data_str):
     try:
         data_obj = datetime.strptime(data_str, "%d/%m/%Y")
-    except:
+    except Exception:
         return []
 
     dia_semana = data_obj.weekday()  # segunda=0 ... domingo=6
+    revisao = revisao.strip().lower()
 
+    # domingo
     if dia_semana == 6:
         return []
-
-    revisao = revisao.strip().lower()
 
     # sábado
     if dia_semana == 5:
@@ -196,11 +200,17 @@ def horarios_disponiveis(revisao, data_str):
     # segunda a sexta
     if revisao in ["1", "1ª", "1a", "primeira", "2", "2ª", "2a", "segunda"]:
         return [
-            "1 - 08:00", "2 - 09:00", "3 - 10:00", "4 - 11:00",
-            "5 - 12:00", "6 - 13:00", "7 - 14:00", "8 - 15:00"
+            "1 - 08:00",
+            "2 - 09:00",
+            "3 - 10:00",
+            "4 - 11:00",
+            "5 - 12:00",
+            "6 - 13:00",
+            "7 - 14:00",
+            "8 - 15:00"
         ]
-    else:
-        return ["1 - 08:00"]
+
+    return ["1 - 08:00"]
 
 
 def opcao_para_horario(opcao, revisao, data_str):
@@ -249,7 +259,7 @@ def extrair_mensagem_texto(payload):
         payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
         payload.get("message"),
         payload.get("body"),
-        payload.get("text"),
+        payload.get("text") if isinstance(payload.get("text"), str) else None,
         payload.get("msg"),
     ]
 
@@ -271,20 +281,38 @@ def extrair_telefone(payload):
 
     for item in candidatos:
         if isinstance(item, str) and item.strip():
-            return item.strip().replace("@s.whatsapp.net", "").replace("@c.us", "").replace("@g.us", "")
+            return (
+                item.strip()
+                .replace("@s.whatsapp.net", "")
+                .replace("@c.us", "")
+                .replace("@g.us", "")
+            )
+
+    sender = payload.get("sender")
+    if isinstance(sender, dict):
+        for chave in ["phone", "id", "jid"]:
+            valor = sender.get(chave)
+            if isinstance(valor, str) and valor.strip():
+                return (
+                    valor.strip()
+                    .replace("@s.whatsapp.net", "")
+                    .replace("@c.us", "")
+                    .replace("@g.us", "")
+                )
 
     return None
 
 
 def eh_grupo(payload):
-    # 1) campos booleanos comuns
     if payload.get("isGroup") is True:
+        return True
+
+    if payload.get("is_group") is True:
         return True
 
     if payload.get("fromGroup") is True:
         return True
 
-    # 2) chatId / from / phone terminando com @g.us
     campos = [
         payload.get("chatId"),
         payload.get("from"),
@@ -296,7 +324,6 @@ def eh_grupo(payload):
         if isinstance(campo, str) and campo.endswith("@g.us"):
             return True
 
-    # 3) objeto sender
     sender = payload.get("sender")
     if isinstance(sender, dict):
         if sender.get("isGroup") is True:
@@ -311,7 +338,6 @@ def eh_grupo(payload):
 
 
 def eh_mensagem_do_proprio_bot(payload):
-    # campos comuns que indicam mensagem enviada por mim/bot
     if payload.get("fromMe") is True:
         return True
 
@@ -338,7 +364,12 @@ def processar_mensagem(telefone, mensagem):
     cliente = clientes[telefone]
     etapa = cliente["etapa"]
 
-    # Sempre permite reinício rápido
+    # Se já estiver em atendimento humano, não envia menu novamente
+    if etapa == "aguardando_humano":
+        print(f"Cliente {telefone} está em atendimento humano. Mensagem ignorada pelo bot.")
+        return
+
+    # Sempre permite reinício rápido, exceto quando estiver em atendimento humano
     if msg in ["menu", "oi", "olá", "ola", "iniciar", "começar", "comecar"]:
         cliente["etapa"] = "menu"
         enviar_mensagem(telefone, menu_principal())
@@ -493,7 +524,7 @@ def processar_mensagem(telefone, mensagem):
         return
 
     if etapa == "item_adicional":
-        cliente["item_adicional"] = "" if msg == "não" or msg == "nao" else mensagem.strip()
+        cliente["item_adicional"] = "" if msg in ["não", "nao"] else mensagem.strip()
         cliente["etapa"] = "finalizado"
 
         salvar_atendimento(
@@ -527,7 +558,6 @@ def processar_mensagem(telefone, mensagem):
         resumo += "\nNossa equipe entrará em contato se necessário.\n\nEquipe *Motoshow Yamaha*."
 
         enviar_mensagem(telefone, resumo)
-
         clientes.pop(telefone, None)
         return
 
@@ -545,7 +575,11 @@ def processar_mensagem(telefone, mensagem):
                 status="aguardando humano"
             )
 
-            enviar_mensagem(telefone, "✅ Encaminhado para atendimento humano do setor de *Peças*.")
+            enviar_mensagem(
+                telefone,
+                "✅ Encaminhado para atendimento humano do setor de *Peças*.\n\n"
+                "Equipe *Motoshow Yamaha*."
+            )
             return
 
         salvar_atendimento(
@@ -581,7 +615,11 @@ def processar_mensagem(telefone, mensagem):
                 status="aguardando humano"
             )
 
-            enviar_mensagem(telefone, "✅ Encaminhado para atendimento humano do setor de *Acessórios*.")
+            enviar_mensagem(
+                telefone,
+                "✅ Encaminhado para atendimento humano do setor de *Acessórios*.\n\n"
+                "Equipe *Motoshow Yamaha*."
+            )
             return
 
         salvar_atendimento(
@@ -604,6 +642,26 @@ def processar_mensagem(telefone, mensagem):
         return
 
     if etapa == "garantia":
+        if msg == "humano":
+            cliente["atendimento_humano"] = True
+            cliente["etapa"] = "aguardando_humano"
+
+            salvar_atendimento(
+                telefone=telefone,
+                nome=cliente["nome"],
+                setor="Garantia",
+                atendimento_humano="sim",
+                origem=cliente["origem"],
+                status="aguardando humano"
+            )
+
+            enviar_mensagem(
+                telefone,
+                "✅ Encaminhado para atendimento humano do setor de *Garantia*.\n\n"
+                "Equipe *Motoshow Yamaha*."
+            )
+            return
+
         salvar_atendimento(
             telefone=telefone,
             nome=cliente["nome"],
@@ -624,7 +682,7 @@ def processar_mensagem(telefone, mensagem):
         return
 
     if etapa == "atacado":
-        if msg == "catálogo" or msg == "catalogo":
+        if msg in ["catálogo", "catalogo"]:
             link_pdf = f"{BASE_URL}/static/catalogo.pdf"
             enviar_pdf(telefone, link_pdf, "catalogo_motoshow.pdf")
 
@@ -644,6 +702,26 @@ def processar_mensagem(telefone, mensagem):
                 "Equipe *Motoshow Yamaha*."
             )
             clientes.pop(telefone, None)
+            return
+
+        if msg == "humano":
+            cliente["atendimento_humano"] = True
+            cliente["etapa"] = "aguardando_humano"
+
+            salvar_atendimento(
+                telefone=telefone,
+                nome=cliente["nome"],
+                setor="Logista/Atacado",
+                atendimento_humano="sim",
+                origem=cliente["origem"],
+                status="aguardando humano"
+            )
+
+            enviar_mensagem(
+                telefone,
+                "✅ Encaminhado para atendimento humano do setor de *Logista / Atacado*.\n\n"
+                "Equipe *Motoshow Yamaha*."
+            )
             return
 
         salvar_atendimento(
@@ -666,7 +744,6 @@ def processar_mensagem(telefone, mensagem):
         return
 
     if etapa == "aguardando_humano":
-        # não reenviar menu enquanto atendimento humano estiver ativo
         return
 
     enviar_mensagem(telefone, menu_principal())
@@ -689,24 +766,40 @@ def webhook():
         payload = request.get_json(silent=True) or {}
         print("PAYLOAD RECEBIDO:", payload)
 
-        # 1) IGNORA GRUPO
-        is_group = payload.get("isGroup") or payload.get("is_group") or False
-
-        if is_group:
+        # 1) IGNORA GRUPOS
+        if eh_grupo(payload):
             print("Mensagem de grupo ignorada.")
             return jsonify({"status": "ignored", "reason": "group_message"}), 200
 
-        # 2) IGNORA MENSAGEM ENVIADA PELO PRÓPRIO BOT
+        # 2) IGNORA MENSAGENS DO PRÓPRIO BOT
         if eh_mensagem_do_proprio_bot(payload):
             print("Mensagem do próprio bot ignorada.")
             return jsonify({"status": "ignored", "reason": "from_me"}), 200
 
-        # RESTANTE DA SUA LÓGICA AQUI
+        # 3) EXTRAI TELEFONE E MENSAGEM
+        telefone = extrair_telefone(payload)
+        mensagem = extrair_mensagem_texto(payload)
+
+        if not telefone:
+            print("Telefone não encontrado no payload.")
+            return jsonify({"status": "ignored", "reason": "phone_not_found"}), 200
+
+        if not mensagem:
+            print("Mensagem vazia ou não suportada.")
+            return jsonify({"status": "ignored", "reason": "empty_message"}), 200
+
+        print("TELEFONE EXTRAÍDO:", telefone)
+        print("MENSAGEM EXTRAÍDA:", mensagem)
+
+        # 4) PROCESSA A MENSAGEM
+        processar_mensagem(telefone, mensagem)
+
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
         print("ERRO NO WEBHOOK:", str(e))
         return jsonify({"status": "erro", "detalhe": str(e)}), 500
+
 
 @app.route("/dashboard")
 def dashboard():
