@@ -12,7 +12,6 @@ from database import criar_banco, SessionLocal, Atendimento
 load_dotenv()
 
 app = Flask(__name__)
-
 criar_banco()
 
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
@@ -326,6 +325,58 @@ def formatar_itens(itens):
     return "\n".join([f"• {item}" for item in itens])
 
 
+def extrair_mensagem_texto(data):
+    if not isinstance(data, dict):
+        return None
+
+    candidatos = [
+        data.get("message"),
+        data.get("body"),
+        data.get("text"),
+        data.get("caption"),
+    ]
+
+    text_obj = data.get("text")
+    if isinstance(text_obj, dict):
+        candidatos.extend([
+            text_obj.get("message"),
+            text_obj.get("body"),
+            text_obj.get("text")
+        ])
+
+    msg_obj = data.get("message")
+    if isinstance(msg_obj, dict):
+        candidatos.extend([
+            msg_obj.get("text"),
+            msg_obj.get("body"),
+            msg_obj.get("message")
+        ])
+
+    for item in candidatos:
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+
+    return None
+
+
+def evento_eh_do_proprio_bot(data):
+    if not isinstance(data, dict):
+        return False
+
+    if data.get("fromMe") is True or data.get("from_me") is True:
+        return True
+
+    text_obj = data.get("text")
+    if isinstance(text_obj, dict) and text_obj.get("fromMe") is True:
+        return True
+
+    msg_obj = data.get("message")
+    if isinstance(msg_obj, dict) and msg_obj.get("fromMe") is True:
+        return True
+
+    return False
+
+
 # ===============================
 # ENVIO DE MENSAGEM
 # ===============================
@@ -563,25 +614,15 @@ def webhook():
 
     data = request.json or {}
     print("Webhook recebido:", data)
-    # Ignora mensagens enviadas pelo próprio bot/instância
-from_me = (
-    data.get("fromMe")
-    or data.get("from_me")
-    or (isinstance(data.get("message"), dict) and data.get("message", {}).get("fromMe"))
-    or (isinstance(data.get("text"), dict) and data.get("text", {}).get("fromMe"))
-)
 
-if from_me:
-    return jsonify({"status": "ignorado_from_me"})
+    # Ignora mensagens enviadas pelo próprio bot
+    if evento_eh_do_proprio_bot(data):
+        return jsonify({"status": "ignorado_from_me"})
 
     telefone = data.get("phone")
-    mensagem = (
-        data.get("message")
-        or (data.get("text", {}).get("message") if isinstance(data.get("text"), dict) else None)
-        or data.get("text")
-        or data.get("body")
-    )
+    mensagem = extrair_mensagem_texto(data)
 
+    # Ignora eventos sem telefone ou sem mensagem textual do cliente
     if not telefone or not mensagem:
         return jsonify({"status": "ignorado"})
 
@@ -607,7 +648,6 @@ if from_me:
         menu(telefone)
         return jsonify({"status": "ok"})
 
-    # comando opcional para liberar atendimento humano manualmente
     if msg in ["encerrar atendimento humano", "finalizar atendimento humano", "voltar bot"]:
         clientes[telefone]["atendimento_humano"] = False
         clientes[telefone]["etapa"] = "menu"
@@ -682,14 +722,14 @@ Escolha outro dia:"""
         return jsonify({"status": "ok"})
 
     elif etapa == "campanha_agendamento_confirma_item":
-        if mensagem == "1":
+        if msg == "1":
             texto_menu, opcoes = gerar_menu_venda_casada(clientes[telefone].get("revisao_numero", ""))
             clientes[telefone]["menu_venda_casada"] = opcoes
             clientes[telefone]["etapa"] = "campanha_agendamento_venda_casada"
             enviar_mensagem(telefone, texto_menu)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             resumo = f"""Agendamento solicitado ✅
 
 Nome: {clientes[telefone].get("nome_cliente", "")}
@@ -825,45 +865,44 @@ Equipe Motoshow Yamaha"""
     # MENU PRINCIPAL
     # ===============================
     if etapa == "menu":
-
-        if mensagem == "1":
+        if msg == "1":
             clientes[telefone]["etapa"] = "modelo"
             clientes[telefone]["origem"] = "Menu Normal"
             limpar_fluxo_agendamento(telefone)
             enviar_mensagem(telefone, menu_modelos())
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             clientes[telefone]["etapa"] = "pecas_menu"
             clientes[telefone]["origem"] = "Menu Normal"
             menu_pecas(telefone)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "3":
+        elif msg == "3":
             clientes[telefone]["etapa"] = "acompanhar_nome"
             clientes[telefone]["origem"] = "Menu Normal"
             enviar_mensagem(telefone, "Informe seu nome completo:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "4":
+        elif msg == "4":
             clientes[telefone]["etapa"] = "servico_nome"
             clientes[telefone]["origem"] = "Menu Normal"
             enviar_mensagem(telefone, "Informe seu nome completo:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "5":
+        elif msg == "5":
             clientes[telefone]["etapa"] = "garantia_menu"
             clientes[telefone]["origem"] = "Menu Normal"
             menu_garantia(telefone)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "6":
+        elif msg == "6":
             clientes[telefone]["etapa"] = "logista_menu"
             clientes[telefone]["origem"] = "Menu Normal"
             menu_logista(telefone)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "7":
+        elif msg == "7":
             clientes[telefone]["atendimento_humano"] = True
 
             salvar_atendimento(
@@ -892,22 +931,22 @@ Equipe Motoshow Yamaha"""
     # SUBMENU PEÇAS
     # ===============================
     elif etapa == "pecas_menu":
-        if mensagem == "1":
+        if msg == "1":
             clientes[telefone]["etapa"] = "peca_nome"
             enviar_mensagem(telefone, "Informe o nome da peça:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             clientes[telefone]["etapa"] = "acessorio_nome"
             enviar_mensagem(telefone, "Informe o nome do acessório:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "3":
+        elif msg == "3":
             clientes[telefone]["etapa"] = "consulta_nome"
             enviar_mensagem(telefone, "Informe o nome da peça ou acessório:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "4":
+        elif msg == "4":
             clientes[telefone]["atendimento_humano"] = True
 
             salvar_atendimento(
@@ -924,7 +963,7 @@ Equipe Motoshow Yamaha"""
             )
             return jsonify({"status": "ok"})
 
-        elif mensagem == "5":
+        elif msg == "5":
             clientes[telefone]["etapa"] = "menu"
             menu(telefone)
             return jsonify({"status": "ok"})
@@ -1045,22 +1084,22 @@ Equipe Motoshow Yamaha"""
     # LOGISTA / ATACADO
     # ===============================
     elif etapa == "logista_menu":
-        if mensagem == "1":
+        if msg == "1":
             clientes[telefone]["etapa"] = "logista_cotacao_empresa"
             enviar_mensagem(telefone, "Perfeito! Vamos preparar sua cotação.\n\nInforme o nome da empresa:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             clientes[telefone]["etapa"] = "logista_cadastro_empresa"
             enviar_mensagem(telefone, "Vamos realizar seu cadastro de logista.\n\nInforme o nome da empresa:")
             return jsonify({"status": "ok"})
 
-        elif mensagem == "3":
+        elif msg == "3":
             clientes[telefone]["etapa"] = "logista_catalogo_menu"
             menu_catalogo_atacado(telefone)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "4":
+        elif msg == "4":
             clientes[telefone]["atendimento_humano"] = True
 
             salvar_atendimento(
@@ -1081,7 +1120,7 @@ Equipe Motoshow Yamaha"""
             )
             return jsonify({"status": "ok"})
 
-        elif mensagem == "5":
+        elif msg == "5":
             clientes[telefone]["etapa"] = "menu"
             menu(telefone)
             return jsonify({"status": "ok"})
@@ -1193,13 +1232,13 @@ Equipe Motoshow Yamaha"""
         return jsonify({"status": "ok"})
 
     elif etapa == "logista_catalogo_menu":
-        if mensagem == "1":
+        if msg == "1":
             enviar_mensagem(telefone, "Perfeito! Segue nosso catálogo atacado em PDF 📄")
             enviar_pdf(telefone, nome_arquivo="catalogo-atacado.pdf", legenda="📄 Catálogo Atacado Motoshow Yamaha")
             clientes[telefone]["etapa"] = "logista_menu"
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             clientes[telefone]["atendimento_humano"] = True
 
             salvar_atendimento(
@@ -1220,7 +1259,7 @@ Equipe Motoshow Yamaha"""
             )
             return jsonify({"status": "ok"})
 
-        elif mensagem == "3":
+        elif msg == "3":
             clientes[telefone]["etapa"] = "logista_menu"
             menu_logista(telefone)
             return jsonify({"status": "ok"})
@@ -1287,7 +1326,7 @@ Equipe Motoshow Yamaha"""
     # GARANTIA
     # ===============================
     elif etapa == "garantia_menu":
-        if mensagem == "1":
+        if msg == "1":
             salvar_atendimento(
                 telefone=telefone,
                 setor="Garantia",
@@ -1310,7 +1349,7 @@ Equipe Motoshow Yamaha"""
             resetar_estado_cliente(telefone)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             salvar_atendimento(
                 telefone=telefone,
                 setor="Garantia",
@@ -1329,7 +1368,7 @@ Equipe Motoshow Yamaha"""
             resetar_estado_cliente(telefone)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "3":
+        elif msg == "3":
             clientes[telefone]["atendimento_humano"] = True
 
             salvar_atendimento(
@@ -1346,7 +1385,7 @@ Equipe Motoshow Yamaha"""
             )
             return jsonify({"status": "ok"})
 
-        elif mensagem == "4":
+        elif msg == "4":
             clientes[telefone]["etapa"] = "menu"
             menu(telefone)
             return jsonify({"status": "ok"})
@@ -1423,14 +1462,14 @@ Escolha outro dia:"""
         return jsonify({"status": "ok"})
 
     elif etapa == "agendamento_confirma_item":
-        if mensagem == "1":
+        if msg == "1":
             texto_menu, opcoes = gerar_menu_venda_casada(clientes[telefone].get("revisao_numero", ""))
             clientes[telefone]["menu_venda_casada"] = opcoes
             clientes[telefone]["etapa"] = "agendamento_venda_casada"
             enviar_mensagem(telefone, texto_menu)
             return jsonify({"status": "ok"})
 
-        elif mensagem == "2":
+        elif msg == "2":
             resumo = f"""Agendamento solicitado ✅
 
 Nome: {clientes[telefone].get("nome_cliente", "")}
