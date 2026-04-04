@@ -64,6 +64,43 @@ class Atendimento(Base):
 Base.metadata.create_all(bind=engine)
 
 # ==========================================
+# OPÇÕES FIXAS
+# ==========================================
+MODELOS = {
+    "1": "Fazer 250",
+    "2": "FZ15",
+    "3": "Crosser",
+    "4": "Lander",
+    "5": "MT-03",
+    "6": "MT-07",
+    "7": "R15",
+    "8": "R3",
+    "9": "Fluo",
+    "10": "Neo",
+    "11": "NMax",
+    "12": "Tenere 700",
+    "13": "Aerox"
+}
+
+REVISOES = {
+    "1": "1ª Revisão",
+    "2": "2ª Revisão",
+    "3": "3ª Revisão",
+    "4": "4ª Revisão",
+    "5": "5ª Revisão ou mais"
+}
+
+DIAS_SEMANA = {
+    "1": "Segunda-feira",
+    "2": "Terça-feira",
+    "3": "Quarta-feira",
+    "4": "Quinta-feira",
+    "5": "Sexta-feira",
+    "6": "Sábado"
+}
+
+
+# ==========================================
 # UTILITÁRIOS
 # ==========================================
 def iniciar_cliente(telefone):
@@ -178,51 +215,74 @@ def menu_principal():
     )
 
 
-def horarios_disponiveis(revisao, data_str):
-    try:
-        data_obj = datetime.strptime(data_str, "%d/%m/%Y")
-    except Exception:
-        return []
-
-    dia_semana = data_obj.weekday()  # segunda=0 ... domingo=6
-    revisao = revisao.strip().lower()
-
-    # domingo
-    if dia_semana == 6:
-        return []
-
-    # sábado
-    if dia_semana == 5:
-        if revisao in ["1", "1ª", "1a", "primeira", "2", "2ª", "2a", "segunda"]:
-            return ["1 - 08:00", "2 - 09:00", "3 - 10:00"]
-        return []
-
-    # segunda a sexta
-    if revisao in ["1", "1ª", "1a", "primeira", "2", "2ª", "2a", "segunda"]:
-        return [
-            "1 - 08:00",
-            "2 - 09:00",
-            "3 - 10:00",
-            "4 - 11:00",
-            "5 - 12:00",
-            "6 - 13:00",
-            "7 - 14:00",
-            "8 - 15:00"
-        ]
-
-    return ["1 - 08:00"]
+def menu_modelos():
+    texto = "🏍 *Escolha o modelo da moto:*\n\n"
+    for codigo, nome in MODELOS.items():
+        texto += f"{codigo} - {nome}\n"
+    return texto.strip()
 
 
-def opcao_para_horario(opcao, revisao, data_str):
-    horarios = horarios_disponiveis(revisao, data_str)
-    mapa = {}
+def menu_revisoes():
+    texto = "🔧 *Escolha a revisão:*\n\n"
+    for codigo, nome in REVISOES.items():
+        texto += f"{codigo} - {nome}\n"
+    return texto.strip()
 
-    for item in horarios:
-        partes = item.split(" - ")
-        if len(partes) == 2:
-            mapa[partes[0].strip()] = partes[1].strip()
 
-    return mapa.get(opcao.strip())
+def menu_dias_semana():
+    texto = "📅 *Escolha o dia da semana desejado:*\n\n"
+    for codigo, nome in DIAS_SEMANA.items():
+        texto += f"{codigo} - {nome}\n"
+    return texto.strip()
+
+
+def obter_horarios_por_revisao_e_dia(revisao_opcao, dia_opcao):
+    # dia_opcao: 1 a 5 = segunda a sexta | 6 = sábado
+    if dia_opcao not in DIAS_SEMANA:
+        return {}
+
+    # 1ª e 2ª revisão
+    if revisao_opcao in ["1", "2"]:
+        if dia_opcao in ["1", "2", "3", "4", "5"]:
+            return {
+                "1": "08:00",
+                "2": "09:00",
+                "3": "10:00",
+                "4": "11:00",
+                "5": "12:00",
+                "6": "13:00",
+                "7": "14:00",
+                "8": "15:00"
+            }
+        if dia_opcao == "6":
+            return {
+                "1": "08:00",
+                "2": "09:00",
+                "3": "10:00"
+            }
+
+    # 3ª, 4ª e 5ª+
+    if revisao_opcao in ["3", "4", "5"]:
+        if dia_opcao in ["1", "2", "3", "4", "5"]:
+            return {
+                "1": "08:00"
+            }
+        if dia_opcao == "6":
+            return {}
+
+    return {}
+
+
+def menu_horarios(revisao_opcao, dia_opcao):
+    horarios = obter_horarios_por_revisao_e_dia(revisao_opcao, dia_opcao)
+
+    if not horarios:
+        return None
+
+    texto = "⏰ *Escolha o horário disponível:*\n\n"
+    for codigo, horario in horarios.items():
+        texto += f"{codigo} - {horario}\n"
+    return texto.strip()
 
 
 def mensagem_encerramento():
@@ -369,7 +429,7 @@ def processar_mensagem(telefone, mensagem):
         print(f"Cliente {telefone} está em atendimento humano. Mensagem ignorada pelo bot.")
         return
 
-    # Sempre permite reinício rápido, exceto quando estiver em atendimento humano
+    # Reinício rápido
     if msg in ["menu", "oi", "olá", "ola", "iniciar", "começar", "comecar"]:
         cliente["etapa"] = "menu"
         enviar_mensagem(telefone, menu_principal())
@@ -453,62 +513,88 @@ def processar_mensagem(telefone, mensagem):
     if etapa == "nome":
         cliente["nome"] = mensagem.strip()
         cliente["etapa"] = "modelo"
-        enviar_mensagem(telefone, "Informe o *modelo da moto*.")
+        enviar_mensagem(telefone, menu_modelos())
         return
 
     if etapa == "modelo":
-        cliente["modelo"] = mensagem.strip()
+        modelo_escolhido = MODELOS.get(msg)
+
+        if not modelo_escolhido:
+            enviar_mensagem(
+                telefone,
+                "❌ Opção inválida.\n\n" + menu_modelos()
+            )
+            return
+
+        cliente["modelo"] = modelo_escolhido
         cliente["etapa"] = "ano_modelo"
-        enviar_mensagem(telefone, "Informe o *ano/modelo* da moto.")
+        enviar_mensagem(telefone, "Informe o *ano/modelo* da moto.\nExemplo: *2024*")
         return
 
     if etapa == "ano_modelo":
         cliente["ano_modelo"] = mensagem.strip()
         cliente["etapa"] = "revisao"
-        enviar_mensagem(telefone, "Qual revisão deseja agendar?\nExemplo: *1*, *2*, *3*...")
+        enviar_mensagem(telefone, menu_revisoes())
         return
 
     if etapa == "revisao":
-        cliente["revisao"] = mensagem.strip()
-        cliente["etapa"] = "data_agendamento"
-        enviar_mensagem(telefone, "Informe a *data desejada* no formato: *dd/mm/aaaa*")
+        revisao_escolhida = REVISOES.get(msg)
+
+        if not revisao_escolhida:
+            enviar_mensagem(
+                telefone,
+                "❌ Opção inválida.\n\n" + menu_revisoes()
+            )
+            return
+
+        cliente["revisao"] = revisao_escolhida
+        cliente["revisao_opcao"] = msg
+        cliente["etapa"] = "dia_semana"
+        enviar_mensagem(telefone, menu_dias_semana())
         return
 
-    if etapa == "data_agendamento":
-        cliente["data_agendamento"] = mensagem.strip()
-        horarios = horarios_disponiveis(cliente["revisao"], cliente["data_agendamento"])
+    if etapa == "dia_semana":
+        dia_escolhido = DIAS_SEMANA.get(msg)
+
+        if not dia_escolhido:
+            enviar_mensagem(
+                telefone,
+                "❌ Opção inválida.\n\n" + menu_dias_semana()
+            )
+            return
+
+        horarios = obter_horarios_por_revisao_e_dia(cliente.get("revisao_opcao", ""), msg)
 
         if not horarios:
             enviar_mensagem(
                 telefone,
-                "❌ Não há horários disponíveis para essa data/revisão.\n"
-                "Envie outra data no formato *dd/mm/aaaa*."
+                "❌ Para essa revisão não há atendimento disponível nesse dia.\n\n"
+                "Escolha outro dia:\n\n" + menu_dias_semana()
             )
             return
 
+        cliente["data_agendamento"] = dia_escolhido
+        cliente["dia_semana_opcao"] = msg
         cliente["etapa"] = "horario_agendamento"
-        texto_horarios = "\n".join(horarios)
-        enviar_mensagem(
-            telefone,
-            f"Horários disponíveis:\n{texto_horarios}\n\n"
-            "Responda apenas com o número da opção."
-        )
+        enviar_mensagem(telefone, menu_horarios(cliente.get("revisao_opcao", ""), msg))
         return
 
     if etapa == "horario_agendamento":
-        horario_escolhido = opcao_para_horario(
-            mensagem.strip(),
-            cliente["revisao"],
-            cliente["data_agendamento"]
+        horarios = obter_horarios_por_revisao_e_dia(
+            cliente.get("revisao_opcao", ""),
+            cliente.get("dia_semana_opcao", "")
         )
 
+        horario_escolhido = horarios.get(msg)
+
         if not horario_escolhido:
-            horarios = horarios_disponiveis(cliente["revisao"], cliente["data_agendamento"])
-            texto_horarios = "\n".join(horarios)
+            texto_horarios = menu_horarios(
+                cliente.get("revisao_opcao", ""),
+                cliente.get("dia_semana_opcao", "")
+            )
             enviar_mensagem(
                 telefone,
-                f"❌ Opção inválida.\n\nHorários disponíveis:\n{texto_horarios}\n\n"
-                "Responda apenas com o número da opção."
+                "❌ Opção inválida.\n\n" + texto_horarios
             )
             return
 
@@ -548,7 +634,7 @@ def processar_mensagem(telefone, mensagem):
             f"🏍 Modelo: {cliente['modelo']}\n"
             f"📅 Ano/Modelo: {cliente['ano_modelo']}\n"
             f"🔧 Revisão: {cliente['revisao']}\n"
-            f"🗓 Data: {cliente['data_agendamento']}\n"
+            f"🗓 Dia escolhido: {cliente['data_agendamento']}\n"
             f"⏰ Horário: {cliente['horario_agendamento']}\n"
         )
 
