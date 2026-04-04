@@ -99,7 +99,6 @@ DIAS_SEMANA = {
     "6": "Sábado"
 }
 
-
 # ==========================================
 # UTILITÁRIOS
 # ==========================================
@@ -117,7 +116,11 @@ def iniciar_cliente(telefone):
             "setor": "",
             "origem": "menu normal",
             "atendimento_humano": False,
-            "item_adicional": ""
+            "item_adicional": "",
+            "cpf": "",
+            "km_atual": "",
+            "descricao_garantia": "",
+            "garantia_opcao": ""
         }
 
 
@@ -236,12 +239,21 @@ def menu_dias_semana():
     return texto.strip()
 
 
+def menu_garantia():
+    return (
+        "🛡️ *Garantia Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Nova Solicitação\n"
+        "2 - Acompanhar Garantia\n"
+        "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
 def obter_horarios_por_revisao_e_dia(revisao_opcao, dia_opcao):
-    # dia_opcao: 1 a 5 = segunda a sexta | 6 = sábado
     if dia_opcao not in DIAS_SEMANA:
         return {}
 
-    # 1ª e 2ª revisão
     if revisao_opcao in ["1", "2"]:
         if dia_opcao in ["1", "2", "3", "4", "5"]:
             return {
@@ -261,7 +273,6 @@ def obter_horarios_por_revisao_e_dia(revisao_opcao, dia_opcao):
                 "3": "10:00"
             }
 
-    # 3ª, 4ª e 5ª+
     if revisao_opcao in ["3", "4", "5"]:
         if dia_opcao in ["1", "2", "3", "4", "5"]:
             return {
@@ -424,12 +435,10 @@ def processar_mensagem(telefone, mensagem):
     cliente = clientes[telefone]
     etapa = cliente["etapa"]
 
-    # Se já estiver em atendimento humano, não envia menu novamente
     if etapa == "aguardando_humano":
         print(f"Cliente {telefone} está em atendimento humano. Mensagem ignorada pelo bot.")
         return
 
-    # Reinício rápido
     if msg in ["menu", "oi", "olá", "ola", "iniciar", "começar", "comecar"]:
         cliente["etapa"] = "menu"
         enviar_mensagem(telefone, menu_principal())
@@ -466,12 +475,8 @@ def processar_mensagem(telefone, mensagem):
 
         elif msg == "4":
             cliente["setor"] = "Garantia"
-            cliente["etapa"] = "garantia"
-            enviar_mensagem(
-                telefone,
-                "Você selecionou *Garantia*.\n\n"
-                "Descreva seu caso para encaminharmos ao setor responsável."
-            )
+            cliente["etapa"] = "garantia_menu"
+            enviar_mensagem(telefone, menu_garantia())
             return
 
         elif msg == "5":
@@ -510,6 +515,9 @@ def processar_mensagem(telefone, mensagem):
             enviar_mensagem(telefone, "Opção inválida.\n\n" + menu_principal())
             return
 
+    # =========================
+    # FLUXO REVISÃO
+    # =========================
     if etapa == "nome":
         cliente["nome"] = mensagem.strip()
         cliente["etapa"] = "modelo"
@@ -520,10 +528,7 @@ def processar_mensagem(telefone, mensagem):
         modelo_escolhido = MODELOS.get(msg)
 
         if not modelo_escolhido:
-            enviar_mensagem(
-                telefone,
-                "❌ Opção inválida.\n\n" + menu_modelos()
-            )
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
             return
 
         cliente["modelo"] = modelo_escolhido
@@ -541,10 +546,7 @@ def processar_mensagem(telefone, mensagem):
         revisao_escolhida = REVISOES.get(msg)
 
         if not revisao_escolhida:
-            enviar_mensagem(
-                telefone,
-                "❌ Opção inválida.\n\n" + menu_revisoes()
-            )
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_revisoes())
             return
 
         cliente["revisao"] = revisao_escolhida
@@ -557,10 +559,7 @@ def processar_mensagem(telefone, mensagem):
         dia_escolhido = DIAS_SEMANA.get(msg)
 
         if not dia_escolhido:
-            enviar_mensagem(
-                telefone,
-                "❌ Opção inválida.\n\n" + menu_dias_semana()
-            )
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_dias_semana())
             return
 
         horarios = obter_horarios_por_revisao_e_dia(cliente.get("revisao_opcao", ""), msg)
@@ -592,10 +591,7 @@ def processar_mensagem(telefone, mensagem):
                 cliente.get("revisao_opcao", ""),
                 cliente.get("dia_semana_opcao", "")
             )
-            enviar_mensagem(
-                telefone,
-                "❌ Opção inválida.\n\n" + texto_horarios
-            )
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + texto_horarios)
             return
 
         cliente["horario_agendamento"] = horario_escolhido
@@ -647,6 +643,9 @@ def processar_mensagem(telefone, mensagem):
         clientes.pop(telefone, None)
         return
 
+    # =========================
+    # FLUXO PEÇAS
+    # =========================
     if etapa == "pecas":
         if msg == "humano":
             cliente["atendimento_humano"] = True
@@ -687,6 +686,9 @@ def processar_mensagem(telefone, mensagem):
         clientes.pop(telefone, None)
         return
 
+    # =========================
+    # FLUXO ACESSÓRIOS
+    # =========================
     if etapa == "acessorios":
         if msg == "humano":
             cliente["atendimento_humano"] = True
@@ -727,8 +729,23 @@ def processar_mensagem(telefone, mensagem):
         clientes.pop(telefone, None)
         return
 
-    if etapa == "garantia":
-        if msg == "humano":
+    # =========================
+    # FLUXO GARANTIA
+    # =========================
+    if etapa == "garantia_menu":
+        if msg == "1":
+            cliente["garantia_opcao"] = "nova_solicitacao"
+            cliente["etapa"] = "garantia_nome"
+            enviar_mensagem(telefone, "Perfeito. Informe seu *nome completo*.")
+            return
+
+        elif msg == "2":
+            cliente["garantia_opcao"] = "acompanhar"
+            cliente["etapa"] = "garantia_cpf_acompanhar"
+            enviar_mensagem(telefone, "Por favor, informe seu *CPF* para acompanhamento da garantia.")
+            return
+
+        elif msg == "3" or msg == "humano":
             cliente["atendimento_humano"] = True
             cliente["etapa"] = "aguardando_humano"
 
@@ -743,30 +760,129 @@ def processar_mensagem(telefone, mensagem):
 
             enviar_mensagem(
                 telefone,
-                "✅ Encaminhado para atendimento humano do setor de *Garantia*.\n\n"
+                "✅ Você será encaminhado para nosso consultor de *Garantia*.\n"
+                "Em breve nossa equipe continuará com você.\n\n"
                 "Equipe *Motoshow Yamaha*."
             )
             return
+
+        elif msg == "0":
+            cliente["etapa"] = "menu"
+            enviar_mensagem(telefone, menu_principal())
+            return
+
+        else:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_garantia())
+            return
+
+    if etapa == "garantia_nome":
+        cliente["nome"] = mensagem.strip()
+        cliente["etapa"] = "garantia_cpf"
+        enviar_mensagem(telefone, "Informe seu *CPF*.")
+        return
+
+    if etapa == "garantia_cpf":
+        cliente["cpf"] = mensagem.strip()
+        cliente["etapa"] = "garantia_modelo"
+        enviar_mensagem(telefone, menu_modelos())
+        return
+
+    if etapa == "garantia_modelo":
+        modelo_escolhido = MODELOS.get(msg)
+
+        if not modelo_escolhido:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
+            return
+
+        cliente["modelo"] = modelo_escolhido
+        cliente["etapa"] = "garantia_ano_modelo"
+        enviar_mensagem(telefone, "Informe o *ano/modelo* da moto.\nExemplo: *2024*")
+        return
+
+    if etapa == "garantia_ano_modelo":
+        cliente["ano_modelo"] = mensagem.strip()
+        cliente["etapa"] = "garantia_km"
+        enviar_mensagem(telefone, "Informe a *quilometragem atual* da moto.\nExemplo: *12500 km*")
+        return
+
+    if etapa == "garantia_km":
+        cliente["km_atual"] = mensagem.strip()
+        cliente["etapa"] = "garantia_descricao"
+        enviar_mensagem(telefone, "Descreva o *problema apresentado* para análise da garantia.")
+        return
+
+    if etapa == "garantia_descricao":
+        cliente["descricao_garantia"] = mensagem.strip()
 
         salvar_atendimento(
             telefone=telefone,
             nome=cliente["nome"],
             setor="Garantia",
+            modelo=cliente["modelo"],
+            ano_modelo=cliente["ano_modelo"],
             atendimento_humano="não",
             origem=cliente["origem"],
-            item_adicional=mensagem.strip(),
-            status="solicitação recebida"
+            item_adicional=f"CPF: {cliente['cpf']} | KM: {cliente['km_atual']} | Problema: {cliente['descricao_garantia']}",
+            status="solicitação garantia aberta"
         )
 
-        enviar_mensagem(
-            telefone,
-            "✅ Sua solicitação de *Garantia* foi registrada.\n"
-            "Nossa equipe analisará e retornará em breve.\n\n"
+        resumo = (
+            "✅ *Solicitação de garantia registrada com sucesso!*\n\n"
+            f"👤 Nome: {cliente['nome']}\n"
+            f"📄 CPF: {cliente['cpf']}\n"
+            f"🏍 Modelo: {cliente['modelo']}\n"
+            f"📅 Ano/Modelo: {cliente['ano_modelo']}\n"
+            f"🔢 KM Atual: {cliente['km_atual']}\n"
+            f"📝 Problema informado: {cliente['descricao_garantia']}\n\n"
+            "Nossa equipe de garantia irá analisar e retornar o mais breve possível.\n\n"
             "Equipe *Motoshow Yamaha*."
         )
+
+        enviar_mensagem(telefone, resumo)
         clientes.pop(telefone, None)
         return
 
+    if etapa == "garantia_cpf_acompanhar":
+        cpf = mensagem.strip()
+
+        db = SessionLocal()
+        try:
+            registro = (
+                db.query(Atendimento)
+                .filter(
+                    Atendimento.setor == "Garantia",
+                    Atendimento.item_adicional.like(f"%CPF: {cpf}%")
+                )
+                .order_by(Atendimento.id.desc())
+                .first()
+            )
+        finally:
+            db.close()
+
+        if registro:
+            resposta = (
+                "🛡️ *Acompanhamento de Garantia*\n\n"
+                f"👤 Nome: {registro.nome or 'Não informado'}\n"
+                f"🏍 Modelo: {registro.modelo or 'Não informado'}\n"
+                f"📅 Ano/Modelo: {registro.ano_modelo or 'Não informado'}\n"
+                f"📌 Status: {registro.status or 'Em análise'}\n\n"
+                "Em breve nossa equipe entrará em contato.\n\n"
+                "Equipe *Motoshow Yamaha*."
+            )
+        else:
+            resposta = (
+                "❌ Não localizamos uma solicitação de garantia com esse CPF no momento.\n"
+                "Se preferir, responda *menu* e abra uma nova solicitação.\n\n"
+                "Equipe *Motoshow Yamaha*."
+            )
+
+        enviar_mensagem(telefone, resposta)
+        clientes.pop(telefone, None)
+        return
+
+    # =========================
+    # FLUXO ATACADO
+    # =========================
     if etapa == "atacado":
         if msg in ["catálogo", "catalogo"]:
             link_pdf = f"{BASE_URL}/static/catalogo.pdf"
@@ -852,17 +968,14 @@ def webhook():
         payload = request.get_json(silent=True) or {}
         print("PAYLOAD RECEBIDO:", payload)
 
-        # 1) IGNORA GRUPOS
         if eh_grupo(payload):
             print("Mensagem de grupo ignorada.")
             return jsonify({"status": "ignored", "reason": "group_message"}), 200
 
-        # 2) IGNORA MENSAGENS DO PRÓPRIO BOT
         if eh_mensagem_do_proprio_bot(payload):
             print("Mensagem do próprio bot ignorada.")
             return jsonify({"status": "ignored", "reason": "from_me"}), 200
 
-        # 3) EXTRAI TELEFONE E MENSAGEM
         telefone = extrair_telefone(payload)
         mensagem = extrair_mensagem_texto(payload)
 
@@ -877,7 +990,6 @@ def webhook():
         print("TELEFONE EXTRAÍDO:", telefone)
         print("MENSAGEM EXTRAÍDA:", mensagem)
 
-        # 4) PROCESSA A MENSAGEM
         processar_mensagem(telefone, mensagem)
 
         return jsonify({"status": "ok"}), 200
