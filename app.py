@@ -1188,7 +1188,7 @@ def processar_mensagem(telefone, mensagem):
             enviar_mensagem(telefone, "Informe o *nome da empresa* para cadastro.")
             return
         elif msg == "3":
-            link_pdf = f"{BASE_URL}/static/catalogo.pdf"
+            link_pdf = f"{BASE_URL}/static/catalogo-atacado.pdf"
             enviar_mensagem(telefone, "📄 Enviando catálogo de peças para você...")
 
             enviado = enviar_pdf(telefone, link_pdf, "catalogo_motoshow.pdf")
