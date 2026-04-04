@@ -56,8 +56,8 @@ class Atendimento(Base):
     horario_agendamento = Column(String(20))
     atendimento_humano = Column(String(10), default="não")
     origem = Column(String(50))
-    item_adicional = Column(String(150))
-    status = Column(String(50), default="aberto")
+    item_adicional = Column(String(300))
+    status = Column(String(80), default="aberto")
     criado_em = Column(DateTime, default=datetime.now)
 
 
@@ -111,7 +111,9 @@ def iniciar_cliente(telefone):
             "modelo": "",
             "ano_modelo": "",
             "revisao": "",
+            "revisao_opcao": "",
             "data_agendamento": "",
+            "dia_semana_opcao": "",
             "horario_agendamento": "",
             "setor": "",
             "origem": "menu normal",
@@ -120,7 +122,16 @@ def iniciar_cliente(telefone):
             "cpf": "",
             "km_atual": "",
             "descricao_garantia": "",
-            "garantia_opcao": ""
+            "garantia_opcao": "",
+            "peca_nome": "",
+            "cor_moto": "",
+            "acessorio_nome": "",
+            "empresa": "",
+            "cnpj": "",
+            "cidade": "",
+            "responsavel": "",
+            "telefone_empresa": "",
+            "descricao_solicitacao": ""
         }
 
 
@@ -246,6 +257,40 @@ def menu_garantia():
         "1 - Nova Solicitação\n"
         "2 - Acompanhar Garantia\n"
         "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def menu_pecas():
+    return (
+        "🔩 *Peças Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Peças Originais\n"
+        "2 - Consultar Disponibilidade\n"
+        "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def menu_acessorios():
+    return (
+        "🛵 *Acessórios Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Solicitar Acessório\n"
+        "2 - Consultar Disponibilidade\n"
+        "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def menu_atacado():
+    return (
+        "📦 *Logista / Atacado Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Solicitar Cotação\n"
+        "2 - Cadastro de Logista\n"
+        "3 - Catálogo de Peças\n"
+        "4 - Falar com Consultor\n"
         "0 - Voltar ao menu"
     )
 
@@ -411,19 +456,14 @@ def eh_grupo(payload):
 def eh_mensagem_do_proprio_bot(payload):
     if payload.get("fromMe") is True:
         return True
-
     if payload.get("isFromMe") is True:
         return True
-
     if payload.get("self") is True:
         return True
-
     if payload.get("sentByMe") is True:
         return True
-
     if payload.get("owner") is True:
         return True
-
     return False
 
 
@@ -444,6 +484,9 @@ def processar_mensagem(telefone, mensagem):
         enviar_mensagem(telefone, menu_principal())
         return
 
+    # ==========================================
+    # MENU PRINCIPAL
+    # ==========================================
     if etapa == "menu":
         if msg == "1":
             cliente["setor"] = "Revisão"
@@ -453,24 +496,14 @@ def processar_mensagem(telefone, mensagem):
 
         elif msg == "2":
             cliente["setor"] = "Peças"
-            cliente["etapa"] = "pecas"
-            enviar_mensagem(
-                telefone,
-                "Você selecionou *Peças*.\n\n"
-                "Digite o que precisa ou envie o código da peça.\n"
-                "Se preferir, digite *humano* para atendimento."
-            )
+            cliente["etapa"] = "pecas_menu"
+            enviar_mensagem(telefone, menu_pecas())
             return
 
         elif msg == "3":
             cliente["setor"] = "Acessórios"
-            cliente["etapa"] = "acessorios"
-            enviar_mensagem(
-                telefone,
-                "Você selecionou *Acessórios*.\n\n"
-                "Digite o acessório desejado.\n"
-                "Se preferir, digite *humano* para atendimento."
-            )
+            cliente["etapa"] = "acessorios_menu"
+            enviar_mensagem(telefone, menu_acessorios())
             return
 
         elif msg == "4":
@@ -481,12 +514,8 @@ def processar_mensagem(telefone, mensagem):
 
         elif msg == "5":
             cliente["setor"] = "Logista/Atacado"
-            cliente["etapa"] = "atacado"
-            enviar_mensagem(
-                telefone,
-                "Você selecionou *Logista / Atacado*.\n\n"
-                "Descreva sua necessidade ou digite *catálogo* para receber o PDF."
-            )
+            cliente["etapa"] = "atacado_menu"
+            enviar_mensagem(telefone, menu_atacado())
             return
 
         elif msg == "6" or msg == "humano":
@@ -515,9 +544,9 @@ def processar_mensagem(telefone, mensagem):
             enviar_mensagem(telefone, "Opção inválida.\n\n" + menu_principal())
             return
 
-    # =========================
+    # ==========================================
     # FLUXO REVISÃO
-    # =========================
+    # ==========================================
     if etapa == "nome":
         cliente["nome"] = mensagem.strip()
         cliente["etapa"] = "modelo"
@@ -643,11 +672,19 @@ def processar_mensagem(telefone, mensagem):
         clientes.pop(telefone, None)
         return
 
-    # =========================
-    # FLUXO PEÇAS
-    # =========================
-    if etapa == "pecas":
-        if msg == "humano":
+    # ==========================================
+    # SUBMENU PEÇAS
+    # ==========================================
+    if etapa == "pecas_menu":
+        if msg == "1":
+            cliente["etapa"] = "pecas_nome"
+            enviar_mensagem(telefone, "Informe o *nome da peça desejada*.")
+            return
+        elif msg == "2":
+            cliente["etapa"] = "pecas_consulta_nome"
+            enviar_mensagem(telefone, "Informe a *peça* que deseja consultar.")
+            return
+        elif msg == "3" or msg == "humano":
             cliente["atendimento_humano"] = True
             cliente["etapa"] = "aguardando_humano"
 
@@ -662,35 +699,124 @@ def processar_mensagem(telefone, mensagem):
 
             enviar_mensagem(
                 telefone,
-                "✅ Encaminhado para atendimento humano do setor de *Peças*.\n\n"
+                "✅ Você será encaminhado para nosso consultor de *Peças*.\n"
+                "Em breve nossa equipe continuará com você.\n\n"
                 "Equipe *Motoshow Yamaha*."
             )
             return
+        elif msg == "0":
+            cliente["etapa"] = "menu"
+            enviar_mensagem(telefone, menu_principal())
+            return
+        else:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_pecas())
+            return
+
+    if etapa == "pecas_nome":
+        cliente["peca_nome"] = mensagem.strip()
+        cliente["etapa"] = "pecas_modelo"
+        enviar_mensagem(telefone, menu_modelos())
+        return
+
+    if etapa == "pecas_modelo":
+        modelo_escolhido = MODELOS.get(msg)
+        if not modelo_escolhido:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
+            return
+
+        cliente["modelo"] = modelo_escolhido
+        cliente["etapa"] = "pecas_ano_modelo"
+        enviar_mensagem(telefone, "Informe o *ano/modelo* da moto.\nExemplo: *2024*")
+        return
+
+    if etapa == "pecas_ano_modelo":
+        cliente["ano_modelo"] = mensagem.strip()
+        cliente["etapa"] = "pecas_cor"
+        enviar_mensagem(telefone, "Informe a *cor da moto*.\nExemplo: *azul*")
+        return
+
+    if etapa == "pecas_cor":
+        cliente["cor_moto"] = mensagem.strip()
 
         salvar_atendimento(
             telefone=telefone,
             nome=cliente["nome"],
             setor="Peças",
+            modelo=cliente["modelo"],
+            ano_modelo=cliente["ano_modelo"],
             atendimento_humano="não",
             origem=cliente["origem"],
-            item_adicional=mensagem.strip(),
-            status="solicitação recebida"
+            item_adicional=f"Peça: {cliente['peca_nome']} | Cor: {cliente['cor_moto']}",
+            status="solicitação de peça registrada"
         )
 
         enviar_mensagem(
             telefone,
-            "✅ Sua solicitação de *Peças* foi registrada.\n"
-            "Em breve nossa equipe retornará.\n\n"
+            "✅ Sua solicitação de *peça* foi registrada com sucesso.\n\n"
+            "Nossa equipe de peças retornará em breve com a disponibilidade e orçamento.\n\n"
             "Equipe *Motoshow Yamaha*."
         )
         clientes.pop(telefone, None)
         return
 
-    # =========================
-    # FLUXO ACESSÓRIOS
-    # =========================
-    if etapa == "acessorios":
-        if msg == "humano":
+    if etapa == "pecas_consulta_nome":
+        cliente["peca_nome"] = mensagem.strip()
+        cliente["etapa"] = "pecas_consulta_modelo"
+        enviar_mensagem(telefone, menu_modelos())
+        return
+
+    if etapa == "pecas_consulta_modelo":
+        modelo_escolhido = MODELOS.get(msg)
+        if not modelo_escolhido:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
+            return
+
+        cliente["modelo"] = modelo_escolhido
+        cliente["etapa"] = "pecas_consulta_ano"
+        enviar_mensagem(telefone, "Informe o *ano/modelo* da moto.\nExemplo: *2024*")
+        return
+
+    if etapa == "pecas_consulta_ano":
+        cliente["ano_modelo"] = mensagem.strip()
+
+        salvar_atendimento(
+            telefone=telefone,
+            nome=cliente["nome"],
+            setor="Peças",
+            modelo=cliente["modelo"],
+            ano_modelo=cliente["ano_modelo"],
+            atendimento_humano="não",
+            origem=cliente["origem"],
+            item_adicional=f"Consulta de disponibilidade da peça: {cliente['peca_nome']}",
+            status="consulta de peça registrada"
+        )
+
+        enviar_mensagem(
+            telefone,
+            "✅ Consulta de disponibilidade registrada.\n\n"
+            "Em breve nossa equipe retornará com a posição do estoque.\n\n"
+            "Equipe *Motoshow Yamaha*."
+        )
+        clientes.pop(telefone, None)
+        return
+
+    # ==========================================
+    # SUBMENU ACESSÓRIOS
+    # ==========================================
+    if etapa == "acessorios_menu":
+        if msg == "1":
+            cliente["etapa"] = "acessorio_nome"
+            enviar_mensagem(
+                telefone,
+                "Informe o *acessório desejado*.\n"
+                "Exemplo: protetor de motor, slider, baú, suporte de celular."
+            )
+            return
+        elif msg == "2":
+            cliente["etapa"] = "acessorio_consulta_nome"
+            enviar_mensagem(telefone, "Informe o *acessório* que deseja consultar.")
+            return
+        elif msg == "3" or msg == "humano":
             cliente["atendimento_humano"] = True
             cliente["etapa"] = "aguardando_humano"
 
@@ -705,33 +831,97 @@ def processar_mensagem(telefone, mensagem):
 
             enviar_mensagem(
                 telefone,
-                "✅ Encaminhado para atendimento humano do setor de *Acessórios*.\n\n"
+                "✅ Você será encaminhado para nosso consultor de *Acessórios*.\n"
+                "Em breve nossa equipe continuará com você.\n\n"
                 "Equipe *Motoshow Yamaha*."
             )
             return
+        elif msg == "0":
+            cliente["etapa"] = "menu"
+            enviar_mensagem(telefone, menu_principal())
+            return
+        else:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_acessorios())
+            return
+
+    if etapa == "acessorio_nome":
+        cliente["acessorio_nome"] = mensagem.strip()
+        cliente["etapa"] = "acessorio_modelo"
+        enviar_mensagem(telefone, menu_modelos())
+        return
+
+    if etapa == "acessorio_modelo":
+        modelo_escolhido = MODELOS.get(msg)
+        if not modelo_escolhido:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
+            return
+
+        cliente["modelo"] = modelo_escolhido
+        cliente["etapa"] = "acessorio_ano"
+        enviar_mensagem(telefone, "Informe o *ano/modelo* da moto.\nExemplo: *2024*")
+        return
+
+    if etapa == "acessorio_ano":
+        cliente["ano_modelo"] = mensagem.strip()
 
         salvar_atendimento(
             telefone=telefone,
             nome=cliente["nome"],
             setor="Acessórios",
+            modelo=cliente["modelo"],
+            ano_modelo=cliente["ano_modelo"],
             atendimento_humano="não",
             origem=cliente["origem"],
-            item_adicional=mensagem.strip(),
-            status="solicitação recebida"
+            item_adicional=f"Acessório solicitado: {cliente['acessorio_nome']}",
+            status="solicitação de acessório registrada"
         )
 
         enviar_mensagem(
             telefone,
-            "✅ Sua solicitação de *Acessórios* foi registrada.\n"
+            "✅ Sua solicitação de *acessório* foi registrada com sucesso.\n\n"
+            "Nossa equipe retornará em breve com disponibilidade e orçamento.\n\n"
+            "Equipe *Motoshow Yamaha*."
+        )
+        clientes.pop(telefone, None)
+        return
+
+    if etapa == "acessorio_consulta_nome":
+        cliente["acessorio_nome"] = mensagem.strip()
+        cliente["etapa"] = "acessorio_consulta_modelo"
+        enviar_mensagem(telefone, menu_modelos())
+        return
+
+    if etapa == "acessorio_consulta_modelo":
+        modelo_escolhido = MODELOS.get(msg)
+        if not modelo_escolhido:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
+            return
+
+        cliente["modelo"] = modelo_escolhido
+
+        salvar_atendimento(
+            telefone=telefone,
+            nome=cliente["nome"],
+            setor="Acessórios",
+            modelo=cliente["modelo"],
+            atendimento_humano="não",
+            origem=cliente["origem"],
+            item_adicional=f"Consulta de disponibilidade do acessório: {cliente['acessorio_nome']}",
+            status="consulta de acessório registrada"
+        )
+
+        enviar_mensagem(
+            telefone,
+            "✅ Consulta de disponibilidade registrada.\n\n"
             "Em breve nossa equipe retornará.\n\n"
             "Equipe *Motoshow Yamaha*."
         )
         clientes.pop(telefone, None)
         return
 
-    # =========================
-    # FLUXO GARANTIA
-    # =========================
+    # ==========================================
+    # SUBMENU GARANTIA
+    # ==========================================
     if etapa == "garantia_menu":
         if msg == "1":
             cliente["garantia_opcao"] = "nova_solicitacao"
@@ -789,7 +979,6 @@ def processar_mensagem(telefone, mensagem):
 
     if etapa == "garantia_modelo":
         modelo_escolhido = MODELOS.get(msg)
-
         if not modelo_escolhido:
             enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_modelos())
             return
@@ -880,12 +1069,21 @@ def processar_mensagem(telefone, mensagem):
         clientes.pop(telefone, None)
         return
 
-    # =========================
-    # FLUXO ATACADO
-    # =========================
-    if etapa == "atacado":
-        if msg in ["catálogo", "catalogo"]:
+    # ==========================================
+    # SUBMENU ATACADO
+    # ==========================================
+    if etapa == "atacado_menu":
+        if msg == "1":
+            cliente["etapa"] = "atacado_empresa"
+            enviar_mensagem(telefone, "Informe o *nome da empresa*.")
+            return
+        elif msg == "2":
+            cliente["etapa"] = "atacado_cadastro_empresa"
+            enviar_mensagem(telefone, "Informe o *nome da empresa* para cadastro.")
+            return
+        elif msg == "3":
             link_pdf = f"{BASE_URL}/static/catalogo.pdf"
+            enviar_mensagem(telefone, "📄 Enviando catálogo de peças para você...")
             enviar_pdf(telefone, link_pdf, "catalogo_motoshow.pdf")
 
             salvar_atendimento(
@@ -905,8 +1103,7 @@ def processar_mensagem(telefone, mensagem):
             )
             clientes.pop(telefone, None)
             return
-
-        if msg == "humano":
+        elif msg == "4" or msg == "humano":
             cliente["atendimento_humano"] = True
             cliente["etapa"] = "aguardando_humano"
 
@@ -921,25 +1118,109 @@ def processar_mensagem(telefone, mensagem):
 
             enviar_mensagem(
                 telefone,
-                "✅ Encaminhado para atendimento humano do setor de *Logista / Atacado*.\n\n"
+                "✅ Você será encaminhado para nosso consultor de *Logista / Atacado*.\n"
+                "Em breve nossa equipe continuará com você.\n\n"
                 "Equipe *Motoshow Yamaha*."
             )
             return
+        elif msg == "0":
+            cliente["etapa"] = "menu"
+            enviar_mensagem(telefone, menu_principal())
+            return
+        else:
+            enviar_mensagem(telefone, "❌ Opção inválida.\n\n" + menu_atacado())
+            return
+
+    # Cotação
+    if etapa == "atacado_empresa":
+        cliente["empresa"] = mensagem.strip()
+        cliente["etapa"] = "atacado_cnpj"
+        enviar_mensagem(telefone, "Informe o *CNPJ*.")
+        return
+
+    if etapa == "atacado_cnpj":
+        cliente["cnpj"] = mensagem.strip()
+        cliente["etapa"] = "atacado_cidade"
+        enviar_mensagem(telefone, "Informe a *cidade*.")
+        return
+
+    if etapa == "atacado_cidade":
+        cliente["cidade"] = mensagem.strip()
+        cliente["etapa"] = "atacado_pecas"
+        enviar_mensagem(
+            telefone,
+            "Descreva as *peças desejadas*.\n"
+            "Pode enviar código, modelo ou lista dos itens."
+        )
+        return
+
+    if etapa == "atacado_pecas":
+        cliente["descricao_solicitacao"] = mensagem.strip()
 
         salvar_atendimento(
             telefone=telefone,
-            nome=cliente["nome"],
+            nome=cliente["empresa"],
             setor="Logista/Atacado",
             atendimento_humano="não",
             origem=cliente["origem"],
-            item_adicional=mensagem.strip(),
-            status="solicitação recebida"
+            item_adicional=f"CNPJ: {cliente['cnpj']} | Cidade: {cliente['cidade']} | Itens: {cliente['descricao_solicitacao']}",
+            status="cotação atacado registrada"
         )
 
         enviar_mensagem(
             telefone,
-            "✅ Sua solicitação de *Logista / Atacado* foi registrada.\n"
-            "Em breve nossa equipe retornará.\n\n"
+            "✅ Sua solicitação de *cotação* foi registrada com sucesso.\n\n"
+            "Nossa equipe de atacado retornará em breve.\n\n"
+            "Equipe *Motoshow Yamaha*."
+        )
+        clientes.pop(telefone, None)
+        return
+
+    # Cadastro logista
+    if etapa == "atacado_cadastro_empresa":
+        cliente["empresa"] = mensagem.strip()
+        cliente["etapa"] = "atacado_cadastro_cnpj"
+        enviar_mensagem(telefone, "Informe o *CNPJ*.")
+        return
+
+    if etapa == "atacado_cadastro_cnpj":
+        cliente["cnpj"] = mensagem.strip()
+        cliente["etapa"] = "atacado_cadastro_responsavel"
+        enviar_mensagem(telefone, "Informe o *nome do responsável*.")
+        return
+
+    if etapa == "atacado_cadastro_responsavel":
+        cliente["responsavel"] = mensagem.strip()
+        cliente["etapa"] = "atacado_cadastro_cidade"
+        enviar_mensagem(telefone, "Informe a *cidade*.")
+        return
+
+    if etapa == "atacado_cadastro_cidade":
+        cliente["cidade"] = mensagem.strip()
+        cliente["etapa"] = "atacado_cadastro_telefone"
+        enviar_mensagem(telefone, "Informe o *telefone* para contato.")
+        return
+
+    if etapa == "atacado_cadastro_telefone":
+        cliente["telefone_empresa"] = mensagem.strip()
+
+        salvar_atendimento(
+            telefone=telefone,
+            nome=cliente["empresa"],
+            setor="Logista/Atacado",
+            atendimento_humano="não",
+            origem=cliente["origem"],
+            item_adicional=(
+                f"CNPJ: {cliente['cnpj']} | Responsável: {cliente['responsavel']} | "
+                f"Cidade: {cliente['cidade']} | Telefone: {cliente['telefone_empresa']}"
+            ),
+            status="cadastro logista registrado"
+        )
+
+        enviar_mensagem(
+            telefone,
+            "✅ Seu *cadastro* foi registrado com sucesso.\n\n"
+            "Nossa equipe comercial retornará em breve.\n\n"
             "Equipe *Motoshow Yamaha*."
         )
         clientes.pop(telefone, None)
@@ -1073,7 +1354,7 @@ def dashboard():
             </div>
 
             <div class="card">
-                <h2>Itens adicionais mais vendidos</h2>
+                <h2>Itens adicionais / solicitações</h2>
                 <ul>
                     {% for item, qtd in itens %}
                         <li><strong>{{ item }}:</strong> {{ qtd }}</li>
