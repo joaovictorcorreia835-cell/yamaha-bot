@@ -25,8 +25,10 @@ url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKE
 url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
 
 TEMPO_INATIVIDADE = 900  # 15 minutos
+TEMPO_CACHE_MENSAGENS = 300  # 5 minutos
 
 clientes = {}
+mensagens_processadas = {}
 
 # ==========================================
 # BANCO DE DADOS
@@ -56,8 +58,8 @@ class Atendimento(Base):
     horario_agendamento = Column(String(20))
     atendimento_humano = Column(String(10), default="não")
     origem = Column(String(50))
-    item_adicional = Column(String(300))
-    status = Column(String(80), default="aberto")
+    item_adicional = Column(String(500))
+    status = Column(String(100), default="aberto")
     criado_em = Column(DateTime, default=datetime.now)
 
 
@@ -154,8 +156,10 @@ def enviar_mensagem(telefone, mensagem):
         resposta = requests.post(url_envio, json=payload, headers=headers, timeout=20)
         print(f"ENVIO MENSAGEM [{telefone}] STATUS:", resposta.status_code)
         print("RESPOSTA Z-API:", resposta.text)
+        return resposta.status_code in [200, 201]
     except Exception as e:
         print(f"Erro ao enviar mensagem para {telefone}: {e}")
+        return False
 
 
 def enviar_pdf(telefone, link_pdf, nome_arquivo="catalogo.pdf"):
@@ -173,8 +177,14 @@ def enviar_pdf(telefone, link_pdf, nome_arquivo="catalogo.pdf"):
         resposta = requests.post(url_documento, json=payload, headers=headers, timeout=20)
         print(f"ENVIO PDF [{telefone}] STATUS:", resposta.status_code)
         print("RESPOSTA Z-API PDF:", resposta.text)
+
+        if resposta.status_code in [200, 201]:
+            return True
+
+        return False
     except Exception as e:
         print(f"Erro ao enviar PDF para {telefone}: {e}")
+        return False
 
 
 def salvar_atendimento(
@@ -212,6 +222,51 @@ def salvar_atendimento(
     except Exception as e:
         db.rollback()
         print("Erro ao salvar atendimento:", e)
+    finally:
+        db.close()
+
+
+def cliente_em_atendimento_humano(telefone):
+    db = SessionLocal()
+    try:
+        ultimo = (
+            db.query(Atendimento)
+            .filter(Atendimento.telefone == telefone)
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
+
+        if ultimo and ultimo.atendimento_humano == "sim" and ultimo.status == "aguardando humano":
+            return True
+
+        return False
+    except Exception as e:
+        print("Erro ao verificar atendimento humano:", e)
+        return False
+    finally:
+        db.close()
+
+
+def encerrar_atendimento_humano(telefone):
+    db = SessionLocal()
+    try:
+        ultimo = (
+            db.query(Atendimento)
+            .filter(
+                Atendimento.telefone == telefone,
+                Atendimento.atendimento_humano == "sim",
+                Atendimento.status == "aguardando humano"
+            )
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
+
+        if ultimo:
+            ultimo.status = "encerrado"
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print("Erro ao encerrar atendimento humano:", e)
     finally:
         db.close()
 
@@ -419,6 +474,53 @@ def extrair_telefone(payload):
     return None
 
 
+def extrair_id_mensagem(payload):
+    candidatos = [
+        payload.get("messageId"),
+        payload.get("id"),
+        payload.get("msgId"),
+        payload.get("message_id"),
+    ]
+
+    for item in candidatos:
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+
+    text = payload.get("text")
+    if isinstance(text, dict):
+        for chave in ["id", "messageId", "msgId"]:
+            valor = text.get(chave)
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+
+    return None
+
+
+def limpar_mensagens_processadas():
+    agora = time.time()
+    ids_para_remover = []
+
+    for msg_id, timestamp in list(mensagens_processadas.items()):
+        if agora - timestamp > TEMPO_CACHE_MENSAGENS:
+            ids_para_remover.append(msg_id)
+
+    for msg_id in ids_para_remover:
+        mensagens_processadas.pop(msg_id, None)
+
+
+def mensagem_ja_processada(msg_id):
+    if not msg_id:
+        return False
+
+    limpar_mensagens_processadas()
+
+    if msg_id in mensagens_processadas:
+        return True
+
+    mensagens_processadas[msg_id] = time.time()
+    return False
+
+
 def eh_grupo(payload):
     if payload.get("isGroup") is True:
         return True
@@ -475,13 +577,17 @@ def processar_mensagem(telefone, mensagem):
     cliente = clientes[telefone]
     etapa = cliente["etapa"]
 
-    if etapa == "aguardando_humano":
-        print(f"Cliente {telefone} está em atendimento humano. Mensagem ignorada pelo bot.")
-        return
-
     if msg in ["menu", "oi", "olá", "ola", "iniciar", "começar", "comecar"]:
+        if cliente_em_atendimento_humano(telefone):
+            print(f"Cliente {telefone} está em atendimento humano. Mensagem ignorada pelo bot.")
+            return
+
         cliente["etapa"] = "menu"
         enviar_mensagem(telefone, menu_principal())
+        return
+
+    if etapa == "aguardando_humano" or cliente_em_atendimento_humano(telefone):
+        print(f"Cliente {telefone} está em atendimento humano. Mensagem ignorada pelo bot.")
         return
 
     # ==========================================
@@ -1084,25 +1190,45 @@ def processar_mensagem(telefone, mensagem):
         elif msg == "3":
             link_pdf = f"{BASE_URL}/static/catalogo.pdf"
             enviar_mensagem(telefone, "📄 Enviando catálogo de peças para você...")
-            enviar_pdf(telefone, link_pdf, "catalogo_motoshow.pdf")
 
-            salvar_atendimento(
-                telefone=telefone,
-                nome=cliente["nome"],
-                setor="Logista/Atacado",
-                atendimento_humano="não",
-                origem=cliente["origem"],
-                status="catálogo enviado"
-            )
+            enviado = enviar_pdf(telefone, link_pdf, "catalogo_motoshow.pdf")
 
-            enviar_mensagem(
-                telefone,
-                "✅ Catálogo enviado com sucesso.\n"
-                "Se precisar de cotação, responda por aqui.\n\n"
-                "Equipe *Motoshow Yamaha*."
-            )
+            if enviado:
+                salvar_atendimento(
+                    telefone=telefone,
+                    nome=cliente["nome"],
+                    setor="Logista/Atacado",
+                    atendimento_humano="não",
+                    origem=cliente["origem"],
+                    status="catálogo enviado"
+                )
+
+                enviar_mensagem(
+                    telefone,
+                    "✅ Catálogo enviado com sucesso.\n"
+                    "Se precisar de cotação, responda por aqui.\n\n"
+                    "Equipe *Motoshow Yamaha*."
+                )
+            else:
+                salvar_atendimento(
+                    telefone=telefone,
+                    nome=cliente["nome"],
+                    setor="Logista/Atacado",
+                    atendimento_humano="não",
+                    origem=cliente["origem"],
+                    status="erro ao enviar catálogo"
+                )
+
+                enviar_mensagem(
+                    telefone,
+                    "❌ Não foi possível enviar o catálogo neste momento.\n"
+                    "Verifique se o arquivo está disponível no servidor ou solicite envio manual.\n\n"
+                    "Equipe *Motoshow Yamaha*."
+                )
+
             clientes.pop(telefone, None)
             return
+
         elif msg == "4" or msg == "humano":
             cliente["atendimento_humano"] = True
             cliente["etapa"] = "aguardando_humano"
@@ -1270,6 +1396,12 @@ def webhook():
 
         print("TELEFONE EXTRAÍDO:", telefone)
         print("MENSAGEM EXTRAÍDA:", mensagem)
+
+        msg_id = extrair_id_mensagem(payload)
+
+        if mensagem_ja_processada(msg_id):
+            print("Mensagem duplicada ignorada:", msg_id)
+            return jsonify({"status": "ignored", "reason": "duplicate_message"}), 200
 
         processar_mensagem(telefone, mensagem)
 
