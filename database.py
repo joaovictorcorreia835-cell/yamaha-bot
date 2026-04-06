@@ -60,47 +60,47 @@ Base.metadata.create_all(bind=engine)
 # ==========================================
 # UTILITÁRIOS
 # ==========================================
-def normalizar_telefone(valor):
-    """
-    Remove tudo que não for número.
-    Garante formato limpo para envio na Z-API.
-    """
-    if pd.isna(valor):
-        return ""
+def iniciar_cliente(telefone):
+    if telefone not in clientes:
+        clientes[telefone] = {
+            "etapa": "menu",
+            "ultima_interacao": time.time(),
+            "nome": "",
+            "modelo": "",
+            "ano_modelo": "",
+            "revisao": "",
+            "revisao_opcao": "",
+            "data_agendamento": "",
+            "dia_semana_opcao": "",
+            "horario_agendamento": "",
+            "setor": "",
+            "origem": "menu normal",
+            "atendimento_humano": False,
+            "item_adicional": "",
+            "cpf": "",
+            "km_atual": "",
+            "descricao_garantia": "",
+            "garantia_opcao": "",
+            "peca_nome": "",
+            "cor_moto": "",
+            "acessorio_nome": "",
+            "empresa": "",
+            "cnpj": "",
+            "cidade": "",
+            "responsavel": "",
+            "telefone_empresa": "",
+            "descricao_solicitacao": ""
+        }
 
-    telefone = re.sub(r"\D", "", str(valor))
 
-    if not telefone:
-        return ""
-
-    return telefone
+def atualizar_interacao(telefone):
+    iniciar_cliente(telefone)
+    clientes[telefone]["ultima_interacao"] = time.time()
 
 
-def criar_mensagem(nome, modelo, periodo):
-    nome = str(nome).strip() if pd.notna(nome) else "Cliente"
-    modelo = str(modelo).strip() if pd.notna(modelo) else "sua moto"
-    periodo = str(periodo).strip() if pd.notna(periodo) else "revisão"
-
-    return f"""Olá {nome} 👋
-
-Aqui é da *Equipe Motoshow Yamaha* 🏍️
-
-Sua *{modelo}* está no período da revisão de *{periodo}* meses.
-
-🎯 *Campanha Especial Pós-Vendas:*
-
-✔ Peças Originais Yamaha
-✔ Atendimento especializado
-✔ Condições especiais para sua revisão
-
-Digite uma opção para continuar:
-
-*1* - Agendar revisão
-*2* - Consultar valores
-*3* - Falar com atendente
-
-Equipe *Motoshow Yamaha*.
-"""
+def marcar_origem_campanha(telefone):
+    iniciar_cliente(telefone)
+    clientes[telefone]["origem"] = "Campanha"
 
 
 def enviar_mensagem(telefone, mensagem):
@@ -108,34 +108,87 @@ def enviar_mensagem(telefone, mensagem):
         "Client-Token": ZAPI_CLIENT_TOKEN,
         "Content-Type": "application/json"
     }
-
     payload = {
         "phone": telefone,
         "message": mensagem
     }
 
     try:
-        response = requests.post(
-            URL_ENVIO,
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-
-        print(f"[ENVIO] Telefone: {telefone} | Status: {response.status_code}")
-        print(f"[Z-API] {response.text}")
-
-        return response.status_code in [200, 201]
+        resposta = requests.post(url_envio, json=payload, headers=headers, timeout=20)
+        print(f"ENVIO MENSAGEM [{telefone}] STATUS:", resposta.status_code)
+        print("RESPOSTA Z-API:", resposta.text)
+        return resposta.status_code in [200, 201]
     except Exception as e:
-        print(f"[ERRO ENVIO] {telefone}: {e}")
+        print(f"Erro ao enviar mensagem para {telefone}: {e}")
         return False
 
 
-def registrar_campanha(db, telefone, nome="", modelo="", periodo=""):
-    """
-    Salva ou atualiza o registro para que o bot reconheça
-    que este cliente veio da campanha.
-    """
+def enviar_pdf(telefone, link_pdf, nome_arquivo="catalogo.pdf"):
+    headers = {
+        "Client-Token": ZAPI_CLIENT_TOKEN,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "phone": telefone,
+        "document": link_pdf,
+        "fileName": nome_arquivo
+    }
+
+    try:
+        resposta = requests.post(url_documento, json=payload, headers=headers, timeout=20)
+        print(f"ENVIO PDF [{telefone}] STATUS:", resposta.status_code)
+        print("RESPOSTA Z-API PDF:", resposta.text)
+
+        if resposta.status_code in [200, 201]:
+            return True
+
+        return False
+    except Exception as e:
+        print(f"Erro ao enviar PDF para {telefone}: {e}")
+        return False
+
+
+def salvar_atendimento(
+    telefone,
+    nome="",
+    setor="",
+    modelo="",
+    ano_modelo="",
+    revisao="",
+    data_agendamento="",
+    horario_agendamento="",
+    atendimento_humano="não",
+    origem="menu normal",
+    item_adicional="",
+    status="aberto"
+):
+    db = SessionLocal()
+    try:
+        novo = Atendimento(
+            telefone=telefone,
+            nome=nome,
+            setor=setor,
+            modelo=modelo,
+            ano_modelo=ano_modelo,
+            revisao=revisao,
+            data_agendamento=data_agendamento,
+            horario_agendamento=horario_agendamento,
+            atendimento_humano=atendimento_humano,
+            origem=origem,
+            item_adicional=item_adicional,
+            status=status
+        )
+        db.add(novo)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print("Erro ao salvar atendimento:", e)
+    finally:
+        db.close()
+
+
+def cliente_em_atendimento_humano(telefone):
+    db = SessionLocal()
     try:
         ultimo = (
             db.query(Atendimento)
@@ -144,67 +197,349 @@ def registrar_campanha(db, telefone, nome="", modelo="", periodo=""):
             .first()
         )
 
-        item_info = f"Campanha revisão {periodo} meses".strip()
+        if ultimo and ultimo.atendimento_humano == "sim" and ultimo.status == "aguardando humano":
+            return True
 
-        if ultimo and ultimo.status == "aguardando_campanha":
-            ultimo.nome = nome or ultimo.nome
-            ultimo.modelo = modelo or ultimo.modelo
-            ultimo.setor = "Revisão"
-            ultimo.origem = "campanha"
-            ultimo.atendimento_humano = "não"
-            ultimo.item_adicional = item_info
-            ultimo.status = "aguardando_campanha"
-            db.commit()
-            return
+        return False
+    except Exception as e:
+        print("Erro ao verificar atendimento humano:", e)
+        return False
+    finally:
+        db.close()
 
-        novo = Atendimento(
-            telefone=telefone,
-            nome=nome,
-            setor="Revisão",
-            modelo=modelo,
-            ano_modelo="",
-            revisao="",
-            data_agendamento="",
-            horario_agendamento="",
-            atendimento_humano="não",
-            origem="campanha",
-            item_adicional=item_info,
-            status="aguardando_campanha"
+
+def encerrar_atendimento_humano(telefone):
+    db = SessionLocal()
+    try:
+        ultimo = (
+            db.query(Atendimento)
+            .filter(
+                Atendimento.telefone == telefone,
+                Atendimento.atendimento_humano == "sim",
+                Atendimento.status == "aguardando humano"
+            )
+            .order_by(Atendimento.id.desc())
+            .first()
         )
 
-        db.add(novo)
-        db.commit()
-
+        if ultimo:
+            ultimo.status = "encerrado"
+            db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[ERRO BANCO] {telefone}: {e}")
+        print("Erro ao encerrar atendimento humano:", e)
+    finally:
+        db.close()
 
 
-def validar_colunas(df):
-    colunas = [c.lower().strip() for c in df.columns]
-
-    mapa = {}
-    for original in df.columns:
-        chave = original.lower().strip()
-        mapa[chave] = original
-
-    obrigatorias = ["telefone", "nome", "modelo", "periodo"]
-
-    faltando = [c for c in obrigatorias if c not in colunas]
-    if faltando:
-        raise ValueError(
-            f"A planilha precisa ter estas colunas: telefone, nome, modelo, periodo. "
-            f"Faltando: {', '.join(faltando)}"
-        )
-
-    return {
-        "telefone": mapa["telefone"],
-        "nome": mapa["nome"],
-        "modelo": mapa["modelo"],
-        "periodo": mapa["periodo"],
-    }
+def menu_principal():
+    return (
+        "👋 Olá, seja bem-vindo à *Motoshow Yamaha*.\n\n"
+        "Escolha uma opção:\n"
+        "1 - Revisão\n"
+        "2 - Peças\n"
+        "3 - Acessórios\n"
+        "4 - Garantia\n"
+        "5 - Logista / Atacado\n"
+        "6 - Atendimento humano"
+    )
 
 
+def menu_modelos():
+    texto = "🏍 *Escolha o modelo da moto:*\n\n"
+    for codigo, nome in MODELOS.items():
+        texto += f"{codigo} - {nome}\n"
+    return texto.strip()
+
+
+def menu_revisoes():
+    texto = "🔧 *Escolha a revisão:*\n\n"
+    for codigo, nome in REVISOES.items():
+        texto += f"{codigo} - {nome}\n"
+    return texto.strip()
+
+
+def menu_dias_semana():
+    texto = "📅 *Escolha o dia da semana desejado:*\n\n"
+    for codigo, nome in DIAS_SEMANA.items():
+        texto += f"{codigo} - {nome}\n"
+    return texto.strip()
+
+
+def menu_garantia():
+    return (
+        "🛡️ *Garantia Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Nova Solicitação\n"
+        "2 - Acompanhar Garantia\n"
+        "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def menu_pecas():
+    return (
+        "🔩 *Peças Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Peças Originais\n"
+        "2 - Consultar Disponibilidade\n"
+        "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def menu_acessorios():
+    return (
+        "🛵 *Acessórios Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Solicitar Acessório\n"
+        "2 - Consultar Disponibilidade\n"
+        "3 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def menu_atacado():
+    return (
+        "📦 *Logista / Atacado Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n"
+        "1 - Solicitar Cotação\n"
+        "2 - Cadastro de Logista\n"
+        "3 - Catálogo de Peças\n"
+        "4 - Falar com Consultor\n"
+        "0 - Voltar ao menu"
+    )
+
+
+def obter_horarios_por_revisao_e_dia(revisao_opcao, dia_opcao):
+    if dia_opcao not in DIAS_SEMANA:
+        return {}
+
+    if revisao_opcao in ["1", "2"]:
+        if dia_opcao in ["1", "2", "3", "4", "5"]:
+            return {
+                "1": "08:00",
+                "2": "09:00",
+                "3": "10:00",
+                "4": "11:00",
+                "5": "12:00",
+                "6": "13:00",
+                "7": "14:00",
+                "8": "15:00"
+            }
+        if dia_opcao == "6":
+            return {
+                "1": "08:00",
+                "2": "09:00",
+                "3": "10:00"
+            }
+
+    if revisao_opcao in ["3", "4", "5"]:
+        if dia_opcao in ["1", "2", "3", "4", "5"]:
+            return {
+                "1": "08:00"
+            }
+        if dia_opcao == "6":
+            return {}
+
+    return {}
+
+
+def menu_horarios(revisao_opcao, dia_opcao):
+    horarios = obter_horarios_por_revisao_e_dia(revisao_opcao, dia_opcao)
+
+    if not horarios:
+        return None
+
+    texto = "⏰ *Escolha o horário disponível:*\n\n"
+    for codigo, horario in horarios.items():
+        texto += f"{codigo} - {horario}\n"
+    return texto.strip()
+
+
+def mensagem_encerramento():
+    return (
+        "⏰ Seu atendimento foi encerrado por inatividade.\n"
+        "Quando quiser, envie qualquer mensagem para começar novamente.\n\n"
+        "Equipe *Motoshow Yamaha*."
+    )
+
+
+def monitorar_inatividade():
+    while True:
+        try:
+            agora = time.time()
+            telefones_para_encerrar = []
+
+            for telefone, dados in list(clientes.items()):
+                ultima = dados.get("ultima_interacao", agora)
+                if agora - ultima > TEMPO_INATIVIDADE:
+                    telefones_para_encerrar.append(telefone)
+
+            for telefone in telefones_para_encerrar:
+                enviar_mensagem(telefone, mensagem_encerramento())
+                clientes.pop(telefone, None)
+
+        except Exception as e:
+            print("Erro no monitoramento de inatividade:", e)
+
+        time.sleep(30)
+
+
+def extrair_mensagem_texto(payload):
+    candidatos = [
+        payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
+        payload.get("message"),
+        payload.get("body"),
+        payload.get("text") if isinstance(payload.get("text"), str) else None,
+        payload.get("msg"),
+    ]
+
+    for item in candidatos:
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+
+    return ""
+
+
+def extrair_telefone(payload):
+    candidatos = [
+        payload.get("phone"),
+        payload.get("from"),
+        payload.get("senderPhone"),
+        payload.get("chatId"),
+        payload.get("jid"),
+    ]
+
+    for item in candidatos:
+        if isinstance(item, str) and item.strip():
+            return (
+                item.strip()
+                .replace("@s.whatsapp.net", "")
+                .replace("@c.us", "")
+                .replace("@g.us", "")
+            )
+
+    sender = payload.get("sender")
+    if isinstance(sender, dict):
+        for chave in ["phone", "id", "jid"]:
+            valor = sender.get(chave)
+            if isinstance(valor, str) and valor.strip():
+                return (
+                    valor.strip()
+                    .replace("@s.whatsapp.net", "")
+                    .replace("@c.us", "")
+                    .replace("@g.us", "")
+                )
+
+    return None
+
+
+def extrair_id_mensagem(payload):
+    candidatos = [
+        payload.get("messageId"),
+        payload.get("id"),
+        payload.get("msgId"),
+        payload.get("message_id"),
+    ]
+
+    for item in candidatos:
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+
+    text = payload.get("text")
+    if isinstance(text, dict):
+        for chave in ["id", "messageId", "msgId"]:
+            valor = text.get(chave)
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+
+    return None
+
+
+def limpar_mensagens_processadas():
+    agora = time.time()
+    ids_para_remover = []
+
+    for msg_id, timestamp in list(mensagens_processadas.items()):
+        if agora - timestamp > TEMPO_CACHE_MENSAGENS:
+            ids_para_remover.append(msg_id)
+
+    for msg_id in ids_para_remover:
+        mensagens_processadas.pop(msg_id, None)
+
+
+def mensagem_ja_processada(msg_id):
+    if not msg_id:
+        return False
+
+    limpar_mensagens_processadas()
+
+    if msg_id in mensagens_processadas:
+        return True
+
+    mensagens_processadas[msg_id] = time.time()
+    return False
+
+
+def eh_grupo(payload):
+    if payload.get("isGroup") is True:
+        return True
+
+    if payload.get("is_group") is True:
+        return True
+
+    if payload.get("fromGroup") is True:
+        return True
+
+    campos = [
+        payload.get("chatId"),
+        payload.get("from"),
+        payload.get("phone"),
+        payload.get("jid"),
+    ]
+
+    for campo in campos:
+        if isinstance(campo, str) and campo.endswith("@g.us"):
+            return True
+
+    sender = payload.get("sender")
+    if isinstance(sender, dict):
+        if sender.get("isGroup") is True:
+            return True
+
+        for chave in ["id", "jid", "phone"]:
+            valor = sender.get(chave)
+            if isinstance(valor, str) and valor.endswith("@g.us"):
+                return True
+
+    return False
+
+
+def eh_mensagem_do_proprio_bot(payload):
+    if payload.get("fromMe") is True:
+        return True
+    if payload.get("isFromMe") is True:
+        return True
+    if payload.get("self") is True:
+        return True
+    if payload.get("sentByMe") is True:
+        return True
+    if payload.get("owner") is True:
+        return True
+    return False
+
+
+def identificar_origem_campanha_no_payload(telefone, mensagem):
+    """
+    Marca o cliente como campanha se a mensagem recebida tiver o gatilho.
+    """
+    if not mensagem:
+        return
+
+    if "#campanha_revisao" in mensagem.lower():
+        marcar_origem_campanha(telefone)
+        print(f"Cliente {telefone} marcado como origem Campanha.")
 # ==========================================
 # PROCESSAMENTO DA PLANILHA
 # ==========================================
