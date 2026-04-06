@@ -1,17 +1,17 @@
-[
-  {
-    "tipo": "agendar_servico_avaliacao",
-    "telefone": "559492370446",
-    "criado_em": "02/04/2026 21:55:05",
-    "dados": {
-      "nome": "joao",
-      "modelo": "mt03",
-      "descricao": "barulho estranho",
-      "data": "04/04/2026"
-    }
-  },
-  {
-    "tipo": "peca",
-    "dados": "Peça: farol\nModelo: mt03\nAno: 2024\nCor: preta"
-  }
-]
+{
+    "atendimentos": [],
+    "estatisticas": {
+        "total_atendimentos": 0,
+        "revisao": 0,
+        "pecas": 0,
+        "acessorios": 0,
+        "garantia": 0,
+        "logista": 0,
+        "atendimento_humano": 0,
+        "agendamentos_concluidos": 0,
+        "origem_campanha": 0,
+        "origem_menu": 0
+    },
+    "revisoes": [],
+    "itens_vendidos": []
+}

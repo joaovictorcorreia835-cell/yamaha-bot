@@ -1,5 +1,29 @@
+# Arquivos sensíveis
 .env
+
+# Banco de dados
+*.db
+*.sqlite3
+
+# Python
 __pycache__/
 *.pyc
-yamaha.db
-clientes.xlsx
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# VS Code
+.vscode/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Render
+instance/

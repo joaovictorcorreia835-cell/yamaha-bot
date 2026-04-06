@@ -1,273 +1,265 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard Motoshow Yamaha</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Motoshow Yamaha</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f4f6f9;
+        * {
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #f4f6f9;
             color: #222;
+            padding: 30px;
         }
 
-        h1 {
-            margin: 0 0 10px 0;
+        .container {
+            max-width: 1200px;
+            margin: auto;
         }
 
-        .topbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: end;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 20px;
+        .topo {
+            background: linear-gradient(135deg, #003366, #0055aa);
+            color: white;
+            padding: 25px;
+            border-radius: 16px;
+            margin-bottom: 25px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.12);
         }
 
-        .filtros a {
-            text-decoration: none;
-            background: white;
-            color: #222;
-            padding: 10px 14px;
-            border-radius: 8px;
-            margin-right: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            display: inline-block;
+        .topo h1 {
+            font-size: 30px;
+            margin-bottom: 8px;
         }
 
-        .filtros a.ativo {
-            font-weight: bold;
-            border: 2px solid #1d4ed8;
+        .topo p {
+            font-size: 16px;
+            opacity: 0.95;
         }
 
-        .cards {
+        .grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
+            margin-bottom: 25px;
         }
 
         .card {
             background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-radius: 16px;
+            padding: 22px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            transition: 0.2s;
         }
 
-        .card h2 {
-            margin: 0;
-            font-size: 30px;
+        .card:hover {
+            transform: translateY(-3px);
         }
 
-        .card span {
+        .card h3 {
+            font-size: 16px;
             color: #666;
-            font-size: 14px;
+            margin-bottom: 10px;
         }
 
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 20px;
+        .card .numero {
+            font-size: 32px;
+            font-weight: bold;
+            color: #003366;
         }
 
-        .box {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        .section-title {
+            font-size: 22px;
+            margin: 25px 0 15px 0;
+            color: #003366;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
         }
 
-        th, td {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
+        table th,
+        table td {
+            padding: 14px 16px;
             text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        table th {
+            background: #003366;
+            color: white;
+            font-size: 15px;
+        }
+
+        table tr:hover {
+            background: #f8fbff;
+        }
+
+        .rodape {
+            text-align: center;
+            margin-top: 30px;
+            color: #777;
             font-size: 14px;
         }
 
-        th {
-            background: #fafafa;
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #e8f1ff;
+            color: #003366;
+            font-size: 13px;
+            font-weight: bold;
         }
 
-        .subtitulo {
-            color: #666;
-            margin-bottom: 15px;
-        }
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
 
-        @media (max-width: 1000px) {
-            .cards, .grid-2 {
-                grid-template-columns: 1fr;
+            .topo h1 {
+                font-size: 24px;
+            }
+
+            .card .numero {
+                font-size: 26px;
+            }
+
+            table th,
+            table td {
+                font-size: 14px;
+                padding: 10px;
             }
         }
     </style>
 </head>
 <body>
-
-    <div class="topbar">
-        <div>
-            <h1>Dashboard Atendimento - Motoshow Yamaha</h1>
-            <div class="subtitulo">Período selecionado: {{ periodo_label }}</div>
+    <div class="container">
+        <div class="topo">
+            <h1>📊 Dashboard Pós-Vendas Motoshow Yamaha</h1>
+            <p>Acompanhamento geral do atendimento do bot e agendamentos.</p>
         </div>
 
-        <div class="filtros">
-            <a href="/dashboard?periodo=hoje" class="{% if periodo == 'hoje' %}ativo{% endif %}">Hoje</a>
-            <a href="/dashboard?periodo=7dias" class="{% if periodo == '7dias' %}ativo{% endif %}">7 dias</a>
-            <a href="/dashboard?periodo=30dias" class="{% if periodo == '30dias' %}ativo{% endif %}">30 dias</a>
-            <a href="/dashboard?periodo=mes" class="{% if periodo == 'mes' %}ativo{% endif %}">Mês atual</a>
-        </div>
-    </div>
+        <div class="grid">
+            <div class="card">
+                <h3>Total de Atendimentos</h3>
+                <div class="numero">{{ total_atendimentos }}</div>
+            </div>
 
-    <div class="cards">
-        <div class="card">
-            <h2>{{ total_atendimentos }}</h2>
-            <span>Atendimentos</span>
-        </div>
+            <div class="card">
+                <h3>Agendamentos Concluídos</h3>
+                <div class="numero">{{ agendamentos_concluidos }}</div>
+            </div>
 
-        <div class="card">
-            <h2>{{ total_agendamentos }}</h2>
-            <span>Agendamentos</span>
-        </div>
+            <div class="card">
+                <h3>Atendimento Humano</h3>
+                <div class="numero">{{ atendimento_humano }}</div>
+            </div>
 
-        <div class="card">
-            <h2>{{ total_pecas_acessorios }}</h2>
-            <span>Peças / Acessórios</span>
-        </div>
+            <div class="card">
+                <h3>Leads de Campanha</h3>
+                <div class="numero">{{ origem_campanha }}</div>
+            </div>
 
-        <div class="card">
-            <h2>{{ atendimento_humano }}</h2>
-            <span>Transferidos para humano</span>
-        </div>
-    </div>
-
-    <div class="grid-2">
-        <div class="box">
-            <h3>Atendimentos por setor</h3>
-            <canvas id="graficoSetor"></canvas>
+            <div class="card">
+                <h3>Leads Menu Normal</h3>
+                <div class="numero">{{ origem_menu }}</div>
+            </div>
         </div>
 
-        <div class="box">
-            <h3>Origem dos leads</h3>
-            <canvas id="graficoOrigem"></canvas>
-        </div>
-    </div>
+        <h2 class="section-title">📌 Atendimentos por Setor</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Setor</th>
+                    <th>Quantidade</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Revisão</td>
+                    <td>{{ total_revisao }}</td>
+                </tr>
+                <tr>
+                    <td>Peças</td>
+                    <td>{{ total_pecas }}</td>
+                </tr>
+                <tr>
+                    <td>Acessórios</td>
+                    <td>{{ total_acessorios }}</td>
+                </tr>
+                <tr>
+                    <td>Garantia</td>
+                    <td>{{ total_garantia }}</td>
+                </tr>
+                <tr>
+                    <td>Logista / Atacado</td>
+                    <td>{{ total_logista }}</td>
+                </tr>
+            </tbody>
+        </table>
 
-    <div class="grid-2">
-        <div class="box">
-            <h3>Evolução diária</h3>
-            <canvas id="graficoLinha"></canvas>
-        </div>
-
-        <div class="box">
-            <h3>Revisões mais solicitadas</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Revisão</th>
-                        <th>Quantidade</th>
-                    </tr>
-                </thead>
-                <tbody>
+        <h2 class="section-title">🏆 Revisões Mais Solicitadas</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Revisão</th>
+                    <th>Quantidade</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if revisoes %}
                     {% for item in revisoes %}
                     <tr>
-                        <td>{{ item.nome }}</td>
+                        <td>{{ item.revisao }}</td>
                         <td>{{ item.total }}</td>
                     </tr>
                     {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                {% else %}
+                    <tr>
+                        <td colspan="2">Nenhuma revisão registrada ainda.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
 
-    <div class="grid-2">
-        <div class="box">
-            <h3>Últimos agendamentos</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Cliente</th>
-                        <th>Modelo</th>
-                        <th>Revisão</th>
-                        <th>Horário</th>
-                        <th>Origem</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in ultimos %}
-                    <tr>
-                        <td>{{ item.nome or '-' }}</td>
-                        <td>{{ item.modelo or '-' }}</td>
-                        <td>{{ item.revisao or '-' }}</td>
-                        <td>{{ item.horario or '-' }}</td>
-                        <td>{{ item.origem or '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="box">
-            <h3>Itens adicionais mais pedidos</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Item</th>
-                        <th>Quantidade</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in itens_top %}
+        <h2 class="section-title">🛒 Itens Adicionais Mais Vendidos</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Quantidade</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if itens %}
+                    {% for item in itens %}
                     <tr>
                         <td>{{ item.nome }}</td>
                         <td>{{ item.total }}</td>
                     </tr>
                     {% endfor %}
-                </tbody>
-            </table>
+                {% else %}
+                    <tr>
+                        <td colspan="2">Nenhum item adicional registrado ainda.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <div class="rodape">
+            Equipe Motoshow Yamaha
         </div>
     </div>
-
-<script>
-    new Chart(document.getElementById('graficoSetor'), {
-        type: 'bar',
-        data: {
-            labels: {{ setores_labels|tojson }},
-            datasets: [{
-                label: 'Atendimentos',
-                data: {{ setores_valores|tojson }}
-            }]
-        }
-    });
-
-    new Chart(document.getElementById('graficoOrigem'), {
-        type: 'pie',
-        data: {
-            labels: {{ origem_labels|tojson }},
-            datasets: [{
-                data: {{ origem_valores|tojson }}
-            }]
-        }
-    });
-
-    new Chart(document.getElementById('graficoLinha'), {
-        type: 'line',
-        data: {
-            labels: {{ dias|tojson }},
-            datasets: [{
-                label: 'Atendimentos',
-                data: {{ evolucao|tojson }},
-                fill: false,
-                tension: 0.2
-            }]
-        }
-    });
-</script>
-
 </body>
 </html>
