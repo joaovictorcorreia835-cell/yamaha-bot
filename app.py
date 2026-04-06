@@ -151,14 +151,28 @@ def webhook():
     if request.method == "GET":
         return jsonify({"status": "ok"})
 
-    data = request.json
+    data = request.get_json()
+
+    print("PAYLOAD RECEBIDO:", data)
 
     try:
-        telefone = data["phone"]
-        texto = data["message"].lower()
-        message_id = data["messageId"]
-    except:
+        telefone = data.get("phone") or data.get("data", {}).get("phone")
+
+        texto = (
+            data.get("message")
+            or data.get("data", {}).get("message")
+            or data.get("text")
+            or ""
+        ).lower()
+
+        message_id = data.get("messageId") or str(time.time())
+
+    except Exception as e:
+        print("Erro:", e)
         return jsonify({"status": "erro"})
+
+    if not telefone:
+        return jsonify({"status": "sem telefone"})
 
     if message_id in mensagens_processadas:
         return jsonify({"status": "duplicado"})
