@@ -230,7 +230,7 @@ ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
 BASE_URL = os.getenv("BASE_URL", "https://yamaha-bot-1.onrender.com")
 PORT = int(os.getenv("PORT", 5000))
-TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", 900))
+TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", 400))
 
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
 url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
