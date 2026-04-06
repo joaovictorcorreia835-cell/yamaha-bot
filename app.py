@@ -442,6 +442,34 @@ def mensagem_ja_processada(message_id):
 
     return message_id in mensagens_processadas
 
+def mensagem_ja_processada(message_id):
+    if not message_id:
+        return False
+
+    return message_id in mensagens_processadas
+
+
+def mensagem_voltar_menu(texto):
+    if not texto:
+        return False
+
+    texto = texto.lower().strip()
+
+    gatilhos_menu = [
+        "menu",
+        "oi",
+        "ola",
+        "olá",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+        "inicio",
+        "início",
+        "voltar"
+    ]
+
+    return texto in gatilhos_menu
+
 def enviar_mensagem(telefone, mensagem):
     payload = {
         "phone": telefone,
@@ -802,17 +830,29 @@ def webhook():
 
     registrar_mensagem_processada(message_id)
 
-    telefone = extrair_telefone(payload)
-    texto = extrair_mensagem_texto(payload).strip()
+    message_id = extrair_message_id(payload)
+if mensagem_ja_processada(message_id):
+    return jsonify({"status": "ignorado", "motivo": "mensagem duplicada"}), 200
 
-    if not telefone or telefone_eh_grupo(telefone):
-        return jsonify({"status": "ignorado", "motivo": "grupo ou telefone invalido"}), 200
+registrar_mensagem_processada(message_id)
 
-    iniciar_cliente(telefone)
-    atualizar_interacao(telefone)
+telefone = extrair_telefone(payload)
+texto = extrair_mensagem_texto(payload).strip()
 
-    texto_normalizado = texto.lower().strip()
+if not telefone or telefone_eh_grupo(telefone):
+    return jsonify({"status": "ignorado", "motivo": "grupo ou telefone invalido"}), 200
 
+iniciar_cliente(telefone)
+atualizar_interacao(telefone)
+
+if mensagem_voltar_menu(texto):
+    clientes[telefone]["etapa"] = "menu"
+    clientes[telefone]["atendimento_humano"] = False
+    enviar_menu(telefone)
+    return jsonify({"status": "menu_enviado"}), 200
+
+texto_normalizado = texto.lower().strip()
+   
     if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
         liberar_trava_humana(telefone)
         clientes[telefone]["origem"] = "Menu Normal"
