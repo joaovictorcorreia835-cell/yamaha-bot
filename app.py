@@ -1,3 +1,13 @@
+from flask import Flask, request, jsonify, render_template
+import requests
+import os
+import time
+from dotenv import load_dotenv
+from datetime import datetime
+
+load_dotenv()
+
+app = Flask(__name__)
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -45,51 +55,56 @@ def webhook():
             enviar_mensagem(telefone, menu_principal())
         return jsonify({"status": "ok", "motivo": "cliente em atendimento humano"}), 200
 
-    # Resposta de campanha
-    if texto_normalizado == "1":
-        if clientes[telefone].get("etapa") == "menu":
+       # ==========================================
+    # ENTRADA PRINCIPAL / CAMPANHA
+    # ==========================================
+    etapa = clientes[telefone].get("etapa", "menu")
+
+    if etapa in ["menu", "encerrado"]:
+        if texto_normalizado == "1":
+            clientes[telefone]["origem"] = "Campanha"
             clientes[telefone]["etapa"] = "revisao_modelo"
             enviar_mensagem(telefone, "Informe o modelo da sua Yamaha:")
             return jsonify({"status": "ok"}), 200
 
-    if texto_normalizado == "2" and clientes[telefone].get("etapa") == "menu":
-        clientes[telefone]["etapa"] = "pecas_menu"
-        enviar_mensagem(telefone, submenu_pecas())
-        return jsonify({"status": "ok"}), 200
+        elif texto_normalizado == "2":
+            clientes[telefone]["origem"] = "Campanha"
+            transferir_para_humano(telefone, "Atendimento")
+            return jsonify({"status": "ok"}), 200
 
-    if texto_normalizado == "3" and clientes[telefone].get("etapa") == "menu":
-        clientes[telefone]["etapa"] = "acessorio_nome"
-        enviar_mensagem(telefone, "Informe o acessório desejado:")
-        return jsonify({"status": "ok"}), 200
+        elif texto_normalizado == "3":
+            clientes[telefone]["etapa"] = "acessorio_nome"
+            enviar_mensagem(telefone, "Informe o acessório desejado:")
+            return jsonify({"status": "ok"}), 200
 
-    if texto_normalizado == "4" and clientes[telefone].get("etapa") == "menu":
-        clientes[telefone]["etapa"] = "garantia_menu"
-        enviar_mensagem(telefone, submenu_garantia())
-        return jsonify({"status": "ok"}), 200
+        elif texto_normalizado == "4":
+            clientes[telefone]["etapa"] = "garantia_menu"
+            enviar_mensagem(telefone, submenu_garantia())
+            return jsonify({"status": "ok"}), 200
 
-    if texto_normalizado == "5" and clientes[telefone].get("etapa") == "menu":
-        clientes[telefone]["etapa"] = "logista_menu"
-        enviar_mensagem(telefone, submenu_logista())
-        return jsonify({"status": "ok"}), 200
+        elif texto_normalizado == "5":
+            clientes[telefone]["etapa"] = "logista_menu"
+            enviar_mensagem(telefone, submenu_logista())
+            return jsonify({"status": "ok"}), 200
 
-    if texto_normalizado == "6" and clientes[telefone].get("etapa") == "menu":
-        salvar_atendimento(
-            telefone=telefone,
-            setor="Acompanhar Serviço",
-            origem=clientes[telefone].get("origem", "Menu Normal"),
-            status="Acompanhamento solicitado",
-            atendimento_humano="Não"
-        )
-        enviar_mensagem(
-            telefone,
-            "Para acompanhar seu serviço, informe seu nome completo ou CPF.\n\nEquipe Motoshow Yamaha"
-        )
-        clientes[telefone]["etapa"] = "acompanhar_servico"
-        return jsonify({"status": "ok"}), 200
+        elif texto_normalizado == "6":
+            salvar_atendimento(
+                telefone=telefone,
+                setor="Acompanhar Serviço",
+                origem=clientes[telefone].get("origem", "Menu Normal"),
+                status="Acompanhamento solicitado",
+                atendimento_humano="Não"
+            )
+            clientes[telefone]["etapa"] = "acompanhar_servico"
+            enviar_mensagem(
+                telefone,
+                "Para acompanhar seu serviço, informe seu nome completo ou CPF.\n\nEquipe Motoshow Yamaha"
+            )
+            return jsonify({"status": "ok"}), 200
 
-    if texto_normalizado == "7" and clientes[telefone].get("etapa") == "menu":
-        transferir_para_humano(telefone, "Atendimento")
-        return jsonify({"status": "ok"}), 200
+        elif texto_normalizado == "7":
+            transferir_para_humano(telefone, "Atendimento")
+            return jsonify({"status": "ok"}), 200
 
     # ==========================================
     # FLUXO REVISÃO
@@ -417,17 +432,15 @@ def registrar_mensagem_processada(message_id):
     if not message_id:
         return
     mensagens_processadas[message_id] = time.time()
-
-    agora = time.time()
-    expirados = [mid for mid, ts in mensagens_processadas.items() if agora - ts > 600]
     for mid in expirados:
         mensagens_processadas.pop(mid, None)
 
-        def mensagem_ja_processada(message_id):
+
+def mensagem_ja_processada(message_id):
     if not message_id:
         return False
-    return message_id in mensagens_processadas
 
+    return message_id in mensagens_processadas
 
 def enviar_mensagem(telefone, mensagem):
     payload = {
@@ -610,8 +623,9 @@ def salvar_agendamento_revisao(telefone):
         atendimento_humano="Não",
         itens=dados.get("itens")
     )
-    def salvar_peca_original(telefone):
+def salvar_peca_original(telefone):
     dados = clientes[telefone]
+
     salvar_atendimento(
         telefone=telefone,
         nome=dados.get("nome_cliente"),
@@ -813,7 +827,7 @@ def webhook():
             enviar_mensagem(telefone, menu_principal())
         return jsonify({"status": "ok", "motivo": "cliente em atendimento humano"}), 200
 
-    # Resposta de campanha
+       # Resposta de campanha
     if texto_normalizado == "1":
         if clientes[telefone].get("etapa") == "menu":
             clientes[telefone]["etapa"] = "revisao_modelo"
@@ -948,8 +962,9 @@ def webhook():
             "Pode enviar mais de um separado por vírgula.\nExemplo: 1,3"
         )
         return jsonify({"status": "ok"}), 200
+        
     
-        if etapa == "revisao_itens":
+    if etapa == "revisao_itens":
         itens_escolhidos = []
 
         if texto_normalizado != "0":
@@ -976,6 +991,7 @@ def webhook():
             f"Nossa equipe entrará em contato para confirmação.\n\n"
             f"Equipe Motoshow Yamaha"
         )
+
         limpar_dados_fluxo(telefone)
         return jsonify({"status": "ok"}), 200
 
