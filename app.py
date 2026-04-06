@@ -431,7 +431,15 @@ def extrair_mensagem_texto(payload):
 def registrar_mensagem_processada(message_id):
     if not message_id:
         return
-    mensagens_processadas[message_id] = time.time()
+
+    agora = time.time()
+    mensagens_processadas[message_id] = agora
+
+    expirados = [
+        mid for mid, timestamp in mensagens_processadas.items()
+        if agora - timestamp > 60
+    ]
+
     for mid in expirados:
         mensagens_processadas.pop(mid, None)
 
