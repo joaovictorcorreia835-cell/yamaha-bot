@@ -1,215 +1,274 @@
+import os
+import time
+import re
+from datetime import datetime
+
 import pandas as pd
 import requests
-import time
-import os
-import re
 from dotenv import load_dotenv
-from datetime import datetime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import sessionmaker, declarative_base
 
 load_dotenv()
 
+# ==========================================
+# CONFIG
+# ==========================================
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
-url = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+URL_ENVIO = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
 
-ARQUIVO = "clientes.xlsx"
-INTERVALO_ENVIO = 15  # segundos
+ARQUIVO_PLANILHA = "clientes.xlsx"
+INTERVALO_ENTRE_ENVIOS = 15
 
+# ==========================================
+# BANCO DE DADOS
+# ==========================================
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+)
 
-# ===============================
-# CRIAR MENSAGEM
-# ===============================
-def criar_mensagem(nome, modelo, periodo):
-    mensagem = f"""Olá {nome} 👋
-
-Aqui é da Equipe Motoshow Yamaha 🏍️
-
-Sua {modelo} está no período da revisão de {periodo} meses.
-
-🎯 Campanha Especial Pós-Vendas:
-
-✔ Peças Originais Yamaha
-✔ Técnicos Especializados
-✔ Condições Exclusivas
-
-Deseja agendar sua revisão?
-
-1️⃣ Agendar revisão
-2️⃣ Consultar valores
-3️⃣ Falar com atendente
-
-Equipe Motoshow Yamaha"""
-    return mensagem
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
 
 
-# ===============================
-# NORMALIZAR TELEFONE
-# ===============================
-def limpar_telefone(telefone):
-    if pd.isna(telefone):
-        return ""
+class Atendimento(Base):
+    __tablename__ = "atendimentos"
 
-    telefone = str(telefone).strip()
+    id = Column(Integer, primary_key=True, index=True)
+    telefone = Column(String(30))
+    nome = Column(String(150))
+    setor = Column(String(50))
+    modelo = Column(String(100))
+    ano_modelo = Column(String(20))
+    revisao = Column(String(50))
+    data_agendamento = Column(String(20))
+    horario_agendamento = Column(String(20))
+    atendimento_humano = Column(String(10), default="não")
+    origem = Column(String(50))
+    item_adicional = Column(String(500))
+    status = Column(String(100), default="aberto")
+    criado_em = Column(DateTime, default=datetime.now)
 
-    # remove .0 quando vier de número do Excel
-    if telefone.endswith(".0"):
-        telefone = telefone[:-2]
 
-    # mantém só números
-    telefone = re.sub(r"\D", "", telefone)
+Base.metadata.create_all(bind=engine)
 
-    return telefone
-
-
-# ===============================
-# VALIDAR PERÍODO
-# ===============================
-def tratar_periodo(valor):
+# ==========================================
+# UTILITÁRIOS
+# ==========================================
+def normalizar_telefone(valor):
     if pd.isna(valor):
-        return None
-
-    texto = str(valor).strip().replace(",", ".")
-    try:
-        return int(float(texto))
-    except Exception:
-        return None
+        return ""
+    return re.sub(r"\D", "", str(valor))
 
 
-# ===============================
-# ENVIO
-# ===============================
-def enviar_mensagem(telefone, mensagem):
-    payload = {
-        "phone": telefone,
-        "message": mensagem
+def validar_colunas(df):
+    colunas = {str(c).strip().lower(): c for c in df.columns}
+
+    obrigatorias = ["telefone", "nome", "modelo", "periodo"]
+    faltando = [c for c in obrigatorias if c not in colunas]
+
+    if faltando:
+        raise ValueError(
+            f"Faltam colunas obrigatórias: {', '.join(faltando)}"
+        )
+
+    return {
+        "telefone": colunas["telefone"],
+        "nome": colunas["nome"],
+        "modelo": colunas["modelo"],
+        "periodo": colunas["periodo"],
+        "status": colunas["status"] if "status" in colunas else None,
+        "data": colunas["data"] if "data" in colunas else None,
     }
 
+
+def criar_mensagem(nome, modelo, periodo):
+    return f"""Olá {nome} 👋
+
+Aqui é da *Equipe Motoshow Yamaha* 🏍️
+
+Sua *{modelo}* está no período da revisão de *{periodo}* meses.
+
+🎯 *Campanha Especial Pós-Vendas:*
+
+✔ Peças Originais Yamaha
+✔ Atendimento especializado
+✔ Condições especiais para sua revisão
+
+Digite uma opção para continuar:
+
+*1* - Agendar revisão
+*2* - Consultar valores
+*3* - Falar com atendente
+
+Equipe *Motoshow Yamaha*.
+"""
+
+
+def enviar_mensagem(telefone, mensagem):
     headers = {
         "Client-Token": ZAPI_CLIENT_TOKEN,
         "Content-Type": "application/json"
     }
 
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
-    return response
-
-
-# ===============================
-# VALIDAR CONFIG
-# ===============================
-if not ZAPI_INSTANCE_ID or not ZAPI_TOKEN or not ZAPI_CLIENT_TOKEN:
-    raise ValueError("Verifique o .env: ZAPI_INSTANCE_ID, ZAPI_TOKEN e ZAPI_CLIENT_TOKEN são obrigatórios.")
-
-if not os.path.exists(ARQUIVO):
-    raise FileNotFoundError(f"Arquivo não encontrado: {ARQUIVO}")
-
-
-# ===============================
-# LER PLANILHA
-# ===============================
-df = pd.read_excel(ARQUIVO)
-
-df.columns = [str(col).strip().upper() for col in df.columns]
-df = df.astype(object)
-
-
-# ===============================
-# GARANTIR COLUNAS
-# ===============================
-colunas_obrigatorias = [
-    "NOME",
-    "TELEFONE",
-    "MODELO",
-    "PERIODO DE REVISÃO",
-    "STATUS DE ENVIO",
-    "DATA DE ENVIO"
-]
-
-for col in colunas_obrigatorias:
-    if col not in df.columns:
-        df[col] = ""
-
-
-# ===============================
-# LOOP DE ENVIO
-# ===============================
-for index, cliente in df.iterrows():
-    nome = "" if pd.isna(cliente["NOME"]) else str(cliente["NOME"]).strip()
-    telefone = limpar_telefone(cliente["TELEFONE"])
-    modelo = "" if pd.isna(cliente["MODELO"]) else str(cliente["MODELO"]).strip()
-    status = "" if pd.isna(cliente["STATUS DE ENVIO"]) else str(cliente["STATUS DE ENVIO"]).strip().upper()
-    periodo = tratar_periodo(cliente["PERIODO DE REVISÃO"])
-
-    # Não enviar novamente
-    if status == "ENVIADO":
-        print(f"Linha {index + 2}: já enviado, pulando.")
-        continue
-
-    # Validações
-    if not nome:
-        df.at[index, "STATUS DE ENVIO"] = "NOME VAZIO"
-        df.to_excel(ARQUIVO, index=False)
-        print(f"Linha {index + 2}: nome vazio.")
-        continue
-
-    if not telefone:
-        df.at[index, "STATUS DE ENVIO"] = "TELEFONE INVÁLIDO"
-        df.to_excel(ARQUIVO, index=False)
-        print(f"Linha {index + 2}: telefone inválido.")
-        continue
-
-    if len(telefone) < 12:
-        df.at[index, "STATUS DE ENVIO"] = "TELEFONE CURTO"
-        df.to_excel(ARQUIVO, index=False)
-        print(f"Linha {index + 2}: telefone curto -> {telefone}")
-        continue
-
-    if not modelo:
-        df.at[index, "STATUS DE ENVIO"] = "MODELO VAZIO"
-        df.to_excel(ARQUIVO, index=False)
-        print(f"Linha {index + 2}: modelo vazio.")
-        continue
-
-    if periodo is None:
-        df.at[index, "STATUS DE ENVIO"] = "PERIODO INVALIDO"
-        df.to_excel(ARQUIVO, index=False)
-        print(f"Linha {index + 2}: período inválido.")
-        continue
-
-    mensagem = criar_mensagem(nome, modelo, periodo)
-
-    print(f"Enviando para {nome} - {telefone}")
+    payload = {
+        "phone": telefone,
+        "message": mensagem
+    }
 
     try:
-        resposta = enviar_mensagem(telefone, mensagem)
+        resposta = requests.post(
+            URL_ENVIO,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+        print(f"[ENVIO] {telefone} -> {resposta.status_code}")
+        print(resposta.text)
+        return resposta.status_code in [200, 201]
+    except Exception as e:
+        print(f"[ERRO ENVIO] {telefone}: {e}")
+        return False
 
-        print("Status:", resposta.status_code)
-        print("Resposta:", resposta.text)
 
-        if resposta.status_code in [200, 201]:
-            df.at[index, "STATUS DE ENVIO"] = "ENVIADO"
-            df.at[index, "DATA DE ENVIO"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-        else:
-            df.at[index, "STATUS DE ENVIO"] = f"ERRO {resposta.status_code}"
+def registrar_campanha(db, telefone, nome="", modelo="", periodo=""):
+    try:
+        registro = (
+            db.query(Atendimento)
+            .filter(
+                Atendimento.telefone == telefone,
+                Atendimento.status == "aguardando_campanha"
+            )
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
 
-    except requests.exceptions.Timeout:
-        print("Erro: timeout no envio.")
-        df.at[index, "STATUS DE ENVIO"] = "TIMEOUT"
+        item_info = f"Campanha revisão {periodo} meses"
 
-    except requests.exceptions.RequestException as e:
-        print("Erro de requisição:", e)
-        df.at[index, "STATUS DE ENVIO"] = "ERRO REQUISICAO"
+        if registro:
+            registro.nome = nome or registro.nome
+            registro.modelo = modelo or registro.modelo
+            registro.setor = "Revisão"
+            registro.origem = "campanha"
+            registro.atendimento_humano = "não"
+            registro.item_adicional = item_info
+            registro.status = "aguardando_campanha"
+            db.commit()
+            return
+
+        novo = Atendimento(
+            telefone=telefone,
+            nome=nome,
+            setor="Revisão",
+            modelo=modelo,
+            atendimento_humano="não",
+            origem="campanha",
+            item_adicional=item_info,
+            status="aguardando_campanha"
+        )
+        db.add(novo)
+        db.commit()
 
     except Exception as e:
-        print("Erro inesperado:", e)
-        df.at[index, "STATUS DE ENVIO"] = "ERRO ENVIO"
-
-    # salva a cada envio para não perder progresso
-    df.to_excel(ARQUIVO, index=False)
-
-    print(f"Aguardando {INTERVALO_ENVIO} segundos...")
-    time.sleep(INTERVALO_ENVIO)
+        db.rollback()
+        print(f"[ERRO BANCO] {telefone}: {e}")
 
 
-print("Disparo finalizado com sucesso.")
+# ==========================================
+# PROCESSAMENTO DA PLANILHA
+# ==========================================
+def processar_planilha():
+    if not os.path.exists(ARQUIVO_PLANILHA):
+        print(f"[ERRO] Arquivo não encontrado: {ARQUIVO_PLANILHA}")
+        return
+
+    try:
+        df = pd.read_excel(ARQUIVO_PLANILHA)
+    except Exception as e:
+        print(f"[ERRO] Falha ao ler planilha: {e}")
+        return
+
+    if df.empty:
+        print("[INFO] A planilha está vazia.")
+        return
+
+    try:
+        cols = validar_colunas(df)
+    except Exception as e:
+        print(f"[ERRO] {e}")
+        return
+
+    db = SessionLocal()
+
+    enviados = 0
+    erros = 0
+    ignorados = 0
+
+    try:
+        for i, row in df.iterrows():
+            telefone = normalizar_telefone(row[cols["telefone"]])
+            nome = str(row[cols["nome"]]).strip() if pd.notna(row[cols["nome"]]) else ""
+            modelo = str(row[cols["modelo"]]).strip() if pd.notna(row[cols["modelo"]]) else ""
+            periodo = str(row[cols["periodo"]]).strip() if pd.notna(row[cols["periodo"]]) else ""
+
+            status_atual = ""
+            if cols["status"]:
+                status_atual = str(row[cols["status"]]).strip().upper() if pd.notna(row[cols["status"]]) else ""
+
+            if status_atual == "ENVIADO":
+                ignorados += 1
+                continue
+
+            if not telefone:
+                print(f"[IGNORADO] Linha {i + 2}: telefone inválido.")
+                ignorados += 1
+                continue
+
+            mensagem = criar_mensagem(nome, modelo, periodo)
+            sucesso = enviar_mensagem(telefone, mensagem)
+
+            if sucesso:
+                registrar_campanha(
+                    db=db,
+                    telefone=telefone,
+                    nome=nome,
+                    modelo=modelo,
+                    periodo=periodo
+                )
+
+                if cols["status"]:
+                    df.at[i, cols["status"]] = "ENVIADO"
+                if cols["data"]:
+                    df.at[i, cols["data"]] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+                enviados += 1
+            else:
+                erros += 1
+
+            time.sleep(INTERVALO_ENTRE_ENVIOS)
+
+    finally:
+        db.close()
+
+    try:
+        df.to_excel(ARQUIVO_PLANILHA, index=False)
+    except Exception as e:
+        print(f"[ERRO] Não foi possível salvar atualização na planilha: {e}")
+
+    print("\n===== RESUMO DO DISPARO =====")
+    print(f"Enviados com sucesso: {enviados}")
+    print(f"Com erro: {erros}")
+    print(f"Ignorados: {ignorados}")
+    print("=============================\n")
+
+
+# ==========================================
+# MAIN
+# ==========================================
+if __name__ == "__main__":
+    processar_planilha()

@@ -34,13 +34,11 @@ mensagens_processadas = {}
 # ==========================================
 # BANCO DE DADOS
 # ==========================================
-
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
-    if DATABASE_URL.startswith("sqlite") else {}
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -69,9 +67,8 @@ class Atendimento(Base):
 Base.metadata.create_all(bind=engine)
 
 # ==========================================
-# MODELOS
+# OPÇÕES FIXAS
 # ==========================================
-
 MODELOS = {
     "1": "Fazer 250",
     "2": "FZ15",
@@ -99,9 +96,7 @@ REVISOES = {
 # ==========================================
 # UTILITÁRIOS
 # ==========================================
-
 def iniciar_cliente(telefone):
-
     if telefone not in clientes:
         clientes[telefone] = {
             "etapa": "menu",
@@ -110,7 +105,7 @@ def iniciar_cliente(telefone):
             "modelo": "",
             "ano_modelo": "",
             "revisao": "",
-            "horario": "",
+            "horario_agendamento": "",
             "origem": "menu normal",
             "setor": "",
             "atendimento_humano": False,
@@ -124,7 +119,6 @@ def atualizar_interacao(telefone):
 
 
 def enviar_mensagem(telefone, mensagem):
-
     headers = {
         "Client-Token": ZAPI_CLIENT_TOKEN,
         "Content-Type": "application/json"
@@ -142,11 +136,9 @@ def enviar_mensagem(telefone, mensagem):
             headers=headers,
             timeout=20
         )
-
-        print("ENVIO:", response.status_code)
-        print(response.text)
-
-        return True
+        print(f"ENVIO MENSAGEM [{telefone}] STATUS:", response.status_code)
+        print("RESPOSTA Z-API:", response.text)
+        return response.status_code in [200, 201]
 
     except Exception as e:
         print("Erro envio:", e)
@@ -154,7 +146,6 @@ def enviar_mensagem(telefone, mensagem):
 
 
 def enviar_pdf(telefone, link):
-
     headers = {
         "Client-Token": ZAPI_CLIENT_TOKEN,
         "Content-Type": "application/json"
@@ -167,41 +158,47 @@ def enviar_pdf(telefone, link):
     }
 
     try:
-        requests.post(
+        response = requests.post(
             url_documento,
             json=payload,
             headers=headers,
             timeout=20
         )
+        print(f"ENVIO PDF [{telefone}] STATUS:", response.status_code)
+        print("RESPOSTA Z-API PDF:", response.text)
+        return response.status_code in [200, 201]
 
     except Exception as e:
         print("Erro PDF:", e)
+        return False
 
 
 def salvar_atendimento(
-        telefone,
-        nome="",
-        setor="",
-        modelo="",
-        revisao="",
-        horario="",
-        atendimento_humano="não",
-        origem="menu normal",
-        item_adicional="",
-        status="aberto"
+    telefone,
+    nome="",
+    setor="",
+    modelo="",
+    ano_modelo="",
+    revisao="",
+    data_agendamento="",
+    horario_agendamento="",
+    atendimento_humano="não",
+    origem="menu normal",
+    item_adicional="",
+    status="aberto"
 ):
-
     db = SessionLocal()
 
     try:
-
         novo = Atendimento(
             telefone=telefone,
             nome=nome,
             setor=setor,
             modelo=modelo,
+            ano_modelo=ano_modelo,
             revisao=revisao,
-            horario_agendamento=horario,
+            data_agendamento=data_agendamento,
+            horario_agendamento=horario_agendamento,
             atendimento_humano=atendimento_humano,
             origem=origem,
             item_adicional=item_adicional,
@@ -212,17 +209,14 @@ def salvar_atendimento(
         db.commit()
 
     except Exception as e:
+        db.rollback()
         print("Erro salvar:", e)
 
     finally:
         db.close()
 
-        # ==========================================
-# MENU
-# ==========================================
 
 def menu_principal():
-
     return (
         "👋 Olá, bem-vindo ao *Pós-Vendas Motoshow Yamaha*\n\n"
         "Escolha uma opção:\n\n"
@@ -236,35 +230,38 @@ def menu_principal():
 
 
 def menu_modelos():
-
     texto = "🏍 Escolha o modelo:\n\n"
-
     for k, v in MODELOS.items():
         texto += f"{k} - {v}\n"
-
-    return texto
+    return texto.strip()
 
 
 def menu_revisoes():
-
     texto = "🔧 Escolha a revisão:\n\n"
-
     for k, v in REVISOES.items():
         texto += f"{k} - {v}\n"
+    return texto.strip()
 
-    return texto
 
-
+def menu_horarios():
+    return (
+        "Escolha horário:\n\n"
+        "1 - 08:00\n"
+        "2 - 09:00\n"
+        "3 - 10:00\n"
+        "4 - 11:00\n"
+        "5 - 12:00\n"
+        "6 - 13:00\n"
+        "7 - 14:00\n"
+        "8 - 15:00"
+    )
 # ==========================================
 # INTEGRAÇÃO CAMPANHA
 # ==========================================
-
 def verificar_campanha(telefone, mensagem):
-
     db = SessionLocal()
 
     try:
-
         registro = (
             db.query(Atendimento)
             .filter(
@@ -278,15 +275,15 @@ def verificar_campanha(telefone, mensagem):
         if not registro:
             return False
 
-        msg = mensagem.strip()
+        msg = mensagem.strip().lower()
 
         if msg == "1":
-
             iniciar_cliente(telefone)
 
             clientes[telefone]["origem"] = "campanha"
             clientes[telefone]["setor"] = "Revisão"
             clientes[telefone]["etapa"] = "nome"
+            clientes[telefone]["modelo"] = registro.modelo or ""
 
             registro.status = "respondido"
             db.commit()
@@ -297,11 +294,9 @@ def verificar_campanha(telefone, mensagem):
                 "Vamos agendar sua revisão.\n\n"
                 "Informe seu *nome completo*."
             )
-
             return True
 
         if msg == "2":
-
             registro.status = "consultar_valores"
             db.commit()
 
@@ -311,12 +306,10 @@ def verificar_campanha(telefone, mensagem):
                 "Nossa equipe irá enviar os valores da revisão.\n\n"
                 "Equipe *Motoshow Yamaha*"
             )
-
             return True
 
         if msg == "3":
-
-            registro.status = "atendimento humano"
+            registro.status = "aguardando humano"
             registro.atendimento_humano = "sim"
             db.commit()
 
@@ -326,9 +319,13 @@ def verificar_campanha(telefone, mensagem):
                 "Encaminhando para atendimento humano.\n\n"
                 "Equipe *Motoshow Yamaha*"
             )
-
             return True
 
+        return False
+
+    except Exception as e:
+        db.rollback()
+        print("Erro verificar_campanha:", e)
         return False
 
     finally:
@@ -338,9 +335,7 @@ def verificar_campanha(telefone, mensagem):
 # ==========================================
 # PROCESSAR MENSAGEM
 # ==========================================
-
 def processar_mensagem(telefone, mensagem):
-
     iniciar_cliente(telefone)
     atualizar_interacao(telefone)
 
@@ -350,33 +345,26 @@ def processar_mensagem(telefone, mensagem):
     # ==========================================
     # VERIFICAR CAMPANHA
     # ==========================================
-
     if verificar_campanha(telefone, msg):
         return
 
     # ==========================================
-    # MENU
+    # PALAVRAS DE ENTRADA
     # ==========================================
-
-    if msg in ["menu", "oi", "olá", "ola"]:
-
+    if msg in ["menu", "oi", "olá", "ola", "iniciar", "começar", "comecar"]:
         clientes[telefone]["etapa"] = "menu"
 
         enviar_mensagem(
             telefone,
             menu_principal()
         )
-
         return
 
     # ==========================================
     # MENU PRINCIPAL
     # ==========================================
-
     if etapa == "menu":
-
         if msg == "1":
-
             clientes[telefone]["setor"] = "Revisão"
             clientes[telefone]["etapa"] = "nome"
 
@@ -384,11 +372,9 @@ def processar_mensagem(telefone, mensagem):
                 telefone,
                 "Informe seu *nome completo*"
             )
-
             return
 
         if msg == "2":
-
             clientes[telefone]["setor"] = "Peças"
             clientes[telefone]["etapa"] = "peca_nome"
 
@@ -396,11 +382,9 @@ def processar_mensagem(telefone, mensagem):
                 telefone,
                 "Informe a peça desejada"
             )
-
             return
 
         if msg == "3":
-
             clientes[telefone]["setor"] = "Acessórios"
             clientes[telefone]["etapa"] = "acessorio_nome"
 
@@ -408,11 +392,9 @@ def processar_mensagem(telefone, mensagem):
                 telefone,
                 "Informe o acessório desejado"
             )
-
             return
 
         if msg == "4":
-
             clientes[telefone]["setor"] = "Garantia"
             clientes[telefone]["etapa"] = "garantia_nome"
 
@@ -420,104 +402,78 @@ def processar_mensagem(telefone, mensagem):
                 telefone,
                 "Informe seu nome"
             )
-
             return
 
         if msg == "5":
-
-            clientes[telefone]["setor"] = "Logista"
+            clientes[telefone]["setor"] = "Logista / Atacado"
             clientes[telefone]["etapa"] = "atacado_empresa"
 
             enviar_mensagem(
                 telefone,
                 "Informe o nome da empresa"
             )
-
             return
 
         if msg == "6":
+            clientes[telefone]["setor"] = "Atendimento Humano"
+            clientes[telefone]["atendimento_humano"] = True
 
             salvar_atendimento(
-                telefone,
-                atendimento_humano="sim",
+                telefone=telefone,
+                nome=clientes[telefone]["nome"],
                 setor="Atendimento Humano",
+                atendimento_humano="sim",
+                origem=clientes[telefone]["origem"],
                 status="aguardando humano"
             )
 
             enviar_mensagem(
                 telefone,
-                "Encaminhando para atendimento humano"
+                "✅ Encaminhando para atendimento humano.\n\n"
+                "Equipe *Motoshow Yamaha*"
             )
-
             return
+
+        enviar_mensagem(telefone, menu_principal())
+        return
 
     # ==========================================
     # FLUXO REVISÃO
     # ==========================================
-
     if etapa == "nome":
+        clientes[telefone]["nome"] = mensagem.strip()
 
-        clientes[telefone]["nome"] = mensagem
+        # Se veio da campanha e já tinha modelo salvo, pula escolha do modelo
+        if clientes[telefone]["origem"] == "campanha" and clientes[telefone]["modelo"]:
+            clientes[telefone]["etapa"] = "revisao"
+            enviar_mensagem(telefone, menu_revisoes())
+            return
+
         clientes[telefone]["etapa"] = "modelo"
-
-        enviar_mensagem(
-            telefone,
-            menu_modelos()
-        )
-
+        enviar_mensagem(telefone, menu_modelos())
         return
 
-
     if etapa == "modelo":
-
         if msg not in MODELOS:
-            enviar_mensagem(
-                telefone,
-                menu_modelos()
-            )
+            enviar_mensagem(telefone, menu_modelos())
             return
 
         clientes[telefone]["modelo"] = MODELOS[msg]
         clientes[telefone]["etapa"] = "revisao"
-
-        enviar_mensagem(
-            telefone,
-            menu_revisoes()
-        )
-
+        enviar_mensagem(telefone, menu_revisoes())
         return
 
-
     if etapa == "revisao":
-
         if msg not in REVISOES:
-            enviar_mensagem(
-                telefone,
-                menu_revisoes()
-            )
+            enviar_mensagem(telefone, menu_revisoes())
             return
 
         clientes[telefone]["revisao"] = REVISOES[msg]
-        clientes[telefone]["etapa"] = "horario"
-
-        enviar_mensagem(
-            telefone,
-            "Escolha horário:\n\n"
-            "1 - 08:00\n"
-            "2 - 09:00\n"
-            "3 - 10:00\n"
-            "4 - 11:00\n"
-            "5 - 12:00\n"
-            "6 - 13:00\n"
-            "7 - 14:00\n"
-            "8 - 15:00"
-        )
-
+        clientes[telefone]["etapa"] = "horario_agendamento"
+        enviar_mensagem(telefone, menu_horarios())
         return
 
-
-    if etapa == "horario":
-
+    if etapa == "horario_agendamento":
         horarios = {
             "1": "08:00",
             "2": "09:00",
@@ -530,37 +486,127 @@ def processar_mensagem(telefone, mensagem):
         }
 
         if msg not in horarios:
+            enviar_mensagem(telefone, menu_horarios())
             return
 
-        clientes[telefone]["horario"] = horarios[msg]
+        clientes[telefone]["horario_agendamento"] = horarios[msg]
+        clientes[telefone]["etapa"] = "item_adicional"
+
+        enviar_mensagem(
+            telefone,
+            "Deseja incluir algum item adicional?\n\n"
+            "Exemplo: troca de óleo, pastilha, relação, pneu.\n\n"
+            "Se não quiser, responda *não*."
+        )
+        return
+
+    if etapa == "item_adicional":
+        clientes[telefone]["item_adicional"] = "" if msg in ["não", "nao"] else mensagem.strip()
 
         salvar_atendimento(
-            telefone,
+            telefone=telefone,
             nome=clientes[telefone]["nome"],
             setor="Revisão",
             modelo=clientes[telefone]["modelo"],
             revisao=clientes[telefone]["revisao"],
-            horario=clientes[telefone]["horario"],
+            horario_agendamento=clientes[telefone]["horario_agendamento"],
+            atendimento_humano="não",
             origem=clientes[telefone]["origem"],
+            item_adicional=clientes[telefone]["item_adicional"],
             status="agendado"
         )
 
-        enviar_mensagem(
-            telefone,
+        resumo = (
             "✅ Agendamento realizado com sucesso\n\n"
-            "Equipe *Motoshow Yamaha*"
+            f"👤 Nome: {clientes[telefone]['nome']}\n"
+            f"🏍 Modelo: {clientes[telefone]['modelo']}\n"
+            f"🔧 Revisão: {clientes[telefone]['revisao']}\n"
+            f"⏰ Horário: {clientes[telefone]['horario_agendamento']}\n"
         )
 
-        clientes.pop(telefone, None)
+        if clientes[telefone]["item_adicional"]:
+            resumo += f"🛠 Item adicional: {clientes[telefone]['item_adicional']}\n"
 
+        resumo += "\nEquipe *Motoshow Yamaha*"
+
+        enviar_mensagem(telefone, resumo)
+        clientes.pop(telefone, None)
         return
-    
+
+    # ==========================================
+    # FLUXOS SIMPLESMENTE REGISTRADOS
+    # ==========================================
+    if etapa == "peca_nome":
+        salvar_atendimento(
+            telefone=telefone,
+            nome=clientes[telefone]["nome"],
+            setor="Peças",
+            origem=clientes[telefone]["origem"],
+            item_adicional=f"Peça solicitada: {mensagem.strip()}",
+            status="solicitação registrada"
+        )
+        enviar_mensagem(
+            telefone,
+            "✅ Solicitação de peça registrada.\n\n"
+            "Equipe *Motoshow Yamaha*"
+        )
+        clientes.pop(telefone, None)
+        return
+
+    if etapa == "acessorio_nome":
+        salvar_atendimento(
+            telefone=telefone,
+            nome=clientes[telefone]["nome"],
+            setor="Acessórios",
+            origem=clientes[telefone]["origem"],
+            item_adicional=f"Acessório solicitado: {mensagem.strip()}",
+            status="solicitação registrada"
+        )
+        enviar_mensagem(
+            telefone,
+            "✅ Solicitação de acessório registrada.\n\n"
+            "Equipe *Motoshow Yamaha*"
+        )
+        clientes.pop(telefone, None)
+        return
+
+    if etapa == "garantia_nome":
+        salvar_atendimento(
+            telefone=telefone,
+            nome=mensagem.strip(),
+            setor="Garantia",
+            origem=clientes[telefone]["origem"],
+            status="solicitação registrada"
+        )
+        enviar_mensagem(
+            telefone,
+            "✅ Solicitação de garantia registrada.\n\n"
+            "Equipe *Motoshow Yamaha*"
+        )
+        clientes.pop(telefone, None)
+        return
+
+    if etapa == "atacado_empresa":
+        salvar_atendimento(
+            telefone=telefone,
+            nome=mensagem.strip(),
+            setor="Logista / Atacado",
+            origem=clientes[telefone]["origem"],
+            status="solicitação registrada"
+        )
+        enviar_mensagem(
+            telefone,
+            "✅ Solicitação de atacado registrada.\n\n"
+            "Equipe *Motoshow Yamaha*"
+        )
+        clientes.pop(telefone, None)
+        return
+
+    enviar_mensagem(telefone, menu_principal())
     # ==========================================
 # EXTRAÇÃO / VALIDAÇÃO DE MENSAGENS
 # ==========================================
-
 def extrair_mensagem_texto(payload):
-
     candidatos = [
         payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
         payload.get("message"),
@@ -577,7 +623,6 @@ def extrair_mensagem_texto(payload):
 
 
 def extrair_telefone(payload):
-
     candidatos = [
         payload.get("phone"),
         payload.get("from"),
@@ -611,7 +656,6 @@ def extrair_telefone(payload):
 
 
 def extrair_id_mensagem(payload):
-
     candidatos = [
         payload.get("messageId"),
         payload.get("id"),
@@ -634,7 +678,6 @@ def extrair_id_mensagem(payload):
 
 
 def limpar_mensagens_processadas():
-
     agora = time.time()
     remover = []
 
@@ -647,7 +690,6 @@ def limpar_mensagens_processadas():
 
 
 def mensagem_ja_processada(msg_id):
-
     if not msg_id:
         return False
 
@@ -661,7 +703,6 @@ def mensagem_ja_processada(msg_id):
 
 
 def eh_grupo(payload):
-
     if payload.get("isGroup") is True:
         return True
 
@@ -696,7 +737,6 @@ def eh_grupo(payload):
 
 
 def eh_mensagem_do_proprio_bot(payload):
-
     if payload.get("fromMe") is True:
         return True
     if payload.get("isFromMe") is True:
@@ -714,7 +754,6 @@ def eh_mensagem_do_proprio_bot(payload):
 # ==========================================
 # INATIVIDADE
 # ==========================================
-
 def mensagem_encerramento():
     return (
         "⏰ Seu atendimento foi encerrado por inatividade.\n"
@@ -724,7 +763,6 @@ def mensagem_encerramento():
 
 
 def monitorar_inatividade():
-
     while True:
         try:
             agora = time.time()
@@ -749,7 +787,6 @@ def monitorar_inatividade():
 # ==========================================
 # ROTAS
 # ==========================================
-
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
@@ -762,7 +799,6 @@ def arquivos_estaticos(filename):
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-
     if request.method == "GET":
         return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
 
@@ -808,17 +844,18 @@ def webhook():
 
 @app.route("/dashboard")
 def dashboard():
-
     db = SessionLocal()
 
     try:
         total_atendimentos = db.query(func.count(Atendimento.id)).scalar() or 0
+
         total_humano = (
             db.query(func.count(Atendimento.id))
             .filter(Atendimento.atendimento_humano == "sim")
             .scalar()
             or 0
         )
+
         total_agendados = (
             db.query(func.count(Atendimento.id))
             .filter(Atendimento.status == "agendado")
@@ -890,7 +927,6 @@ def dashboard():
 # ==========================================
 # THREAD DE INATIVIDADE
 # ==========================================
-
 thread_inatividade = threading.Thread(
     target=monitorar_inatividade,
     daemon=True
@@ -901,6 +937,5 @@ thread_inatividade.start()
 # ==========================================
 # MAIN
 # ==========================================
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT)
