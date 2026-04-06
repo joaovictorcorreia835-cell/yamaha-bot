@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import threading
 import time
+from sqlalchemy import func
 
 from database import criar_banco, SessionLocal, Atendimento
 
@@ -16,7 +17,6 @@ criar_banco()
 # ==========================================
 # CONFIG
 # ==========================================
-
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
@@ -26,25 +26,24 @@ BASE_URL = os.getenv("BASE_URL")
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
 url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
 
-TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", 900))
+TEMPO_INATIVIDADE = 900
 
 clientes = {}
-mensagens_processadas = {}
+mensagens_processadas = set()
 
 # ==========================================
 # HOME
 # ==========================================
-
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
 
 
 # ==========================================
-# ENVIAR MENSAGEM
+# UTIL
 # ==========================================
-
 def enviar_mensagem(telefone, mensagem):
+
     headers = {
         "Client-Token": ZAPI_CLIENT_TOKEN
     }
@@ -56,16 +55,77 @@ def enviar_mensagem(telefone, mensagem):
 
     try:
         requests.post(url_envio, json=payload, headers=headers)
-    except Exception as e:
-        print("Erro enviar mensagem:", e)
+    except:
+        pass
+
+
+def enviar_catalogo(telefone):
+
+    headers = {
+        "Client-Token": ZAPI_CLIENT_TOKEN
+    }
+
+    payload = {
+        "phone": telefone,
+        "document": f"{BASE_URL}/pdf/catalogo-atacado.pdf",
+        "fileName": "catalogo-atacado.pdf",
+        "caption": "📄 Catálogo Atacado Motoshow Yamaha"
+    }
+
+    try:
+        requests.post(url_documento, json=payload, headers=headers)
+    except:
+        pass
+
+
+def iniciar_cliente(telefone):
+
+    if telefone not in clientes:
+        clientes[telefone] = {
+            "etapa": "menu",
+            "ultima_interacao": datetime.now(),
+            "atendimento_humano": False
+        }
+
+
+def atualizar_interacao(telefone):
+    clientes[telefone]["ultima_interacao"] = datetime.now()
 
 
 # ==========================================
-# MENU PRINCIPAL
+# INATIVIDADE
 # ==========================================
+def verificar_inatividade():
 
-def menu_principal():
-    return """Olá 👋
+    while True:
+
+        agora = datetime.now()
+
+        for telefone in list(clientes.keys()):
+
+            ultima = clientes[telefone]["ultima_interacao"]
+
+            if (agora - ultima).seconds > TEMPO_INATIVIDADE:
+
+                enviar_mensagem(
+                    telefone,
+                    "⏰ Atendimento encerrado por inatividade\n\nDigite *menu* para voltar ao atendimento"
+                )
+
+                clientes[telefone]["etapa"] = "menu"
+
+        time.sleep(60)
+
+
+threading.Thread(target=verificar_inatividade).start()
+
+
+# ==========================================
+# MENU
+# ==========================================
+def enviar_menu(telefone):
+
+    mensagem = """Olá 👋
 
 Bem-vindo ao Pós-Vendas Motoshow Yamaha 🏍️
 
@@ -73,272 +133,190 @@ Escolha uma opção:
 
 1️⃣ Agendar Revisão
 2️⃣ Peças
-3️⃣ Acompanhar Serviço
-4️⃣ Agendar Serviço / Avaliação
-5️⃣ Garantia
-6️⃣ Logista / Atacado
-7️⃣ Falar com Consultor
-
-Digite apenas o número da opção desejada.
-
-Equipe Motoshow Yamaha
+3️⃣ Acessórios
+4️⃣ Garantia
+5️⃣ Logista / Atacado
+6️⃣ Falar com atendente
 """
 
-
-def enviar_menu(telefone):
-    enviar_mensagem(telefone, menu_principal())
+    enviar_mensagem(telefone, mensagem)
 
 
-# ==========================================
-# CLIENTE
-# ==========================================
-
-def iniciar_cliente(telefone):
-    if telefone not in clientes:
-        clientes[telefone] = {
-            "etapa": "menu",
-            "atendimento_humano": False,
-            "ultima_interacao": time.time(),
-            "origem": "Menu Normal"
-        }
-
-
-def atualizar_interacao(telefone):
-    clientes[telefone]["ultima_interacao"] = time.time()
-
-
-def cliente_em_atendimento_humano(telefone):
-    return clientes.get(telefone, {}).get("atendimento_humano", False)
-
-
-def limpar_dados_fluxo(telefone):
-    clientes[telefone]["etapa"] = "menu"
-
-
-# ==========================================
-# INATIVIDADE
-# ==========================================
-
-def processar_inatividade():
-    agora = time.time()
-
-    for telefone in list(clientes.keys()):
-        ultima = clientes[telefone]["ultima_interacao"]
-
-        if agora - ultima > TEMPO_INATIVIDADE:
-            enviar_mensagem(
-                telefone,
-                "Seu atendimento foi encerrado por inatividade.\n\nEnvie *menu* para iniciar novamente."
-            )
-
-            del clientes[telefone]
-
-
-# ==========================================
-# EXTRAIR DADOS
-# ==========================================
-
-def extrair_telefone(payload):
-    return payload.get("phone")
-
-
-def telefone_eh_grupo(telefone):
-    return "@g.us" in str(telefone)
-
-
-def extrair_mensagem_texto(payload):
-    try:
-        if "text" in payload:
-            if isinstance(payload["text"], dict):
-                return payload["text"].get("message", "")
-            return payload.get("text", "")
-
-        if "message" in payload:
-            return payload.get("message", "")
-
-        return ""
-
-    except:
-        return ""
-
-
-# ==========================================
-# DUPLICAÇÃO
-# ==========================================
-
-def registrar_mensagem_processada(message_id):
-    if not message_id:
-        return
-
-    agora = time.time()
-    mensagens_processadas[message_id] = agora
-
-    expirados = [
-        mid for mid, timestamp in mensagens_processadas.items()
-        if agora - timestamp > 60
-    ]
-
-    for mid in expirados:
-        mensagens_processadas.pop(mid, None)
-
-
-def mensagem_ja_processada(message_id):
-    return message_id in mensagens_processadas
-
-
-def extrair_message_id(payload):
-    return payload.get("messageId")
 # ==========================================
 # WEBHOOK
 # ==========================================
-
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
 
     if request.method == "GET":
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok"})
 
-    processar_inatividade()
+    data = request.json
 
-    payload = request.get_json(silent=True) or {}
-    print("RECEBIDO:", payload)
+    try:
+        telefone = data["phone"]
+        texto = data["message"].lower()
+        message_id = data["messageId"]
+    except:
+        return jsonify({"status": "erro"})
 
-    message_id = extrair_message_id(payload)
+    if message_id in mensagens_processadas:
+        return jsonify({"status": "duplicado"})
 
-    if mensagem_ja_processada(message_id):
-        return jsonify({"status": "ignorado"}), 200
-
-    registrar_mensagem_processada(message_id)
-
-    telefone = extrair_telefone(payload)
-    texto = extrair_mensagem_texto(payload).strip()
-
-    if not telefone or telefone_eh_grupo(telefone):
-        return jsonify({"status": "ignorado"}), 200
+    mensagens_processadas.add(message_id)
 
     iniciar_cliente(telefone)
     atualizar_interacao(telefone)
 
-    texto_normalizado = texto.lower().strip()
+    if clientes[telefone]["atendimento_humano"]:
+        return jsonify({"status": "humano"})
 
-    # ==========================================
-    # VOLTAR MENU
-    # ==========================================
-
-    if texto_normalizado in [
-        "menu",
-        "oi",
-        "ola",
-        "olá",
-        "bom dia",
-        "boa tarde",
-        "boa noite"
-    ]:
-        limpar_dados_fluxo(telefone)
-        clientes[telefone]["atendimento_humano"] = False
+    if texto in ["menu", "oi", "bom dia", "boa tarde", "boa noite"]:
         enviar_menu(telefone)
+        return jsonify({"status": "menu"})
 
-        return jsonify({"status": "menu"}), 200
-
-    # ==========================================
-    # ATENDIMENTO HUMANO
-    # ==========================================
-
-    if cliente_em_atendimento_humano(telefone):
-
-        if texto_normalizado == "menu":
-            clientes[telefone]["atendimento_humano"] = False
-            limpar_dados_fluxo(telefone)
-            enviar_menu(telefone)
-
-        return jsonify({"status": "humano"}), 200
-
-    # ==========================================
-    # MENU PRINCIPAL
-    # ==========================================
-
-    etapa = clientes[telefone].get("etapa")
+    etapa = clientes[telefone]["etapa"]
 
     if etapa == "menu":
 
-        if texto_normalizado == "1":
-            clientes[telefone]["etapa"] = "revisao_modelo"
+        if texto == "1":
+            clientes[telefone]["etapa"] = "revisao"
+            enviar_mensagem(telefone, "Qual modelo da moto?")
+            return jsonify({"status": "ok"})
 
-            enviar_mensagem(
-                telefone,
-                "Informe o modelo da sua Yamaha:\n\nFazer 250\nFZ15\nLander\nCrosser\nMT03\nMT07\nNMAX\nNEO\nFLUO"
-            )
+        if texto == "2":
+            clientes[telefone]["etapa"] = "pecas"
+            enviar_mensagem(telefone, "Qual peça deseja?")
+            return jsonify({"status": "ok"})
 
-            return jsonify({"status": "ok"}), 200
+        if texto == "3":
+            clientes[telefone]["etapa"] = "acessorios"
+            enviar_mensagem(telefone, "Qual acessório deseja?")
+            return jsonify({"status": "ok"})
 
+        if texto == "4":
+            clientes[telefone]["etapa"] = "garantia"
+            enviar_mensagem(telefone, "Descreva sua solicitação")
+            return jsonify({"status": "ok"})
 
-        if texto_normalizado == "2":
-            enviar_mensagem(
-                telefone,
-                "Informe a peça desejada e modelo da moto."
-            )
+        if texto == "5":
+            clientes[telefone]["etapa"] = "atacado"
+            enviar_catalogo(telefone)
+            return jsonify({"status": "ok"})
 
-            return jsonify({"status": "ok"}), 200
-
-
-        if texto_normalizado == "3":
-            enviar_mensagem(
-                telefone,
-                "Informe seu nome completo para acompanhar o serviço."
-            )
-
-            return jsonify({"status": "ok"}), 200
-
-
-        if texto_normalizado == "4":
-            enviar_mensagem(
-                telefone,
-                "Informe o serviço que deseja agendar."
-            )
-
-            return jsonify({"status": "ok"}), 200
-
-
-        if texto_normalizado == "5":
-            enviar_mensagem(
-                telefone,
-                "Informe seu nome completo para garantia."
-            )
-
-            return jsonify({"status": "ok"}), 200
-
-
-        if texto_normalizado == "6":
-
-            enviar_mensagem(
-                telefone,
-                """Logista / Atacado
-
-1 Solicitar Cotação
-2 Cadastro Logista
-3 Catálogo Peças
-4 Falar com Consultor
-
-Digite a opção desejada."""
-            )
-
-            return jsonify({"status": "ok"}), 200
-
-
-        if texto_normalizado == "7":
-
+        if texto == "6":
             clientes[telefone]["atendimento_humano"] = True
-
             enviar_mensagem(
                 telefone,
-                "Você será atendido por um consultor.\n\nEnvie *menu* para voltar ao atendimento automático."
+                "👨‍💼 Você será atendido por um consultor"
             )
+            return jsonify({"status": "ok"})
 
-            return jsonify({"status": "ok"}), 200
+    return jsonify({"status": "ok"})
 # ==========================================
-# INICIAR APP
+# PDF
 # ==========================================
+@app.route("/pdf/<arquivo>")
+def pdf(arquivo):
+    return send_from_directory("static/pdfs", arquivo)
 
+
+# ==========================================
+# DASHBOARD
+# ==========================================
+@app.route("/dashboard")
+def dashboard():
+
+    db = SessionLocal()
+
+    total = db.query(Atendimento).count()
+
+    revisao = db.query(Atendimento).filter(
+        Atendimento.setor == "Revisão"
+    ).count()
+
+    pecas = db.query(Atendimento).filter(
+        Atendimento.setor == "Peças"
+    ).count()
+
+    acessorios = db.query(Atendimento).filter(
+        Atendimento.setor == "Acessórios"
+    ).count()
+
+    garantia = db.query(Atendimento).filter(
+        Atendimento.setor == "Garantia"
+    ).count()
+
+    logista = db.query(Atendimento).filter(
+        Atendimento.setor == "Logista"
+    ).count()
+
+    humano = db.query(Atendimento).filter(
+        Atendimento.atendimento_humano == True
+    ).count()
+
+    agendamentos = db.query(Atendimento).filter(
+        Atendimento.status == "Agendado"
+    ).count()
+
+    html = f"""
+    <h1>Dashboard Yamaha Bot</h1>
+
+    <h2>Total Atendimentos: {total}</h2>
+
+    <h3>Por Setor</h3>
+    Revisão: {revisao}<br>
+    Peças: {pecas}<br>
+    Acessórios: {acessorios}<br>
+    Garantia: {garantia}<br>
+    Logista: {logista}<br>
+
+    <h3>Outros</h3>
+    Atendimento Humano: {humano}<br>
+    Agendamentos: {agendamentos}
+    """
+
+    return html
+
+
+# ==========================================
+# SALVAR ATENDIMENTO
+# ==========================================
+def salvar_atendimento(
+    telefone,
+    setor,
+    status="Em atendimento",
+    atendimento_humano=False
+):
+
+    db = SessionLocal()
+
+    atendimento = Atendimento(
+        telefone=telefone,
+        setor=setor,
+        status=status,
+        atendimento_humano=atendimento_humano
+    )
+
+    db.add(atendimento)
+    db.commit()
+    db.close()
+
+
+# ==========================================
+# IGNORAR GRUPO
+# ==========================================
+def telefone_eh_grupo(telefone):
+
+    if "@g.us" in telefone:
+        return True
+
+    return False
+
+
+# ==========================================
+# RUN
+# ==========================================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
