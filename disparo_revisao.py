@@ -111,6 +111,7 @@ if not os.path.exists(ARQUIVO):
 df = pd.read_excel(ARQUIVO)
 
 df.columns = [str(col).strip().upper() for col in df.columns]
+df = df.astype(object)
 
 
 # ===============================
