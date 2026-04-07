@@ -1058,19 +1058,28 @@ def webhook():
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
 
-        # ==========================
+             # ==========================
         # FLUXO REVISÃO
         # ==========================
         elif etapa == "revisao_modelo":
             clientes[telefone]["modelo_moto"] = texto
             clientes[telefone]["etapa"] = "revisao_nome"
-            enviar_mensagem(telefone, "Informe seu nome completo:")
+            enviar_mensagem(
+                telefone,
+                "Perfeito 👍\n\n"
+                "👤 Agora informe seu *nome completo*:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_nome":
             clientes[telefone]["nome_cliente"] = texto
             clientes[telefone]["etapa"] = "revisao_ano"
-            enviar_mensagem(telefone, "Informe o ano da moto:")
+            enviar_mensagem(
+                telefone,
+                "Ótimo ✅\n\n"
+                "📅 Informe o *ano da sua moto*.\n"
+                "Exemplo: *2024*"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_ano":
@@ -1078,7 +1087,13 @@ def webhook():
             clientes[telefone]["etapa"] = "revisao_numero"
             enviar_mensagem(
                 telefone,
-                "Qual revisão deseja agendar?\n\nDigite apenas o número.\nExemplo: 1, 2, 3, 4..."
+                "🔧 *Agendamento de Revisão*\n\n"
+                "Informe o número da revisão desejada:\n\n"
+                "1️⃣ 1ª Revisão\n"
+                "2️⃣ 2ª Revisão\n"
+                "3️⃣ 3ª Revisão\n"
+                "4️⃣ 4ª Revisão\n"
+                "5️⃣ 5ª Revisão ou mais"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1091,12 +1106,12 @@ def webhook():
             clientes[telefone]["etapa"] = "revisao_dia"
             enviar_mensagem(
                 telefone,
-                "Escolha o dia:\n\n"
-                "1️⃣ Segunda\n"
-                "2️⃣ Terça\n"
-                "3️⃣ Quarta\n"
-                "4️⃣ Quinta\n"
-                "5️⃣ Sexta\n"
+                "📅 *Escolha o dia para o agendamento:*\n\n"
+                "1️⃣ Segunda-feira\n"
+                "2️⃣ Terça-feira\n"
+                "3️⃣ Quarta-feira\n"
+                "4️⃣ Quinta-feira\n"
+                "5️⃣ Sexta-feira\n"
                 "6️⃣ Sábado"
             )
             return jsonify({"status": "ok"}), 200
@@ -1126,13 +1141,17 @@ def webhook():
             if not horarios:
                 enviar_mensagem(
                     telefone,
-                    "Para esse tipo de revisão não há horário disponível nesse dia.\n\nDigite outro dia ou digite *menu* para voltar."
+                    "❌ *Não há horário disponível para esse tipo de revisão nesse dia.*\n\n"
+                    "Digite outro dia ou envie *menu* para voltar ao início."
                 )
                 return jsonify({"status": "ok"}), 200
 
             clientes[telefone]["horarios_disponiveis"] = horarios
             clientes[telefone]["etapa"] = "revisao_horario"
-            enviar_mensagem(telefone, menu_horarios(horarios))
+            enviar_mensagem(
+                telefone,
+                "⏰ *Escolha um horário disponível:*\n\n" + menu_horarios(horarios)
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_horario":
@@ -1151,7 +1170,11 @@ def webhook():
             itens = itens_adicionais_disponiveis(clientes[telefone]["revisao_numero"])
             clientes[telefone]["itens_menu"] = itens
             clientes[telefone]["etapa"] = "revisao_itens"
-            enviar_mensagem(telefone, menu_itens(itens))
+
+            enviar_mensagem(
+                telefone,
+                "🛠️ *Deseja incluir algum item adicional?*\n\n" + menu_itens(itens)
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_itens":
@@ -1188,15 +1211,17 @@ def webhook():
 
             enviar_mensagem(
                 telefone,
-                "Agendamento solicitado com sucesso ✅\n\n"
-                f"Nome: {clientes[telefone].get('nome_cliente', '')}\n"
-                f"Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
-                f"Ano: {clientes[telefone].get('ano_moto', '')}\n"
-                f"Revisão: {clientes[telefone].get('revisao_numero', '')}ª\n"
-                f"Dia: {clientes[telefone].get('dia_semana', '').title()}\n"
-                f"Horário: {clientes[telefone].get('horario_escolhido', '')}\n"
-                f"Itens adicionais: {itens_txt}\n\n"
-                "Equipe Motoshow Yamaha"
+                "✅ *Agendamento solicitado com sucesso!*\n\n"
+                "📋 *Resumo do agendamento*\n\n"
+                f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
+                f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
+                f"📅 Ano: {clientes[telefone].get('ano_moto', '')}\n"
+                f"🔧 Revisão: {clientes[telefone].get('revisao_numero', '')}ª\n"
+                f"🗓️ Dia: {clientes[telefone].get('dia_semana', '').title()}\n"
+                f"⏰ Horário: {clientes[telefone].get('horario_escolhido', '')}\n"
+                f"🛠️ Itens adicionais: {itens_txt}\n\n"
+                "Em breve nossa equipe fará a confirmação.\n\n"
+                "🏍️ *Equipe Motoshow Yamaha*"
             )
 
             resetar_cliente(telefone, manter_origem=True)
