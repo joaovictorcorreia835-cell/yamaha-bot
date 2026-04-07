@@ -39,7 +39,6 @@ Equipe Motoshow Yamaha
 
 
 def enviar_mensagem(numero, mensagem):
-
     headers = {
         "Client-Token": ZAPI_CLIENT_TOKEN
     }
@@ -53,23 +52,31 @@ def enviar_mensagem(numero, mensagem):
 
 
 def disparar():
-
     print("Iniciando disparo...")
 
-    df = pd.read_excel(ARQUIVO_PLANILHA)
+    df = pd.read_excel(ARQUIVO_PLANILHA, dtype=str).fillna("")
+
+    if "STATUS DE ENVIO" not in df.columns:
+        df["STATUS DE ENVIO"] = ""
+
+    if "DATA_ENVIO" not in df.columns:
+        df["DATA_ENVIO"] = ""
 
     for index, row in df.iterrows():
-
-        status = str(row.get("STATUS DE ENVIO", "")).upper()
+        status = str(row.get("STATUS DE ENVIO", "")).strip().upper()
 
         if status == "ENVIADO":
-            print("Pulando já enviado:", row["NOME"])
+            print("Pulando já enviado:", row.get("NOME", "Sem nome"))
             continue
 
-        nome = row["NOME"]
-        numero = str(row["TELEFONE"])
-        modelo = row["MODELO"]
-        periodo = row["periodo"]
+        nome = str(row.get("NOME", "")).strip()
+        numero = str(row.get("TELEFONE", "")).strip()
+        modelo = str(row.get("MODELO", "")).strip()
+        periodo = str(row.get("periodo", "")).strip()
+
+        if not nome or not numero:
+            print("Linha ignorada por falta de nome ou telefone.")
+            continue
 
         mensagem = criar_mensagem(nome, modelo, periodo)
 
@@ -78,11 +85,11 @@ def disparar():
         df.at[index, "STATUS DE ENVIO"] = "ENVIADO"
         df.at[index, "DATA_ENVIO"] = datetime.now().strftime("%d/%m/%Y %H:%M")
 
+        df.to_excel(ARQUIVO_PLANILHA, index=False)
+
         print("Enviado:", nome)
 
         time.sleep(INTERVALO_ENTRE_ENVIOS)
-
-    df.to_excel(ARQUIVO_PLANILHA, index=False)
 
     print("Disparo finalizado")
 
