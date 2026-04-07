@@ -155,6 +155,29 @@ def resetar_cliente(telefone, manter_origem=False):
 
 
 def resposta_fallback(telefone):
+
+    etapa = clientes.get(telefone, {}).get("etapa")
+
+    if etapa == "escolher_dia":
+        enviar_dias(telefone)
+        return
+
+    elif etapa == "escolher_horario":
+        enviar_horarios(telefone)
+        return
+
+    elif etapa == "escolher_revisao":
+        enviar_revisoes(telefone)
+        return
+
+    elif etapa == "modelo":
+        enviar_modelos(telefone)
+        return
+
+    elif etapa == "venda_adicional":
+        enviar_venda_adicional(telefone)
+        return
+
     enviar_mensagem(
         telefone,
         "Não entendi sua resposta 🤖\n\nDigite uma opção válida ou digite *menu* para voltar ao início.\n\nEquipe Motoshow Yamaha"
