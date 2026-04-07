@@ -1,46 +1,8 @@
-import os
-import time
-import pandas as pd
-import requests
-from dotenv import load_dotenv
-from datetime import datetime
-
-load_dotenv()
-
-ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
-ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
-ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
-
-URL_ENVIO = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
-
-ARQUIVO_PLANILHA = "clientes.xlsx"
-INTERVALO_ENTRE_ENVIOS = 15
-
-
-def criar_mensagem(nome, modelo, periodo):
-
-    mensagem = f"""Olá {nome} 👋
-
-Aqui é da Equipe Pós-Vendas Motoshow Yamaha 🏍️
-
-Sua {modelo} está no período da revisão de {periodo} meses.
-
-🎯 Campanha Especial
-
-Digite:
-
-1️⃣ Agendar Revisão
-2️⃣ Falar com Consultor
-
-Equipe Motoshow Yamaha
-"""
-
-    return mensagem
-
-
 def enviar_mensagem(numero, mensagem):
+
     headers = {
-        "Client-Token": ZAPI_CLIENT_TOKEN
+        "Client-Token": ZAPI_CLIENT_TOKEN,
+        "Content-Type": "application/json"
     }
 
     payload = {
@@ -48,11 +10,32 @@ def enviar_mensagem(numero, mensagem):
         "message": mensagem
     }
 
-    requests.post(URL_ENVIO, json=payload, headers=headers)
+    try:
+        response = requests.post(
+            URL_ENVIO,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+
+        print("Status Code:", response.status_code)
+        print("Resposta:", response.text)
+
+        if response.status_code in [200, 201]:
+            return True
+
+        return False
+
+    except Exception as e:
+        print("Erro envio:", e)
+        return False
 
 
 def disparar():
-    print("Iniciando disparo...")
+
+    print("===================================")
+    print("🚀 Iniciando disparo...")
+    print("===================================")
 
     df = pd.read_excel(ARQUIVO_PLANILHA, dtype=str).fillna("")
 
@@ -63,10 +46,11 @@ def disparar():
         df["DATA_ENVIO"] = ""
 
     for index, row in df.iterrows():
+
         status = str(row.get("STATUS DE ENVIO", "")).strip().upper()
 
         if status == "ENVIADO":
-            print("Pulando já enviado:", row.get("NOME", "Sem nome"))
+            print("⏭ Pulando já enviado:", row.get("NOME"))
             continue
 
         nome = str(row.get("NOME", "")).strip()
@@ -75,23 +59,32 @@ def disparar():
         periodo = str(row.get("periodo", "")).strip()
 
         if not nome or not numero:
-            print("Linha ignorada por falta de nome ou telefone.")
+            print("⚠ Linha ignorada - falta nome ou telefone")
             continue
 
         mensagem = criar_mensagem(nome, modelo, periodo)
 
-        enviar_mensagem(numero, mensagem)
+        print("📤 Enviando para:", nome, numero)
 
-        df.at[index, "STATUS DE ENVIO"] = "ENVIADO"
-        df.at[index, "DATA_ENVIO"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+        enviado = enviar_mensagem(numero, mensagem)
 
-        df.to_excel(ARQUIVO_PLANILHA, index=False)
+        if enviado:
 
-        print("Enviado:", nome)
+            df.at[index, "STATUS DE ENVIO"] = "ENVIADO"
+            df.at[index, "DATA_ENVIO"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+            df.to_excel(ARQUIVO_PLANILHA, index=False)
+
+            print("✅ Enviado com sucesso:", nome)
+
+        else:
+            print("❌ Falha no envio:", nome)
 
         time.sleep(INTERVALO_ENTRE_ENVIOS)
 
-    print("Disparo finalizado")
+    print("===================================")
+    print("✅ Disparo finalizado")
+    print("===================================")
 
 
 if __name__ == "__main__":
