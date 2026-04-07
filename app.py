@@ -844,7 +844,7 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
                # ==========================
-        # SUBMENU GARANTIA
+               # SUBMENU GARANTIA
         # ==========================
         elif etapa == "submenu_garantia":
             if texto_normalizado == "1":
@@ -879,10 +879,19 @@ def webhook():
 
         elif etapa == "garantia_nova_nome":
             clientes[telefone]["nome_cliente"] = texto
-            clientes[telefone]["etapa"] = "garantia_nova_descricao"
+            clientes[telefone]["etapa"] = "garantia_nova_modelo"
             enviar_mensagem(
                 telefone,
                 "Perfeito 👍\n\n"
+                "🏍️ Informe o *modelo da sua Yamaha*:"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif etapa == "garantia_nova_modelo":
+            clientes[telefone]["modelo_moto"] = texto
+            clientes[telefone]["etapa"] = "garantia_nova_descricao"
+            enviar_mensagem(
+                telefone,
                 "📝 Descreva o *problema apresentado* na moto para registrarmos sua solicitação de garantia:"
             )
             return jsonify({"status": "ok"}), 200
@@ -893,7 +902,7 @@ def webhook():
                 telefone=telefone,
                 nome=clientes[telefone].get("nome_cliente", ""),
                 setor="Garantia",
-                modelo="",
+                modelo=clientes[telefone].get("modelo_moto", ""),
                 ano="",
                 revisao="",
                 horario="",
@@ -907,6 +916,7 @@ def webhook():
                 "✅ *Solicitação de garantia registrada com sucesso!*\n\n"
                 "📋 *Resumo do atendimento*\n\n"
                 f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
+                f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
                 f"📝 Problema informado: {clientes[telefone].get('descricao', '')}\n\n"
                 "Nossa equipe fará a análise e retornará em breve.\n\n"
                 "🏍️ *Equipe Motoshow Yamaha*"
