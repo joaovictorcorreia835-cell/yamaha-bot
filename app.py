@@ -174,9 +174,15 @@ def enviar_mensagem(telefone, mensagem):
     }
 
     try:
+        print("URL_ENVIO:", url_envio)
+        print("PAYLOAD_ENVIO:", payload)
+
         r = requests.post(url_envio, json=payload, headers=headers_zapi(), timeout=30)
+
+        print("RESPOSTA_ZAPI:", r.text)
         log_info("Envio mensagem:", telefone, "status:", r.status_code)
         return r.ok
+
     except Exception as e:
         log_erro("Erro ao enviar mensagem:", e)
         return False
