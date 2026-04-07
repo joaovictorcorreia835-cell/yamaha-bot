@@ -1,17 +1,1 @@
-{
-    "atendimentos": [],
-    "estatisticas": {
-        "total_atendimentos": 0,
-        "revisao": 0,
-        "pecas": 0,
-        "acessorios": 0,
-        "garantia": 0,
-        "logista": 0,
-        "atendimento_humano": 0,
-        "agendamentos_concluidos": 0,
-        "origem_campanha": 0,
-        "origem_menu": 0
-    },
-    "revisoes": [],
-    "itens_vendidos": []
-}
+[]

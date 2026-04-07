@@ -1,30 +1,23 @@
 services:
   - type: web
-    name: yamaha-bot
+    name: yamaha-bot-1
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     autoDeploy: true
-
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-
       - key: ZAPI_INSTANCE_ID
         sync: false
-
       - key: ZAPI_TOKEN
         sync: false
-
       - key: ZAPI_CLIENT_TOKEN
         sync: false
-
       - key: BASE_URL
-        sync: false
-
+        value: https://yamaha-bot-1.onrender.com
       - key: DATABASE_URL
         value: sqlite:///yamaha.db
-
       - key: TEMPO_INATIVIDADE
-        value: "900"
+        value: 600

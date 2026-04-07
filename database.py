@@ -3,6 +3,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import os
 
+# ==========================================
+# CONFIG
+# ==========================================
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
 engine = create_engine(
@@ -15,6 +19,10 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 
+# ==========================================
+# TABELA ATENDIMENTOS
+# ==========================================
+
 class Atendimento(Base):
 
     __tablename__ = "atendimentos"
@@ -23,7 +31,21 @@ class Atendimento(Base):
 
     telefone = Column(String)
 
+    nome = Column(String)
+
     setor = Column(String)
+
+    modelo = Column(String)
+
+    ano = Column(String)
+
+    revisao = Column(String)
+
+    horario = Column(String)
+
+    itens = Column(String)
+
+    origem = Column(String)
 
     status = Column(String)
 
@@ -31,6 +53,10 @@ class Atendimento(Base):
 
     data = Column(DateTime, default=datetime.now)
 
+
+# ==========================================
+# CRIAR BANCO
+# ==========================================
 
 def criar_banco():
     Base.metadata.create_all(engine)
