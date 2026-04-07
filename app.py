@@ -843,18 +843,26 @@ def webhook():
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
 
-        # ==========================
+               # ==========================
         # SUBMENU GARANTIA
         # ==========================
         elif etapa == "submenu_garantia":
             if texto_normalizado == "1":
                 clientes[telefone]["etapa"] = "garantia_nova_nome"
-                enviar_mensagem(telefone, "Por favor informe seu nome completo:")
+                enviar_mensagem(
+                    telefone,
+                    "🛡️ *Nova Solicitação de Garantia*\n\n"
+                    "Para continuarmos, informe seu *nome completo*:"
+                )
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "2":
                 clientes[telefone]["etapa"] = "garantia_acompanhar_nome"
-                enviar_mensagem(telefone, "Por favor informe seu nome completo:")
+                enviar_mensagem(
+                    telefone,
+                    "📋 *Acompanhar Garantia*\n\n"
+                    "Para localizar sua solicitação, informe seu *nome completo*:"
+                )
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "3":
@@ -872,7 +880,11 @@ def webhook():
         elif etapa == "garantia_nova_nome":
             clientes[telefone]["nome_cliente"] = texto
             clientes[telefone]["etapa"] = "garantia_nova_descricao"
-            enviar_mensagem(telefone, "Descreva o problema apresentado:")
+            enviar_mensagem(
+                telefone,
+                "Perfeito 👍\n\n"
+                "📝 Descreva o *problema apresentado* na moto para registrarmos sua solicitação de garantia:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "garantia_nova_descricao":
@@ -892,7 +904,12 @@ def webhook():
             )
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\nSua solicitação de garantia foi registrada.\nNossa equipe fará a análise e retornará em breve.\n\nEquipe Motoshow Yamaha"
+                "✅ *Solicitação de garantia registrada com sucesso!*\n\n"
+                "📋 *Resumo do atendimento*\n\n"
+                f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
+                f"📝 Problema informado: {clientes[telefone].get('descricao', '')}\n\n"
+                "Nossa equipe fará a análise e retornará em breve.\n\n"
+                "🏍️ *Equipe Motoshow Yamaha*"
             )
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
@@ -900,19 +917,30 @@ def webhook():
         elif etapa == "garantia_acompanhar_nome":
             clientes[telefone]["nome_cliente"] = texto
             clientes[telefone]["etapa"] = "garantia_acompanhar_modelo"
-            enviar_mensagem(telefone, "Qual modelo da sua Yamaha?")
+            enviar_mensagem(
+                telefone,
+                "Ótimo ✅\n\n"
+                "🏍️ Informe o *modelo da sua Yamaha*:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "garantia_acompanhar_modelo":
             clientes[telefone]["modelo_moto"] = texto
             clientes[telefone]["etapa"] = "garantia_acompanhar_cpf"
-            enviar_mensagem(telefone, "Informe seu CPF para localizar sua garantia:")
+            enviar_mensagem(
+                telefone,
+                "Perfeito 👍\n\n"
+                "🪪 Agora informe seu *CPF* para localizar sua garantia:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "garantia_acompanhar_cpf":
             clientes[telefone]["cpf"] = texto
             clientes[telefone]["etapa"] = "garantia_acompanhar_descricao"
-            enviar_mensagem(telefone, "Descreva brevemente sua solicitação de garantia:")
+            enviar_mensagem(
+                telefone,
+                "📝 Descreva brevemente sua *solicitação de garantia* para facilitar a consulta:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "garantia_acompanhar_descricao":
@@ -932,7 +960,14 @@ def webhook():
             )
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\nSua solicitação de acompanhamento foi registrada.\nNossa equipe irá consultar o status da garantia e retornar em breve.\n\nEquipe Motoshow Yamaha 🏍️"
+                "✅ *Solicitação de acompanhamento registrada com sucesso!*\n\n"
+                "📋 *Resumo do atendimento*\n\n"
+                f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
+                f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
+                f"🪪 CPF: {clientes[telefone].get('cpf', '')}\n"
+                f"📝 Solicitação: {clientes[telefone].get('descricao', '')}\n\n"
+                "Nossa equipe irá consultar o status da garantia e retornará em breve.\n\n"
+                "🏍️ *Equipe Motoshow Yamaha*"
             )
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
