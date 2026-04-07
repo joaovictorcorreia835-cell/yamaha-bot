@@ -648,25 +648,35 @@ def webhook():
         atualizar_interacao(telefone)
         clientes[telefone]["mensagem_original"] = texto
 
+        texto_normalizado = texto.lower().strip()
+
+        # ==========================================
+        # BLOQUEIO ATENDIMENTO HUMANO
+        # ==========================================
+        if clientes[telefone].get("atendimento_humano"):
+            print("Atendimento humano ativo - Bot não responde")
+            return jsonify({"status": "atendimento humano"}), 200
+
         if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
             resetar_cliente(telefone, manter_origem=True)
             enviar_menu(telefone)
             return jsonify({"status": "menu"}), 200
 
-        if clientes[telefone]["atendimento_humano"]:
-            return jsonify({"status": "humano"}), 200
 
+        # ==============================
+        # CONTINUA FLUXO
+        # ==============================
         etapa = clientes[telefone]["etapa"]
         log_info("ETAPA:", etapa)
 
-        # ==========================
-        # MENU PRINCIPAL
-        # ==========================
+# ==========================
+# MENU PRINCIPAL
+# ==========================
         if etapa == "menu":
+
             if texto_normalizado == "1":
                 clientes[telefone]["etapa"] = "revisao_modelo"
                 clientes[telefone]["setor"] = "Revisão"
-                clientes[telefone]["origem"] = "Campanha" if clientes[telefone].get("origem") == "Campanha" else clientes[telefone].get("origem", "Menu Normal")
                 enviar_mensagem(telefone, "Informe o modelo da sua Yamaha:")
                 return jsonify({"status": "ok"}), 200
 
@@ -698,9 +708,9 @@ def webhook():
                 ativar_atendimento_humano(telefone, setor="Atendente")
                 return jsonify({"status": "ok"}), 200
 
-            resposta_fallback(telefone)
-            return jsonify({"status": "fallback"}), 200
-
+            else:
+                resposta_fallback(telefone)
+                return jsonify({"status": "fallback"}), 200
         # ==========================
         # SUBMENU PEÇAS
         # ==========================
@@ -716,17 +726,27 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "3":
-                ativar_atendimento_humano(telefone, setor="Peças")
+                clientes[telefone]["etapa"] = "pecas_disponibilidade_modelo"
+                enviar_mensagem(telefone, "Informe o modelo da moto:")
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "4":
+                ativar_atendimento_humano(telefone, setor="Peças")
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_normalizado == "5":
                 resetar_cliente(telefone, manter_origem=True)
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
 
-            resposta_fallback(telefone)
-            return jsonify({"status": "fallback"}), 200
+            else:
+                resposta_fallback(telefone)
+                return jsonify({"status": "fallback"}), 200
 
+
+        # ===============================
+        # PEÇAS NOME
+        # ===============================
         elif etapa == "pecas_nome":
             clientes[telefone]["peca_nome"] = texto
             clientes[telefone]["etapa"] = "pecas_modelo"
@@ -746,6 +766,8 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "pecas_cor":
+            clientes[telefone]["cor_moto"] = texto
+
             salvar_atendimento(
                 telefone=telefone,
                 nome=clientes[telefone].get("nome_cliente", ""),
@@ -759,13 +781,15 @@ def webhook():
                 status="Orçamento Peças",
                 atendimento_humano=False
             )
+
             enviar_mensagem(
                 telefone,
                 "Perfeito 👍\n\nSua solicitação de peças foi registrada e será encaminhada para orçamento.\n\nEquipe Motoshow Yamaha"
             )
+
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
-
+        
         elif etapa == "pecas_disponibilidade_nome":
             clientes[telefone]["peca_nome"] = texto
             clientes[telefone]["etapa"] = "pecas_disponibilidade_modelo"
@@ -774,6 +798,7 @@ def webhook():
 
         elif etapa == "pecas_disponibilidade_modelo":
             clientes[telefone]["modelo_moto"] = texto
+
             salvar_atendimento(
                 telefone=telefone,
                 nome=clientes[telefone].get("nome_cliente", ""),
@@ -787,10 +812,12 @@ def webhook():
                 status="Consulta Disponibilidade",
                 atendimento_humano=False
             )
+
             enviar_mensagem(
                 telefone,
                 "Perfeito 👍\n\nVamos consultar a disponibilidade no estoque e retornar em breve.\n\nEquipe Motoshow Yamaha"
             )
+
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
 
@@ -812,17 +839,25 @@ def webhook():
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
 
-            resposta_fallback(telefone)
-            return jsonify({"status": "fallback"}), 200
+            else:
+                resposta_fallback(telefone)
+                return jsonify({"status": "fallback"}), 200
 
         elif etapa == "acessorio_nome":
-            clientes[telefone]["acessorio_nome"] = texto
-            clientes[telefone]["etapa"] = "acessorio_modelo"
-            enviar_mensagem(telefone, "Informe o modelo da moto:")
-            return jsonify({"status": "ok"}), 200
+                clientes[telefone]["acessorio_nome"] = texto
+                clientes[telefone]["etapa"] = "acessorio_modelo"
+                enviar_mensagem(telefone, "Informe o modelo da moto:")
+                return jsonify({"status": "ok"}), 200
+
+        elif etapa == "acessorio_nome":
+                clientes[telefone]["acessorio_nome"] = texto
+                clientes[telefone]["etapa"] = "acessorio_modelo"
+                enviar_mensagem(telefone, "Informe o modelo da moto:")
+                return jsonify({"status": "ok"}), 200
 
         elif etapa == "acessorio_modelo":
             clientes[telefone]["modelo_moto"] = texto
+
             salvar_atendimento(
                 telefone=telefone,
                 nome=clientes[telefone].get("nome_cliente", ""),
@@ -836,15 +871,16 @@ def webhook():
                 status="Orçamento Acessórios",
                 atendimento_humano=False
             )
+
             enviar_mensagem(
                 telefone,
                 "Perfeito 👍\n\nSua solicitação de acessório foi registrada e será encaminhada para orçamento.\n\nEquipe Motoshow Yamaha"
             )
+
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
-
-               # ==========================
-               # SUBMENU GARANTIA
+        # ==========================
+        # SUBMENU GARANTIA
         # ==========================
         elif etapa == "submenu_garantia":
             if texto_normalizado == "1":
@@ -874,16 +910,25 @@ def webhook():
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
 
-            resposta_fallback(telefone)
-            return jsonify({"status": "fallback"}), 200
+            else:
+                resposta_fallback(telefone)
+                return jsonify({"status": "fallback"}), 200
 
         elif etapa == "garantia_nova_nome":
             clientes[telefone]["nome_cliente"] = texto
             clientes[telefone]["etapa"] = "garantia_nova_modelo"
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\n"
-                "🏍️ Informe o *modelo da sua Yamaha*:"
+                "Perfeito 👍\n\n🏍️ Informe o *modelo da sua Yamaha*:"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif etapa == "garantia_nova_modelo":
+            clientes[telefone]["modelo_moto"] = texto
+            clientes[telefone]["etapa"] = "garantia_nova_descricao"
+            enviar_mensagem(
+                telefone,
+                "📝 Descreva o *problema apresentado* na moto para registrarmos sua solicitação de garantia:"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -898,6 +943,7 @@ def webhook():
 
         elif etapa == "garantia_nova_descricao":
             clientes[telefone]["descricao"] = texto
+
             salvar_atendimento(
                 telefone=telefone,
                 nome=clientes[telefone].get("nome_cliente", ""),
@@ -911,6 +957,7 @@ def webhook():
                 status="Nova Garantia",
                 atendimento_humano=False
             )
+
             enviar_mensagem(
                 telefone,
                 "✅ *Solicitação de garantia registrada com sucesso!*\n\n"
@@ -921,92 +968,47 @@ def webhook():
                 "Nossa equipe fará a análise e retornará em breve.\n\n"
                 "🏍️ *Equipe Motoshow Yamaha*"
             )
+
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_acompanhar_nome":
-            clientes[telefone]["nome_cliente"] = texto
-            clientes[telefone]["etapa"] = "garantia_acompanhar_modelo"
-            enviar_mensagem(
-                telefone,
-                "Ótimo ✅\n\n"
-                "🏍️ Informe o *modelo da sua Yamaha*:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_acompanhar_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-            clientes[telefone]["etapa"] = "garantia_acompanhar_cpf"
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\n"
-                "🪪 Agora informe seu *CPF* para localizar sua garantia:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_acompanhar_cpf":
-            clientes[telefone]["cpf"] = texto
-            clientes[telefone]["etapa"] = "garantia_acompanhar_descricao"
-            enviar_mensagem(
-                telefone,
-                "📝 Descreva brevemente sua *solicitação de garantia* para facilitar a consulta:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_acompanhar_descricao":
-            clientes[telefone]["descricao"] = texto
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("nome_cliente", ""),
-                setor="Garantia",
-                modelo=clientes[telefone].get("modelo_moto", ""),
-                ano="",
-                revisao="",
-                horario="",
-                itens="Acompanhamento Garantia",
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Acompanhamento",
-                atendimento_humano=False
-            )
-            enviar_mensagem(
-                telefone,
-                "✅ *Solicitação de acompanhamento registrada com sucesso!*\n\n"
-                "📋 *Resumo do atendimento*\n\n"
-                f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
-                f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
-                f"🪪 CPF: {clientes[telefone].get('cpf', '')}\n"
-                f"📝 Solicitação: {clientes[telefone].get('descricao', '')}\n\n"
-                "Nossa equipe irá consultar o status da garantia e retornará em breve.\n\n"
-                "🏍️ *Equipe Motoshow Yamaha*"
-            )
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
         # ==========================
         # SUBMENU ATACADO
         # ==========================
         elif etapa == "submenu_atacado":
             if texto_normalizado == "1":
                 clientes[telefone]["etapa"] = "atacado_empresa"
-                enviar_mensagem(telefone, "Informe o nome da empresa:")
+                enviar_mensagem(
+                    telefone,
+                    "🏢 Informe o *nome da empresa*:"
+                )
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "2":
                 clientes[telefone]["etapa"] = "cadastro_empresa"
-                enviar_mensagem(telefone, "Informe o nome da empresa:")
+                enviar_mensagem(
+                    telefone,
+                    "🏢 Informe o *nome da empresa* para cadastro:"
+                )
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "3":
                 ok = enviar_catalogo(telefone)
+
                 if ok:
-                    enviar_mensagem(telefone, "Catálogo enviado com sucesso ✅")
+                    enviar_mensagem(
+                        telefone,
+                        "📄 Catálogo enviado com sucesso ✅"
+                    )
                 else:
-                    enviar_mensagem(telefone, "Não foi possível enviar o catálogo agora. Tente novamente em instantes.")
-                resetar_cliente(telefone, manter_origem=True)
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Não foi possível enviar o catálogo. Tente novamente."
+                    )
+
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "4":
-                ativar_atendimento_humano(telefone, setor="Logista")
+                ativar_atendimento_humano(telefone, setor="Logista/Atacado")
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "5":
@@ -1014,8 +1016,9 @@ def webhook():
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
 
-            resposta_fallback(telefone)
-            return jsonify({"status": "fallback"}), 200
+            else:
+                resposta_fallback(telefone)
+                return jsonify({"status": "fallback"}), 200
 
         elif etapa == "atacado_empresa":
             clientes[telefone]["empresa"] = texto
@@ -1037,10 +1040,11 @@ def webhook():
 
         elif etapa == "atacado_pecas":
             clientes[telefone]["descricao"] = texto
+
             salvar_atendimento(
                 telefone=telefone,
                 nome=clientes[telefone].get("empresa", ""),
-                setor="Logista",
+                setor="Logista/Atacado",
                 modelo="",
                 ano="",
                 revisao="",
@@ -1050,60 +1054,71 @@ def webhook():
                 status="Cotação Atacado",
                 atendimento_humano=False
             )
+
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\nSua solicitação de cotação foi registrada e será encaminhada para o consultor comercial.\n\nEquipe Motoshow Yamaha"
+                "Perfeito 👍\n\n"
+                "Sua solicitação de cotação foi registrada e será encaminhada para o consultor comercial.\n\n"
+                "Equipe Motoshow Yamaha"
             )
+
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "cadastro_empresa":
             clientes[telefone]["empresa"] = texto
             clientes[telefone]["etapa"] = "cadastro_cnpj"
-            enviar_mensagem(telefone, "Informe o CNPJ:")
+            enviar_mensagem(
+                telefone,
+                "Informe o CNPJ:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "cadastro_cnpj":
             clientes[telefone]["cnpj"] = texto
             clientes[telefone]["etapa"] = "cadastro_responsavel"
-            enviar_mensagem(telefone, "Informe o nome do responsável:")
+            enviar_mensagem(
+                telefone,
+                "Informe o nome do responsável:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "cadastro_responsavel":
             clientes[telefone]["responsavel"] = texto
             clientes[telefone]["etapa"] = "cadastro_cidade"
-            enviar_mensagem(telefone, "Informe a cidade:")
+            enviar_mensagem(
+                telefone,
+                "Informe a cidade:"
+            )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "cadastro_cidade":
             clientes[telefone]["cidade"] = texto
-            clientes[telefone]["etapa"] = "cadastro_telefone"
-            enviar_mensagem(telefone, "Informe o telefone da empresa:")
-            return jsonify({"status": "ok"}), 200
 
-        elif etapa == "cadastro_telefone":
-            clientes[telefone]["telefone_empresa"] = texto
             salvar_atendimento(
                 telefone=telefone,
-                nome=clientes[telefone].get("empresa", ""),
-                setor="Logista",
+                nome=clientes[telefone].get("responsavel", ""),
+                setor="Logista/Atacado",
                 modelo="",
                 ano="",
                 revisao="",
                 horario="",
-                itens="Cadastro de Logista",
+                itens="Cadastro Logista",
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Cadastro Logista",
                 atendimento_humano=False
             )
+
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\nSeu cadastro foi recebido com sucesso.\nNossa equipe comercial retornará em breve.\n\nEquipe Motoshow Yamaha"
+                "✅ Cadastro recebido com sucesso!\n\n"
+                "Nossa equipe comercial entrará em contato em breve.\n\n"
+                "Equipe Motoshow Yamaha"
             )
+
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
-
-             # ==========================
+        # ==========================
         # FLUXO REVISÃO
         # ==========================
         elif etapa == "revisao_modelo":
@@ -1111,8 +1126,7 @@ def webhook():
             clientes[telefone]["etapa"] = "revisao_nome"
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\n"
-                "👤 Agora informe seu *nome completo*:"
+                "Perfeito 👍\n\n👤 Agora informe seu *nome completo*:"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1121,9 +1135,7 @@ def webhook():
             clientes[telefone]["etapa"] = "revisao_ano"
             enviar_mensagem(
                 telefone,
-                "Ótimo ✅\n\n"
-                "📅 Informe o *ano da sua moto*.\n"
-                "Exemplo: *2024*"
+                "Ótimo ✅\n\n📅 Informe o *ano da sua moto*.\nExemplo: *2024*"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1164,11 +1176,11 @@ def webhook():
         elif etapa == "revisao_dia":
             mapa_dias = {
                 "1": "segunda",
-                "2": "terça",
+                "2": "terca",
                 "3": "quarta",
                 "4": "quinta",
                 "5": "sexta",
-                "6": "sábado"
+                "6": "sabado"
             }
 
             if texto_normalizado not in mapa_dias:
@@ -1272,17 +1284,10 @@ def webhook():
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
 
-        resposta_fallback(telefone)
-        return jsonify({"status": "fallback"}), 200
+        else:
+            resposta_fallback(telefone)
+            return jsonify({"status": "fallback"}), 200
 
     except Exception as e:
         log_erro("ERRO WEBHOOK:", e)
         return jsonify({"status": "erro", "detalhe": str(e)}), 500
-
-
-# ==========================================
-# RUN
-# ==========================================
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
