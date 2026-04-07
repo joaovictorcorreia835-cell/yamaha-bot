@@ -1,3 +1,13 @@
+import os
+import time
+import requests
+import pandas as pd
+
+from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
 def enviar_mensagem(numero, mensagem):
 
     headers = {
