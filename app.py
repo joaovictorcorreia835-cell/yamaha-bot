@@ -970,15 +970,6 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        elif etapa == "garantia_nova_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-            clientes[telefone]["etapa"] = "garantia_nova_descricao"
-            enviar_mensagem(
-                telefone,
-                "📝 Descreva o *problema apresentado* na moto para registrarmos sua solicitação de garantia:"
-            )
-            return jsonify({"status": "ok"}), 200
-
         elif etapa == "garantia_nova_descricao":
             clientes[telefone]["descricao"] = texto
 
