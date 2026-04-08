@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import os
@@ -29,7 +29,7 @@ class Atendimento(Base):
 
     id = Column(Integer, primary_key=True)
 
-    telefone = Column(String)
+    telefone = Column(String, index=True)
 
     nome = Column(String)
 
@@ -41,15 +41,79 @@ class Atendimento(Base):
 
     revisao = Column(String)
 
+    dia_semana = Column(String)
+
+    data_agendada = Column(String)
+
     horario = Column(String)
 
-    itens = Column(String)
+    cpf = Column(String)
+
+    itens = Column(Text)
+
+    venda_adicional = Column(String)
 
     origem = Column(String)
 
     status = Column(String)
 
+    etapa = Column(String)
+
     atendimento_humano = Column(Boolean, default=False)
+
+    concluido = Column(Boolean, default=False)
+
+    data = Column(DateTime, default=datetime.now)
+
+    ultima_interacao = Column(DateTime, default=datetime.now)
+
+
+# ==========================================
+# TABELA DISPAROS
+# ==========================================
+
+class Disparo(Base):
+
+    __tablename__ = "disparos"
+
+    id = Column(Integer, primary_key=True)
+
+    telefone = Column(String)
+
+    nome = Column(String)
+
+    modelo = Column(String)
+
+    periodo = Column(String)
+
+    status = Column(String, default="pendente")
+
+    data_envio = Column(DateTime)
+
+
+# ==========================================
+# TABELA ATACADO
+# ==========================================
+
+class LeadAtacado(Base):
+
+    __tablename__ = "leads_atacado"
+
+    id = Column(Integer, primary_key=True)
+
+    telefone = Column(String)
+
+    empresa = Column(String)
+
+    cnpj = Column(String)
+
+    cidade = Column(String)
+
+    responsavel = Column(String)
+
+    interesse = Column(Text)
+
+    status = Column(String, default="novo")
 
     data = Column(DateTime, default=datetime.now)
 

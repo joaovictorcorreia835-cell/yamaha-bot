@@ -10,7 +10,7 @@ from collections import Counter
 from dotenv import load_dotenv
 from sqlalchemy import func
 
-from database import criar_banco, SessionLocal, Atendimento
+from database import criar_banco, SessionLocal, Atendimento, Disparo, LeadAtacado
 
 load_dotenv()
 
