@@ -16,7 +16,30 @@ load_dotenv()
 
 app = Flask(__name__)
 criar_banco()
+# ==========================================
+# TESTE BANCO
+# ==========================================
+@app.route("/test-banco")
+def test_banco():
+    db = SessionLocal()
+    try:
+        total = db.query(Atendimento).count()
+        return {
+            "status": "ok",
+            "total_atendimentos": total
+        }, 200
+    except Exception as e:
+        return {
+            "status": "erro",
+            "detalhe": str(e)
+        }, 500
+    finally:
+        db.close()
 
+
+@app.route("/")
+def home():
+    return "BOT YAMAHA ONLINE"
 # ==========================================
 # CONFIG
 # ==========================================
