@@ -1158,7 +1158,7 @@ def webhook():
         texto_normalizado = normalizar(texto)
 
         # gatilho rápido para menu
-        if menu_ou_saudacao(texto) and clientes[telefone]:
+        if menu_ou_saudacao(texto) and clientes[telefone]["etapa"] == "menu":
             resetar_cliente(telefone)
             enviar_mensagem(telefone, MENU_PRINCIPAL)
             salvar_contexto_cliente(telefone)
