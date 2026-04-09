@@ -1132,17 +1132,12 @@ def dashboard():
 # =========================================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    if request.method == "GET":
-        return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
-
-    payload = request.get_json(silent=True) or {}
-    log_info("PAYLOAD RECEBIDO:", payload)
 
     try:
         if evento_eh_do_proprio_bot(payload):
             return jsonify({"status": "ignorado", "motivo": "mensagem do proprio bot"}), 200
 
-                telefone = extrair_telefone(payload)
+        telefone = extrair_telefone(payload)
         texto = limpar_texto(extrair_mensagem_texto(payload))
         message_id = extrair_message_id(payload)
 
@@ -1162,16 +1157,13 @@ def webhook():
         iniciar_cliente(telefone)
         atualizar_interacao(telefone, texto)
 
-        # qualquer resposta do cliente cancela follow-up pendente
         cancelar_followup(telefone)
 
-        # se estava em atendimento humano, não dispara menu automático
         if clientes[telefone].get("atendimento_humano"):
             return jsonify({"status": "ok", "motivo": "em_atendimento_humano"}), 200
 
         texto_normalizado = normalizar(texto)
 
-        # gatilho rápido para menu
         if menu_ou_saudacao(texto):
             if clientes[telefone]["etapa"] != "menu":
                 resetar_cliente(telefone)
