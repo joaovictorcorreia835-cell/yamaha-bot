@@ -272,23 +272,30 @@ def extrair_message_id(payload):
     candidatos = [
         payload.get("messageId"),
         payload.get("id"),
+        payload.get("msgId"),
     ]
+
     data = payload.get("data", {})
     if isinstance(data, dict):
         candidatos.extend([
             data.get("messageId"),
             data.get("id"),
+            data.get("msgId"),
         ])
+
         message = data.get("message", {})
         if isinstance(message, dict):
             candidatos.extend([
                 message.get("messageId"),
                 message.get("id"),
+                message.get("msgId"),
+                message.get("_id"),
             ])
 
     for item in candidatos:
         if item:
             return str(item)
+
     return None
 
 
@@ -1135,14 +1142,21 @@ def webhook():
         if evento_eh_do_proprio_bot(payload):
             return jsonify({"status": "ignorado", "motivo": "mensagem do proprio bot"}), 200
 
-        telefone = extrair_telefone(payload)
+                telefone = extrair_telefone(payload)
         texto = limpar_texto(extrair_mensagem_texto(payload))
         message_id = extrair_message_id(payload)
+
+        log_info("TELEFONE:", telefone)
+        log_info("MESSAGE_ID:", message_id)
+        log_info("TEXTO:", texto)
 
         if not telefone or telefone_eh_grupo(telefone):
             return jsonify({"status": "ignorado", "motivo": "grupo ou telefone inválido"}), 200
 
-        if mensagem_ja_processada(message_id):
+        if not texto:
+            return jsonify({"status": "ignorado", "motivo": "evento sem texto"}), 200
+
+        if message_id and mensagem_ja_processada(message_id):
             return jsonify({"status": "ignorado", "motivo": "mensagem duplicada"}), 200
 
         iniciar_cliente(telefone)
@@ -1158,12 +1172,12 @@ def webhook():
         texto_normalizado = normalizar(texto)
 
         # gatilho rápido para menu
-            if menu_ou_saudacao(texto):
+        if menu_ou_saudacao(texto):
             if clientes[telefone]["etapa"] != "menu":
                 resetar_cliente(telefone)
                 enviar_mensagem(telefone, MENU_PRINCIPAL)
                 salvar_contexto_cliente(telefone)
-                return jsonify({"status": "ok", "rota": "menu"}), 200
+            return jsonify({"status": "ok", "rota": "menu"}), 200
         # Fase 2 - classificação básica de intenção a partir do texto livre
         if clientes[telefone]["etapa"] == "menu":
             intencao = classificar_intencao_local(texto)
