@@ -5,17 +5,43 @@ import json
 import threading
 import time
 from datetime import datetime
-from collections import Counter
+from collections import Counter, deque
 
+import pandas as pd
 from dotenv import load_dotenv
-from sqlalchemy import func
 
-from database import criar_banco, SessionLocal, Atendimento, Disparo, LeadAtacado
+from database import criar_banco, SessionLocal, Atendimento
 
 load_dotenv()
 
 app = Flask(__name__)
 criar_banco()
+
+# ==========================================
+# CONFIG
+# ==========================================
+ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
+ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
+ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+BASE_URL = os.getenv("BASE_URL", "https://yamaha-bot-1.onrender.com")
+TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900"))
+
+url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
+
+clientes = {}
+mensagens_processadas = set()
+fila_mensagens = deque(maxlen=2000)
+
+ARQUIVO_JSON = "atendimentos.json"
+ARQUIVO_PLANILHA_DISPARO = "clientes.xlsx"
+
+MODELOS_YAMAHA = [
+    "FAZER 250", "FZ15", "CROSSER", "LANDER", "MT03", "MT07",
+    "R15", "R3", "FLUO", "NEO", "NMAX", "TENERE 700", "AEROX"
+]
+
+
 # ==========================================
 # TESTE BANCO
 # ==========================================
@@ -40,26 +66,6 @@ def test_banco():
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
-# ==========================================
-# CONFIG
-# ==========================================
-ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
-ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
-ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
-BASE_URL = os.getenv("BASE_URL", "https://yamaha-bot-1.onrender.com")
-TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "600"))
-
-url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
-url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
-
-clientes = {}
-mensagens_processadas = set()
-ARQUIVO_JSON = "atendimentos.json"
-
-MODELOS_YAMAHA = [
-    "FAZER 250", "FZ15", "CROSSER", "LANDER", "MT03", "MT07",
-    "R15", "R3", "FLUO", "NEO", "NMAX", "TENERE 700", "AEROX"
-]
 
 
 # ==========================================
@@ -108,6 +114,25 @@ def normalizar_texto(texto):
     return limpar_texto(texto).lower()
 
 
+def normalizar_telefone_planilha(numero):
+    numero = str(numero or "").strip()
+    numero = numero.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    numero = numero.replace("@c.us", "").replace("@s.whatsapp.net", "").replace("@g.us", "")
+    return numero
+
+
+def registrar_mensagem_processada(message_id):
+    if message_id in mensagens_processadas:
+        return
+
+    if len(fila_mensagens) == fila_mensagens.maxlen:
+        antigo = fila_mensagens.popleft()
+        mensagens_processadas.discard(antigo)
+
+    fila_mensagens.append(message_id)
+    mensagens_processadas.add(message_id)
+
+
 def iniciar_cliente(telefone):
     if telefone not in clientes:
         clientes[telefone] = {
@@ -120,6 +145,7 @@ def iniciar_cliente(telefone):
             "ano_moto": "",
             "revisao_numero": "",
             "dia_semana": "",
+            "data_agendada": "",
             "horario_escolhido": "",
             "itens": [],
             "setor": "",
@@ -132,7 +158,10 @@ def iniciar_cliente(telefone):
             "descricao": "",
             "responsavel": "",
             "telefone_empresa": "",
-            "mensagem_original": ""
+            "mensagem_original": "",
+            "horarios_disponiveis": [],
+            "itens_menu": [],
+            "cor_moto": ""
         }
 
 
@@ -153,6 +182,7 @@ def resetar_cliente(telefone, manter_origem=False):
         "ano_moto": "",
         "revisao_numero": "",
         "dia_semana": "",
+        "data_agendada": "",
         "horario_escolhido": "",
         "itens": [],
         "setor": "",
@@ -165,34 +195,14 @@ def resetar_cliente(telefone, manter_origem=False):
         "descricao": "",
         "responsavel": "",
         "telefone_empresa": "",
-        "mensagem_original": ""
+        "mensagem_original": "",
+        "horarios_disponiveis": [],
+        "itens_menu": [],
+        "cor_moto": ""
     }
 
 
 def resposta_fallback(telefone):
-
-    etapa = clientes.get(telefone, {}).get("etapa")
-
-    if etapa == "escolher_dia":
-        enviar_dias(telefone)
-        return
-
-    elif etapa == "escolher_horario":
-        enviar_horarios(telefone)
-        return
-
-    elif etapa == "escolher_revisao":
-        enviar_revisoes(telefone)
-        return
-
-    elif etapa == "modelo":
-        enviar_modelos(telefone)
-        return
-
-    elif etapa == "venda_adicional":
-        enviar_venda_adicional(telefone)
-        return
-
     enviar_mensagem(
         telefone,
         "Não entendi sua resposta 🤖\n\nDigite uma opção válida ou digite *menu* para voltar ao início.\n\nEquipe Motoshow Yamaha"
@@ -212,12 +222,12 @@ def enviar_mensagem(telefone, mensagem):
     }
 
     try:
-        print("URL_ENVIO:", url_envio)
-        print("PAYLOAD_ENVIO:", payload)
+        log_info("URL_ENVIO:", url_envio)
+        log_info("PAYLOAD_ENVIO:", payload)
 
         r = requests.post(url_envio, json=payload, headers=headers_zapi(), timeout=30)
 
-        print("RESPOSTA_ZAPI:", r.text)
+        log_info("RESPOSTA_ZAPI:", r.text)
         log_info("Envio mensagem:", telefone, "status:", r.status_code)
         return r.ok
 
@@ -250,14 +260,22 @@ def salvar_atendimento(
     modelo="",
     ano="",
     revisao="",
+    dia_semana="",
+    data_agendada="",
     horario="",
+    cpf="",
     itens="",
+    venda_adicional="",
     origem="Menu Normal",
     status="Em atendimento",
-    atendimento_humano=False
+    etapa="",
+    atendimento_humano=False,
+    concluido=False
 ):
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
+
         atendimento = Atendimento(
             telefone=telefone,
             nome=nome,
@@ -265,12 +283,20 @@ def salvar_atendimento(
             modelo=modelo,
             ano=ano,
             revisao=revisao,
+            dia_semana=dia_semana,
+            data_agendada=data_agendada,
             horario=horario,
+            cpf=cpf,
             itens=itens,
+            venda_adicional=venda_adicional,
             origem=origem,
             status=status,
-            atendimento_humano=atendimento_humano
+            etapa=etapa,
+            atendimento_humano=atendimento_humano,
+            concluido=concluido,
+            ultima_interacao=datetime.now()
         )
+
         db.add(atendimento)
         db.commit()
 
@@ -281,19 +307,108 @@ def salvar_atendimento(
             "modelo": modelo,
             "ano": ano,
             "revisao": revisao,
+            "dia_semana": dia_semana,
+            "data_agendada": data_agendada,
             "horario": horario,
+            "cpf": cpf,
             "itens": itens,
+            "venda_adicional": venda_adicional,
             "origem": origem,
             "status": status,
+            "etapa": etapa,
             "atendimento_humano": atendimento_humano,
+            "concluido": concluido,
             "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         })
 
+        log_info("✅ Atendimento salvo com sucesso:", telefone)
+
     except Exception as e:
+        if db:
+            db.rollback()
         log_erro("Erro ao salvar atendimento:", e)
+
     finally:
-        db.close()
-        # ==========================================
+        if db:
+            db.close()
+
+
+# ==========================================
+# PLANILHA DISPARO
+# ==========================================
+def atualizar_linha_planilha_disparo(
+    telefone,
+    status_retorno="",
+    obs="",
+    intencao_ia="",
+    proxima_acao="",
+    nivel_interesse="",
+    marcar_data_retorno=False,
+    marcar_followup_1=False,
+    marcar_followup_2=False
+):
+    try:
+        if not os.path.exists(ARQUIVO_PLANILHA_DISPARO):
+            log_info("Planilha de disparo não encontrada:", ARQUIVO_PLANILHA_DISPARO)
+            return False
+
+        df = pd.read_excel(ARQUIVO_PLANILHA_DISPARO, dtype=str).fillna("")
+
+        if "TELEFONE" not in df.columns:
+            log_erro("Coluna TELEFONE não encontrada na planilha.")
+            return False
+
+        telefone_normalizado = normalizar_telefone_planilha(telefone)
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+        linha_encontrada = None
+
+        for index, row in df.iterrows():
+            telefone_planilha = normalizar_telefone_planilha(row.get("TELEFONE", ""))
+            if telefone_planilha == telefone_normalizado:
+                linha_encontrada = index
+                break
+
+        if linha_encontrada is None:
+            log_info("Telefone não encontrado na planilha de disparo:", telefone)
+            return False
+
+        df.at[linha_encontrada, "ULTIMA_INTERACAO"] = agora
+
+        if status_retorno:
+            df.at[linha_encontrada, "STATUS_RETORNO"] = status_retorno
+
+        if marcar_data_retorno:
+            df.at[linha_encontrada, "DATA_RETORNO"] = agora
+
+        if obs:
+            df.at[linha_encontrada, "OBS"] = obs
+
+        if intencao_ia:
+            df.at[linha_encontrada, "INTENCAO_IA"] = intencao_ia
+
+        if proxima_acao:
+            df.at[linha_encontrada, "PROXIMA_ACAO"] = proxima_acao
+
+        if nivel_interesse:
+            df.at[linha_encontrada, "NIVEL_INTERESSE"] = nivel_interesse
+
+        if marcar_followup_1:
+            df.at[linha_encontrada, "FOLLOWUP_1"] = agora
+
+        if marcar_followup_2:
+            df.at[linha_encontrada, "FOLLOWUP_2"] = agora
+
+        df.to_excel(ARQUIVO_PLANILHA_DISPARO, index=False)
+        log_info("Planilha atualizada com sucesso para:", telefone)
+        return True
+
+    except Exception as e:
+        log_erro("Erro ao atualizar planilha de disparo:", e)
+        return False
+
+
+# ==========================================
 # EXTRAÇÃO DE PAYLOAD Z-API
 # ==========================================
 def extrair_payload_base(payload):
@@ -330,7 +445,6 @@ def extrair_mensagem_texto(payload):
     try:
         base = extrair_payload_base(payload)
 
-        # Formato novo Z-API
         text = base.get("text")
 
         if isinstance(text, dict):
@@ -357,10 +471,8 @@ def extrair_mensagem_texto(payload):
         return ""
 
     except Exception as e:
-        print("Erro ao extrair mensagem:", e)
+        log_erro("Erro ao extrair mensagem:", e)
         return ""
-
-    return ""
 
 
 def extrair_message_id(payload):
@@ -557,10 +669,14 @@ def ativar_atendimento_humano(telefone, setor="Atendente"):
         modelo=clientes[telefone].get("modelo_moto", ""),
         ano=clientes[telefone].get("ano_moto", ""),
         revisao=clientes[telefone].get("revisao_numero", ""),
+        dia_semana=clientes[telefone].get("dia_semana", ""),
+        data_agendada=clientes[telefone].get("data_agendada", ""),
         horario=clientes[telefone].get("horario_escolhido", ""),
+        cpf=clientes[telefone].get("cpf", ""),
         itens=", ".join(clientes[telefone].get("itens", [])),
         origem=clientes[telefone].get("origem", "Menu Normal"),
         status="Atendimento Humano",
+        etapa=clientes[telefone].get("etapa", ""),
         atendimento_humano=True
     )
 
@@ -586,7 +702,9 @@ def dashboard():
         pecas = db.query(Atendimento).filter(Atendimento.setor == "Peças").count()
         acessorios = db.query(Atendimento).filter(Atendimento.setor == "Acessórios").count()
         garantia = db.query(Atendimento).filter(Atendimento.setor == "Garantia").count()
-        logista = db.query(Atendimento).filter(Atendimento.setor == "Logista").count()
+        logista = db.query(Atendimento).filter(
+            Atendimento.setor.in_(["Logista", "Logista/Atacado"])
+        ).count()
 
         campanha = db.query(Atendimento).filter(Atendimento.origem == "Campanha").count()
         menu = db.query(Atendimento).filter(Atendimento.origem == "Menu Normal").count()
@@ -650,6 +768,8 @@ def dashboard():
 @app.route("/pdf/<arquivo>")
 def pdf(arquivo):
     return send_from_directory("static/pdfs", arquivo)
+
+
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -680,41 +800,50 @@ def webhook():
         if message_id in mensagens_processadas:
             return jsonify({"status": "ignorado", "motivo": "mensagem duplicada"}), 200
 
-        mensagens_processadas.add(message_id)
+        registrar_mensagem_processada(message_id)
 
         iniciar_cliente(telefone)
         atualizar_interacao(telefone)
         clientes[telefone]["mensagem_original"] = texto
 
-        texto_normalizado = texto.lower().strip()
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs=f"Cliente respondeu: {texto}",
+            marcar_data_retorno=True
+        )
 
-        # ==========================================
-        # BLOQUEIO ATENDIMENTO HUMANO
-        # ==========================================
         if clientes[telefone].get("atendimento_humano"):
-            print("Atendimento humano ativo - Bot não responde")
-            return jsonify({"status": "atendimento humano"}), 200
+            log_info("Atendimento humano ativo - Bot não responde")
+            return jsonify({"status": "atendimento_humano"}), 200
 
         if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
             resetar_cliente(telefone, manter_origem=True)
             enviar_menu(telefone)
             return jsonify({"status": "menu"}), 200
 
-
-        # ==============================
-        # CONTINUA FLUXO
-        # ==============================
         etapa = clientes[telefone]["etapa"]
         log_info("ETAPA:", etapa)
 
-# ==========================
-# MENU PRINCIPAL
-# ==========================
+        # ==========================
+        # MENU PRINCIPAL
+        # ==========================
         if etapa == "menu":
 
             if texto_normalizado == "1":
                 clientes[telefone]["etapa"] = "revisao_modelo"
                 clientes[telefone]["setor"] = "Revisão"
+
+                atualizar_linha_planilha_disparo(
+                    telefone=telefone,
+                    status_retorno="AGENDOU",
+                    obs="Cliente iniciou fluxo de agendamento de revisão",
+                    intencao_ia="AGENDAR",
+                    proxima_acao="ENTRAR_FLUXO_REVISAO",
+                    nivel_interesse="QUENTE",
+                    marcar_data_retorno=True
+                )
+
                 enviar_mensagem(telefone, "Informe o modelo da sua Yamaha:")
                 return jsonify({"status": "ok"}), 200
 
@@ -738,17 +867,28 @@ def webhook():
 
             elif texto_normalizado == "5":
                 clientes[telefone]["etapa"] = "submenu_atacado"
-                clientes[telefone]["setor"] = "Logista"
+                clientes[telefone]["setor"] = "Logista/Atacado"
                 enviar_submenu_atacado(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "6":
+                atualizar_linha_planilha_disparo(
+                    telefone=telefone,
+                    status_retorno="EM ATENDIMENTO",
+                    obs="Cliente solicitou atendimento humano",
+                    intencao_ia="HUMANO",
+                    proxima_acao="TRANSFERIR_HUMANO",
+                    nivel_interesse="QUENTE",
+                    marcar_data_retorno=True
+                )
+
                 ativar_atendimento_humano(telefone, setor="Atendente")
                 return jsonify({"status": "ok"}), 200
 
             else:
                 resposta_fallback(telefone)
                 return jsonify({"status": "fallback"}), 200
+
         # ==========================
         # SUBMENU PEÇAS
         # ==========================
@@ -764,15 +904,20 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "3":
-                clientes[telefone]["etapa"] = "pecas_disponibilidade_modelo"
-                enviar_mensagem(telefone, "Informe o modelo da moto:")
-                return jsonify({"status": "ok"}), 200
+                atualizar_linha_planilha_disparo(
+                    telefone=telefone,
+                    status_retorno="EM ATENDIMENTO",
+                    obs="Cliente solicitou atendente no setor de peças",
+                    intencao_ia="HUMANO",
+                    proxima_acao="TRANSFERIR_HUMANO",
+                    nivel_interesse="QUENTE",
+                    marcar_data_retorno=True
+                )
 
-            elif texto_normalizado == "4":
                 ativar_atendimento_humano(telefone, setor="Peças")
                 return jsonify({"status": "ok"}), 200
 
-            elif texto_normalizado == "5":
+            elif texto_normalizado == "4":
                 resetar_cliente(telefone, manter_origem=True)
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
@@ -781,9 +926,8 @@ def webhook():
                 resposta_fallback(telefone)
                 return jsonify({"status": "fallback"}), 200
 
-
         # ===============================
-        # PEÇAS NOME
+        # PEÇAS ORIGINAIS
         # ===============================
         elif etapa == "pecas_nome":
             clientes[telefone]["peca_nome"] = texto
@@ -812,12 +956,23 @@ def webhook():
                 setor="Peças",
                 modelo=clientes[telefone].get("modelo_moto", ""),
                 ano=clientes[telefone].get("ano_moto", ""),
-                revisao="",
                 horario="",
+                cpf=clientes[telefone].get("cpf", ""),
                 itens=clientes[telefone].get("peca_nome", ""),
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Orçamento Peças",
+                etapa="pecas_cor",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs=f"Solicitação de peça: {clientes[telefone].get('peca_nome', '')}",
+                intencao_ia="PECAS",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="MORNO",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -827,7 +982,7 @@ def webhook():
 
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
-        
+
         elif etapa == "pecas_disponibilidade_nome":
             clientes[telefone]["peca_nome"] = texto
             clientes[telefone]["etapa"] = "pecas_disponibilidade_modelo"
@@ -842,13 +997,21 @@ def webhook():
                 nome=clientes[telefone].get("nome_cliente", ""),
                 setor="Peças",
                 modelo=clientes[telefone].get("modelo_moto", ""),
-                ano="",
-                revisao="",
-                horario="",
                 itens=clientes[telefone].get("peca_nome", ""),
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Consulta Disponibilidade",
+                etapa="pecas_disponibilidade_modelo",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs=f"Consulta de disponibilidade: {clientes[telefone].get('peca_nome', '')}",
+                intencao_ia="PECAS",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="MORNO",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -869,6 +1032,16 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "2":
+                atualizar_linha_planilha_disparo(
+                    telefone=telefone,
+                    status_retorno="EM ATENDIMENTO",
+                    obs="Cliente solicitou atendente no setor de acessórios",
+                    intencao_ia="HUMANO",
+                    proxima_acao="TRANSFERIR_HUMANO",
+                    nivel_interesse="QUENTE",
+                    marcar_data_retorno=True
+                )
+
                 ativar_atendimento_humano(telefone, setor="Acessórios")
                 return jsonify({"status": "ok"}), 200
 
@@ -882,16 +1055,10 @@ def webhook():
                 return jsonify({"status": "fallback"}), 200
 
         elif etapa == "acessorio_nome":
-                clientes[telefone]["acessorio_nome"] = texto
-                clientes[telefone]["etapa"] = "acessorio_modelo"
-                enviar_mensagem(telefone, "Informe o modelo da moto:")
-                return jsonify({"status": "ok"}), 200
-
-        elif etapa == "acessorio_nome":
-                clientes[telefone]["acessorio_nome"] = texto
-                clientes[telefone]["etapa"] = "acessorio_modelo"
-                enviar_mensagem(telefone, "Informe o modelo da moto:")
-                return jsonify({"status": "ok"}), 200
+            clientes[telefone]["acessorio_nome"] = texto
+            clientes[telefone]["etapa"] = "acessorio_modelo"
+            enviar_mensagem(telefone, "Informe o modelo da moto:")
+            return jsonify({"status": "ok"}), 200
 
         elif etapa == "acessorio_modelo":
             clientes[telefone]["modelo_moto"] = texto
@@ -901,13 +1068,21 @@ def webhook():
                 nome=clientes[telefone].get("nome_cliente", ""),
                 setor="Acessórios",
                 modelo=clientes[telefone].get("modelo_moto", ""),
-                ano="",
-                revisao="",
-                horario="",
                 itens=clientes[telefone].get("acessorio_nome", ""),
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Orçamento Acessórios",
+                etapa="acessorio_modelo",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs=f"Solicitação de acessório: {clientes[telefone].get('acessorio_nome', '')}",
+                intencao_ia="ACESSORIOS",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="MORNO",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -917,6 +1092,7 @@ def webhook():
 
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
+
         # ==========================
         # SUBMENU GARANTIA
         # ==========================
@@ -940,6 +1116,16 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "3":
+                atualizar_linha_planilha_disparo(
+                    telefone=telefone,
+                    status_retorno="EM ATENDIMENTO",
+                    obs="Cliente solicitou atendimento humano em garantia",
+                    intencao_ia="HUMANO",
+                    proxima_acao="TRANSFERIR_HUMANO",
+                    nivel_interesse="QUENTE",
+                    marcar_data_retorno=True
+                )
+
                 ativar_atendimento_humano(telefone, setor="Garantia")
                 return jsonify({"status": "ok"}), 200
 
@@ -978,13 +1164,21 @@ def webhook():
                 nome=clientes[telefone].get("nome_cliente", ""),
                 setor="Garantia",
                 modelo=clientes[telefone].get("modelo_moto", ""),
-                ano="",
-                revisao="",
-                horario="",
                 itens="Nova Solicitação",
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Nova Garantia",
+                etapa="garantia_nova_descricao",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs="Cliente abriu solicitação de garantia",
+                intencao_ia="GARANTIA",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="MORNO",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -1000,6 +1194,37 @@ def webhook():
 
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
+
+        elif etapa == "garantia_acompanhar_nome":
+            clientes[telefone]["nome_cliente"] = texto
+            clientes[telefone]["etapa"] = "garantia_acompanhar_cpf"
+            enviar_mensagem(
+                telefone,
+                "Perfeito 👍\n\nAgora informe seu *CPF* para localizar a solicitação:"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif etapa == "garantia_acompanhar_cpf":
+            clientes[telefone]["cpf"] = texto
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs="Cliente solicitou acompanhamento de garantia",
+                intencao_ia="GARANTIA",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="MORNO",
+                marcar_data_retorno=True
+            )
+
+            enviar_mensagem(
+                telefone,
+                "📋 Sua solicitação de acompanhamento foi registrada.\n\nNossa equipe irá localizar as informações e retornar em breve.\n\nEquipe Motoshow Yamaha"
+            )
+
+            resetar_cliente(telefone, manter_origem=True)
+            return jsonify({"status": "ok"}), 200
+
         # ==========================
         # SUBMENU ATACADO
         # ==========================
@@ -1037,6 +1262,16 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_normalizado == "4":
+                atualizar_linha_planilha_disparo(
+                    telefone=telefone,
+                    status_retorno="EM ATENDIMENTO",
+                    obs="Cliente solicitou consultor em logista/atacado",
+                    intencao_ia="HUMANO",
+                    proxima_acao="TRANSFERIR_HUMANO",
+                    nivel_interesse="QUENTE",
+                    marcar_data_retorno=True
+                )
+
                 ativar_atendimento_humano(telefone, setor="Logista/Atacado")
                 return jsonify({"status": "ok"}), 200
 
@@ -1074,14 +1309,21 @@ def webhook():
                 telefone=telefone,
                 nome=clientes[telefone].get("empresa", ""),
                 setor="Logista/Atacado",
-                modelo="",
-                ano="",
-                revisao="",
-                horario="",
                 itens=clientes[telefone].get("descricao", ""),
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Cotação Atacado",
+                etapa="atacado_pecas",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs="Cliente solicitou cotação atacado",
+                intencao_ia="ATACADO",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="QUENTE",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -1128,14 +1370,21 @@ def webhook():
                 telefone=telefone,
                 nome=clientes[telefone].get("responsavel", ""),
                 setor="Logista/Atacado",
-                modelo="",
-                ano="",
-                revisao="",
-                horario="",
                 itens="Cadastro Logista",
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Cadastro Logista",
+                etapa="cadastro_cidade",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="EM ATENDIMENTO",
+                obs="Cliente solicitou cadastro logista",
+                intencao_ia="ATACADO",
+                proxima_acao="TRANSFERIR_HUMANO",
+                nivel_interesse="QUENTE",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -1147,24 +1396,35 @@ def webhook():
 
             resetar_cliente(telefone, manter_origem=True)
             return jsonify({"status": "ok"}), 200
+
         # ==========================
         # FLUXO REVISÃO
         # ==========================
         elif etapa == "revisao_modelo":
             clientes[telefone]["modelo_moto"] = texto
             clientes[telefone]["etapa"] = "revisao_nome"
+
             enviar_mensagem(
                 telefone,
-                "Perfeito 👍\n\n👤 Agora informe seu *nome completo*:"
+                "Perfeito 👍\n\n👤 Agora informe seu *nome completo* do proprietário:"
             )
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_nome":
             clientes[telefone]["nome_cliente"] = texto
+            clientes[telefone]["etapa"] = "revisao_cpf"
+            enviar_mensagem(
+                telefone,
+                "Ótimo ✅\n\n📄 Agora informe o *CPF do proprietário*:"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif etapa == "revisao_cpf":
+            clientes[telefone]["cpf"] = texto
             clientes[telefone]["etapa"] = "revisao_ano"
             enviar_mensagem(
                 telefone,
-                "Ótimo ✅\n\n📅 Informe o *ano da sua moto*.\nExemplo: *2024*"
+                "Perfeito 👍\n\n📅 Informe o *ano da sua moto*.\nExemplo: *2024*"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1218,10 +1478,21 @@ def webhook():
 
             dia = mapa_dias[texto_normalizado]
             clientes[telefone]["dia_semana"] = dia
+            clientes[telefone]["etapa"] = "revisao_data"
+
+            enviar_mensagem(
+                telefone,
+                "📆 *Agora informe a data desejada para o agendamento.*\n\n"
+                "Exemplo: *25/04/2026*"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif etapa == "revisao_data":
+            clientes[telefone]["data_agendada"] = texto
 
             horarios = horarios_disponiveis(
                 clientes[telefone]["revisao_numero"],
-                dia
+                clientes[telefone]["dia_semana"]
             )
 
             if not horarios:
@@ -1234,6 +1505,7 @@ def webhook():
 
             clientes[telefone]["horarios_disponiveis"] = horarios
             clientes[telefone]["etapa"] = "revisao_horario"
+
             enviar_mensagem(
                 telefone,
                 "⏰ *Escolha um horário disponível:*\n\n" + menu_horarios(horarios)
@@ -1253,13 +1525,14 @@ def webhook():
                 return jsonify({"status": "fallback"}), 200
 
             clientes[telefone]["horario_escolhido"] = horarios[indice]
-            itens = itens_adicionais_disponiveis(clientes[telefone]["revisao_numero"])
-            clientes[telefone]["itens_menu"] = itens
+            clientes[telefone]["itens_menu"] = itens_adicionais_disponiveis(
+                clientes[telefone]["revisao_numero"]
+            )
             clientes[telefone]["etapa"] = "revisao_itens"
 
             enviar_mensagem(
                 telefone,
-                "🛠️ *Deseja incluir algum item adicional?*\n\n" + menu_itens(itens)
+                "🛠️ *Deseja incluir algum item adicional?*\n\n" + menu_itens(clientes[telefone]["itens_menu"])
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1288,11 +1561,29 @@ def webhook():
                 modelo=clientes[telefone].get("modelo_moto", ""),
                 ano=clientes[telefone].get("ano_moto", ""),
                 revisao=clientes[telefone].get("revisao_numero", ""),
+                dia_semana=clientes[telefone].get("dia_semana", ""),
+                data_agendada=clientes[telefone].get("data_agendada", ""),
                 horario=clientes[telefone].get("horario_escolhido", ""),
+                cpf=clientes[telefone].get("cpf", ""),
                 itens=itens_txt,
                 origem=clientes[telefone].get("origem", "Menu Normal"),
                 status="Agendado",
+                etapa="revisao_itens",
                 atendimento_humano=False
+            )
+
+            atualizar_linha_planilha_disparo(
+                telefone=telefone,
+                status_retorno="AGENDOU",
+                obs=(
+                    f"Agendamento solicitado para "
+                    f"{clientes[telefone].get('data_agendada', '')} "
+                    f"às {clientes[telefone].get('horario_escolhido', '')}"
+                ),
+                intencao_ia="AGENDAR",
+                proxima_acao="AGUARDAR_CONFIRMACAO_INTERNA",
+                nivel_interesse="QUENTE",
+                marcar_data_retorno=True
             )
 
             enviar_mensagem(
@@ -1300,10 +1591,12 @@ def webhook():
                 "✅ *Agendamento solicitado com sucesso!*\n\n"
                 "📋 *Resumo do agendamento*\n\n"
                 f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
+                f"📄 CPF: {clientes[telefone].get('cpf', '')}\n"
                 f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
                 f"📅 Ano: {clientes[telefone].get('ano_moto', '')}\n"
                 f"🔧 Revisão: {clientes[telefone].get('revisao_numero', '')}ª\n"
                 f"🗓️ Dia: {clientes[telefone].get('dia_semana', '').title()}\n"
+                f"📆 Data: {clientes[telefone].get('data_agendada', '')}\n"
                 f"⏰ Horário: {clientes[telefone].get('horario_escolhido', '')}\n"
                 f"🛠️ Itens adicionais: {itens_txt}\n\n"
                 "Em breve nossa equipe fará a confirmação.\n\n"
@@ -1320,3 +1613,8 @@ def webhook():
     except Exception as e:
         log_erro("ERRO WEBHOOK:", e)
         return jsonify({"status": "erro", "detalhe": str(e)}), 500
+
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port)
