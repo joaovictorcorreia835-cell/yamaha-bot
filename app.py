@@ -7,7 +7,6 @@ import threading
 import requests
 
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 from dotenv import load_dotenv
 
@@ -424,6 +423,8 @@ def atualizar_interacao(telefone, texto_recebido=""):
         log_erro("Erro ao atualizar interação:", e)
     finally:
         db.close()
+
+
 # =========================================================
 # Z-API
 # =========================================================
@@ -469,10 +470,6 @@ def servir_pdf(arquivo):
 # CAMADA CONVERSACIONAL / IA
 # =========================================================
 def chamar_ia_externa(prompt_sistema, prompt_usuario):
-    """
-    Integração opcional e genérica.
-    Se IA_API_URL e IA_API_KEY não estiverem preenchidos, usa fallback local.
-    """
     if not IA_API_URL or not IA_API_KEY:
         return None
 
@@ -498,7 +495,6 @@ def chamar_ia_externa(prompt_sistema, prompt_usuario):
 
         data = resp.json()
 
-        # Tentativa de parse mais comum
         if isinstance(data, dict):
             choices = data.get("choices", [])
             if choices:
@@ -507,7 +503,6 @@ def chamar_ia_externa(prompt_sistema, prompt_usuario):
                 if content:
                     return str(content).strip()
 
-            # fallback alternativo
             if "output_text" in data:
                 return str(data["output_text"]).strip()
 
@@ -802,6 +797,8 @@ def cancelar_followup(telefone):
         log_erro("Erro cancelar_followup:", e)
     finally:
         db.close()
+
+
 def agendar_followup(telefone, minutos=30, tipo_followup="reativacao_cliente", motivo="sem_resposta"):
     iniciar_cliente(telefone)
     clientes[telefone]["status_lead"] = "followup_pendente"
@@ -926,7 +923,6 @@ def processar_followups():
             telefone = registro.telefone
             iniciar_cliente(telefone)
 
-            # sincroniza memória básica
             clientes[telefone]["nome_cliente"] = registro.nome or clientes[telefone].get("nome_cliente", "")
             clientes[telefone]["setor"] = registro.setor or clientes[telefone].get("setor", "")
             clientes[telefone]["modelo_moto"] = registro.modelo or clientes[telefone].get("modelo_moto", "")
@@ -1132,6 +1128,11 @@ def dashboard():
 # =========================================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    if request.method == "GET":
+        return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
+
+    payload = request.get_json(silent=True) or {}
+    log_info("PAYLOAD RECEBIDO:", payload)
 
     try:
         if evento_eh_do_proprio_bot(payload):
@@ -1170,7 +1171,7 @@ def webhook():
                 enviar_mensagem(telefone, MENU_PRINCIPAL)
                 salvar_contexto_cliente(telefone)
             return jsonify({"status": "ok", "rota": "menu"}), 200
-        # Fase 2 - classificação básica de intenção a partir do texto livre
+
         if clientes[telefone]["etapa"] == "menu":
             intencao = classificar_intencao_local(texto)
             if intencao == "revisao":
@@ -1676,7 +1677,6 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        # fallback
         enviar_mensagem(telefone, MENU_PRINCIPAL)
         return jsonify({"status": "ok", "fallback": True}), 200
 
