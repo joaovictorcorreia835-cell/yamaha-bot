@@ -7,7 +7,6 @@ import threading
 import requests
 
 from datetime import datetime, timedelta
-
 from dotenv import load_dotenv
 
 from sqlalchemy import (
@@ -22,6 +21,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -32,24 +36,31 @@ app = Flask(__name__)
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID", "")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
+
 BASE_URL = os.getenv("BASE_URL", "https://SEU-APP.onrender.com")
 PORT = int(os.getenv("PORT", "5000"))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
-# Integração opcional com IA externa
-IA_API_URL = os.getenv("IA_API_URL", "")
-IA_API_KEY = os.getenv("IA_API_KEY", "")
-IA_MODEL = os.getenv("IA_MODEL", "gpt-4o-mini")
+TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900"))
+INTERVALO_WORKER = 60
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "") or os.getenv("IA_API_KEY", "")
+IA_MODELO = os.getenv("IA_MODELO", "") or os.getenv("IA_MODEL", "gpt-4o-mini")
+IA_HABILITADA = str(os.getenv("IA_HABILITADA", "true")).lower() == "true"
 
 URL_ENVIO = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
 URL_DOCUMENTO = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
 
-TEMPO_INATIVIDADE = 900  # 15 minutos
-INTERVALO_WORKER = 60    # worker follow-up a cada 60s
+openai_client = None
+if OPENAI_API_KEY and OpenAI is not None:
+    try:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    except Exception:
+        openai_client = None
 
 # =========================================================
-# BANCO DE DADOS
+# BANCO
 # =========================================================
 Base = declarative_base()
 
@@ -59,7 +70,10 @@ if DATABASE_URL.startswith("sqlite"):
         connect_args={"check_same_thread": False}
     )
 else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True
+    )
 
 SessionLocal = sessionmaker(bind=engine)
 
@@ -83,7 +97,6 @@ class Atendimento(Base):
 
     atendimento_humano = Column(Boolean, default=False)
 
-    # Fase 2 / 3
     etapa_atual = Column(String)
     intencao = Column(String)
     resumo_ia = Column(Text)
@@ -107,15 +120,26 @@ def criar_banco():
 criar_banco()
 
 # =========================================================
-# MEMÓRIA EM TEMPO DE EXECUÇÃO
+# MEMÓRIA
 # =========================================================
 clientes = {}
 mensagens_processadas = {}
 lock_processados = threading.Lock()
 
 MODELOS_YAMAHA = [
-    "Fazer 250", "FZ15", "Crosser", "Lander", "MT03", "MT07",
-    "R15", "R3", "FLUO", "NEO", "NMAX", "TENERE 700", "AEROX"
+    "Fazer 250",
+    "FZ15",
+    "Crosser",
+    "Lander",
+    "MT03",
+    "MT07",
+    "R15",
+    "R3",
+    "FLUO",
+    "NEO",
+    "NMAX",
+    "TENERE 700",
+    "AEROX"
 ]
 
 MENU_PRINCIPAL = (
@@ -178,7 +202,7 @@ def log_erro(*args):
 
 
 # =========================================================
-# HELPERS GERAIS
+# HELPERS
 # =========================================================
 def agora():
     return datetime.now()
@@ -206,15 +230,14 @@ def telefone_eh_grupo(telefone):
 
 def dentro_horario_comercial():
     agora_local = agora()
-    weekday = agora_local.weekday()  # 0 seg ... 6 dom
+    weekday = agora_local.weekday()
     hora = agora_local.hour
     minuto = agora_local.minute
-
     minutos = hora * 60 + minuto
 
-    if weekday <= 4:  # seg-sex
+    if weekday <= 4:
         return 8 * 60 <= minutos <= 18 * 60
-    elif weekday == 5:  # sábado
+    elif weekday == 5:
         return 8 * 60 <= minutos <= 12 * 60
     return False
 
@@ -224,15 +247,20 @@ def evento_eh_do_proprio_bot(payload):
         if payload.get("fromMe") is True:
             return True
 
+        if payload.get("fromApi") is True:
+            return True
+
         data = payload.get("data", {})
         if isinstance(data, dict):
             if data.get("fromMe") is True:
                 return True
+
             message = data.get("message", {})
             if isinstance(message, dict) and message.get("fromMe") is True:
                 return True
     except Exception:
         pass
+
     return False
 
 
@@ -242,6 +270,7 @@ def extrair_telefone(payload):
         payload.get("from"),
         payload.get("chatId"),
         payload.get("sender"),
+        payload.get("connectedPhone"),
     ]
 
     data = payload.get("data", {})
@@ -251,7 +280,9 @@ def extrair_telefone(payload):
             data.get("from"),
             data.get("chatId"),
             data.get("sender"),
+            data.get("connectedPhone"),
         ])
+
         message = data.get("message", {})
         if isinstance(message, dict):
             candidatos.extend([
@@ -264,6 +295,7 @@ def extrair_telefone(payload):
     for item in candidatos:
         if item:
             return str(item)
+
     return None
 
 
@@ -272,6 +304,7 @@ def extrair_message_id(payload):
         payload.get("messageId"),
         payload.get("id"),
         payload.get("msgId"),
+        payload.get("message_id"),
     ]
 
     data = payload.get("data", {})
@@ -280,6 +313,7 @@ def extrair_message_id(payload):
             data.get("messageId"),
             data.get("id"),
             data.get("msgId"),
+            data.get("message_id"),
         ])
 
         message = data.get("message", {})
@@ -299,33 +333,59 @@ def extrair_message_id(payload):
 
 
 def extrair_mensagem_texto(payload):
-    campos = []
+    try:
+        if "text" in payload:
+            if isinstance(payload["text"], dict):
+                valor = str(payload["text"].get("message", "")).strip()
+                if valor:
+                    return valor
+            elif isinstance(payload["text"], str):
+                valor = payload["text"].strip()
+                if valor:
+                    return valor
 
-    data = payload.get("data", {})
-    if isinstance(data, dict):
-        message = data.get("message", {})
-        if isinstance(message, dict):
-            campos.extend([
-                message.get("text"),
-                message.get("conversation"),
-                message.get("caption"),
-            ])
-            extended = message.get("extendedTextMessage", {})
-            if isinstance(extended, dict):
-                campos.append(extended.get("text"))
+        data = payload.get("data", {})
+        if isinstance(data, dict):
+            if "text" in data:
+                if isinstance(data["text"], dict):
+                    valor = str(data["text"].get("message", "")).strip()
+                    if valor:
+                        return valor
+                elif isinstance(data["text"], str):
+                    valor = data["text"].strip()
+                    if valor:
+                        return valor
 
-    campos.extend([
-        payload.get("text"),
-        payload.get("message"),
-        payload.get("body"),
-        payload.get("caption"),
-    ])
+            message = data.get("message", {})
+            if isinstance(message, dict):
+                if isinstance(message.get("text"), str) and message.get("text").strip():
+                    return message.get("text").strip()
 
-    for campo in campos:
-        if isinstance(campo, str) and campo.strip():
-            return campo.strip()
+                if isinstance(message.get("conversation"), str) and message.get("conversation").strip():
+                    return message.get("conversation").strip()
 
-    return ""
+                if isinstance(message.get("caption"), str) and message.get("caption").strip():
+                    return message.get("caption").strip()
+
+                extended = message.get("extendedTextMessage", {})
+                if isinstance(extended, dict):
+                    if isinstance(extended.get("text"), str) and extended.get("text").strip():
+                        return extended.get("text").strip()
+
+        if isinstance(payload.get("message"), str) and payload.get("message").strip():
+            return payload.get("message").strip()
+
+        if isinstance(payload.get("body"), str) and payload.get("body").strip():
+            return payload.get("body").strip()
+
+        if isinstance(payload.get("caption"), str) and payload.get("caption").strip():
+            return payload.get("caption").strip()
+
+        return ""
+
+    except Exception as e:
+        log_erro("Erro extrair texto:", e)
+        return ""
 
 
 def mensagem_ja_processada(message_id):
@@ -363,6 +423,7 @@ def iniciar_cliente(telefone):
             "dia_semana": "",
             "data_escolhida": "",
             "horario_escolhido": "",
+            "horarios_disponiveis": [],
             "itens_venda": "",
             "setor": "",
             "status_lead": "novo",
@@ -370,7 +431,8 @@ def iniciar_cliente(telefone):
             "ultima_interacao": agora(),
             "atendimento_humano": False,
             "ultima_mensagem_cliente": "",
-            "resumo_ia": ""
+            "resumo_ia": "",
+            "tentativas_followup": 0
         }
 
 
@@ -388,6 +450,7 @@ def resetar_cliente(telefone):
         "dia_semana": "",
         "data_escolhida": "",
         "horario_escolhido": "",
+        "horarios_disponiveis": [],
         "itens_venda": "",
         "setor": "",
         "status_lead": "novo",
@@ -395,13 +458,15 @@ def resetar_cliente(telefone):
         "ultima_interacao": agora(),
         "atendimento_humano": False,
         "ultima_mensagem_cliente": "",
-        "resumo_ia": ""
+        "resumo_ia": "",
+        "tentativas_followup": 0
     }
 
 
 def atualizar_interacao(telefone, texto_recebido=""):
     iniciar_cliente(telefone)
     clientes[telefone]["ultima_interacao"] = agora()
+
     if texto_recebido:
         clientes[telefone]["ultima_mensagem_cliente"] = texto_recebido
 
@@ -423,8 +488,6 @@ def atualizar_interacao(telefone, texto_recebido=""):
         log_erro("Erro ao atualizar interação:", e)
     finally:
         db.close()
-
-
 # =========================================================
 # Z-API
 # =========================================================
@@ -447,15 +510,18 @@ def enviar_documento_pdf(numero, nome_arquivo, legenda="📄 Catálogo Atacado M
     try:
         headers = {"Client-Token": ZAPI_CLIENT_TOKEN}
         url_pdf = f"{BASE_URL}/pdf/{nome_arquivo}"
+
         payload = {
             "phone": numero,
             "document": url_pdf,
             "fileName": nome_arquivo,
             "caption": legenda
         }
+
         resposta = requests.post(URL_DOCUMENTO, json=payload, headers=headers, timeout=30)
         log_info("Documento enviado:", numero, resposta.status_code, resposta.text[:300])
         return resposta.ok
+
     except Exception as e:
         log_erro("Erro ao enviar PDF:", e)
         return False
@@ -467,49 +533,31 @@ def servir_pdf(arquivo):
 
 
 # =========================================================
-# CAMADA CONVERSACIONAL / IA
+# IA
 # =========================================================
-def chamar_ia_externa(prompt_sistema, prompt_usuario):
-    if not IA_API_URL or not IA_API_KEY:
+def chamar_openai(prompt_sistema, prompt_usuario):
+    if not IA_HABILITADA:
+        return None
+
+    if not openai_client:
         return None
 
     try:
-        headers = {
-            "Authorization": f"Bearer {IA_API_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "model": IA_MODEL,
-            "messages": [
+        resposta = openai_client.chat.completions.create(
+            model=IA_MODELO,
+            messages=[
                 {"role": "system", "content": prompt_sistema},
                 {"role": "user", "content": prompt_usuario}
             ],
-            "temperature": 0.4
-        }
-
-        resp = requests.post(IA_API_URL, headers=headers, json=payload, timeout=35)
-        if not resp.ok:
-            log_erro("IA externa retornou erro:", resp.status_code, resp.text[:300])
-            return None
-
-        data = resp.json()
-
-        if isinstance(data, dict):
-            choices = data.get("choices", [])
-            if choices:
-                message = choices[0].get("message", {})
-                content = message.get("content")
-                if content:
-                    return str(content).strip()
-
-            if "output_text" in data:
-                return str(data["output_text"]).strip()
-
+            temperature=0.4
+        )
+        conteudo = resposta.choices[0].message.content
+        if conteudo:
+            return str(conteudo).strip()
         return None
 
     except Exception as e:
-        log_erro("Erro ao chamar IA externa:", e)
+        log_erro("Erro OpenAI:", e)
         return None
 
 
@@ -518,18 +566,25 @@ def classificar_intencao_local(texto):
 
     if any(p in t for p in ["atendente", "humano", "falar com alguem", "consultor"]):
         return "humano"
-    if any(p in t for p in ["revisao", "agendar", "agendamento", "manutencao"]):
+
+    if any(p in t for p in ["revisao", "revisão", "agendar", "agendamento", "manutencao", "manutenção"]):
         return "revisao"
-    if any(p in t for p in ["peca", "peças", "pecas", "disponibilidade", "codigo da peça", "código da peça"]):
+
+    if any(p in t for p in ["peca", "peça", "peças", "pecas", "disponibilidade", "codigo da peça", "código da peça"]):
         return "pecas"
+
     if any(p in t for p in ["acessorio", "acessório", "slider", "bau", "baú", "protetor"]):
         return "acessorios"
+
     if any(p in t for p in ["garantia", "cobertura", "solicitação de garantia"]):
         return "garantia"
+
     if any(p in t for p in ["atacado", "logista", "cotacao", "cotação", "catalogo", "catálogo"]):
         return "atacado"
-    if any(p in t for p in ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "menu"]):
+
+    if any(p in t for p in ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "menu", "iniciar"]):
         return "menu"
+
     return "geral"
 
 
@@ -558,7 +613,7 @@ def gerar_resumo_ia(dados):
     )
     prompt_usuario = json.dumps(dados, ensure_ascii=False)
 
-    resposta = chamar_ia_externa(prompt_sistema, prompt_usuario)
+    resposta = chamar_openai(prompt_sistema, prompt_usuario)
     if resposta:
         return resposta
 
@@ -575,6 +630,7 @@ def gerar_resposta_natural(telefone, mensagem_base, objetivo="resposta"):
         "Reescreva a mensagem de forma natural, humana, objetiva e profissional, "
         "mantendo o sentido original e sem inventar informações."
     )
+
     prompt_usuario = (
         f"Objetivo: {objetivo}\n"
         f"Nome do cliente: {nome}\n"
@@ -582,7 +638,7 @@ def gerar_resposta_natural(telefone, mensagem_base, objetivo="resposta"):
         f"Mensagem base: {mensagem_base}"
     )
 
-    resposta = chamar_ia_externa(prompt_sistema, prompt_usuario)
+    resposta = chamar_openai(prompt_sistema, prompt_usuario)
     if resposta:
         return resposta
 
@@ -601,7 +657,7 @@ def gerar_followup_inteligente(telefone):
 
     prompt_sistema = (
         "Você cria mensagens curtas de follow-up para clientes de concessionária Yamaha. "
-        "Tom: profissional, cordial, natural e comercial leve. "
+        "Tom profissional, cordial, natural e comercial leve. "
         "Objetivo: retomar atendimento sem parecer insistente."
     )
 
@@ -613,10 +669,10 @@ def gerar_followup_inteligente(telefone):
         f"Etapa: {etapa}\n"
         f"Tentativas: {tentativas}\n"
         f"Resumo: {resumo}\n"
-        f"Gere uma única mensagem curta de follow-up."
+        f"Gere uma única mensagem curta."
     )
 
-    resposta = chamar_ia_externa(prompt_sistema, prompt_usuario)
+    resposta = chamar_openai(prompt_sistema, prompt_usuario)
     if resposta:
         return resposta
 
@@ -631,20 +687,20 @@ def gerar_followup_inteligente(telefone):
             return (
                 f"Olá {nome} 👋\n\n"
                 f"Ainda consigo te ajudar com o agendamento da revisão da {modelo}.\n"
-                f"Se quiser, eu já sigo com a próxima etapa."
+                f"Se quiser, sigo com a próxima etapa."
             )
         else:
             return (
                 f"Olá {nome} 👋\n\n"
                 f"Estou passando para verificar se ainda deseja seguir com seu atendimento da {modelo}.\n"
-                f"Se quiser continuar, é só me responder por aqui."
+                f"Se quiser continuar, é só me responder."
             )
 
     if setor == "Peças":
         return (
             f"Olá {nome} 👋\n\n"
             f"Estou retornando sobre sua solicitação de peças para a {modelo}.\n"
-            f"Se quiser, posso deixar o atendimento encaminhado para a equipe."
+            f"Se quiser, posso deixar o atendimento encaminhado."
         )
 
     if setor == "Acessórios":
@@ -671,43 +727,13 @@ def gerar_followup_inteligente(telefone):
     return (
         f"Olá {nome} 👋\n\n"
         f"Estou retornando seu atendimento com a equipe Motoshow Yamaha.\n"
-        f"Se quiser continuar, é só me responder por aqui."
+        f"Se quiser continuar, é só me responder."
     )
 
 
 # =========================================================
-# BANCO - FUNÇÕES DE APOIO
+# BANCO - APOIO
 # =========================================================
-def obter_ou_criar_atendimento(telefone):
-    db = SessionLocal()
-    try:
-        registro = (
-            db.query(Atendimento)
-            .filter(Atendimento.telefone == telefone)
-            .order_by(Atendimento.id.desc())
-            .first()
-        )
-
-        if not registro:
-            registro = Atendimento(
-                telefone=telefone,
-                ultima_interacao=agora(),
-                status="aberto",
-                status_lead="novo"
-            )
-            db.add(registro)
-            db.commit()
-            db.refresh(registro)
-
-        return registro.id
-    except Exception as e:
-        db.rollback()
-        log_erro("Erro obter_ou_criar_atendimento:", e)
-        return None
-    finally:
-        db.close()
-
-
 def salvar_contexto_cliente(telefone):
     iniciar_cliente(telefone)
     dados = clientes[telefone]
@@ -745,9 +771,11 @@ def salvar_contexto_cliente(telefone):
         registro.resumo_ia = gerar_resumo_ia(dados)
 
         db.commit()
+
     except Exception as e:
         db.rollback()
         log_erro("Erro salvar_contexto_cliente:", e)
+
     finally:
         db.close()
 
@@ -755,6 +783,7 @@ def salvar_contexto_cliente(telefone):
 def atualizar_status_lead(telefone, status_lead, motivo_pausa=None):
     iniciar_cliente(telefone)
     clientes[telefone]["status_lead"] = status_lead
+
     if motivo_pausa is not None:
         clientes[telefone]["motivo_pausa"] = motivo_pausa
 
@@ -772,9 +801,11 @@ def atualizar_status_lead(telefone, status_lead, motivo_pausa=None):
                 registro.motivo_pausa = motivo_pausa
             registro.ultima_interacao = agora()
             db.commit()
+
     except Exception as e:
         db.rollback()
         log_erro("Erro atualizar_status_lead:", e)
+
     finally:
         db.close()
 
@@ -792,9 +823,11 @@ def cancelar_followup(telefone):
             registro.followup_ativo = False
             registro.proximo_followup = None
             db.commit()
+
     except Exception as e:
         db.rollback()
         log_erro("Erro cancelar_followup:", e)
+
     finally:
         db.close()
 
@@ -812,6 +845,7 @@ def agendar_followup(telefone, minutos=30, tipo_followup="reativacao_cliente", m
             .order_by(Atendimento.id.desc())
             .first()
         )
+
         if not registro:
             registro = Atendimento(telefone=telefone)
             db.add(registro)
@@ -822,10 +856,13 @@ def agendar_followup(telefone, minutos=30, tipo_followup="reativacao_cliente", m
         registro.status_lead = "followup_pendente"
         registro.motivo_pausa = motivo
         registro.resumo_ia = gerar_resumo_ia(clientes[telefone])
+
         db.commit()
+
     except Exception as e:
         db.rollback()
         log_erro("Erro agendar_followup:", e)
+
     finally:
         db.close()
 
@@ -859,6 +896,7 @@ def encerrar_atendimento_convertido(telefone):
 
 def processar_inatividade():
     agora_local = agora()
+
     for telefone, dados in list(clientes.items()):
         ultima = dados.get("ultima_interacao")
         if not ultima:
@@ -893,13 +931,15 @@ def buscar_followups_pendentes():
                 Atendimento.followup_ativo == True,
                 Atendimento.proximo_followup != None,
                 Atendimento.proximo_followup <= agora(),
-                Atendimento.status_lead.in_(["followup_pendente", "aguardando_cliente", "novo"])
+                Atendimento.status_lead.in_(["followup_pendente", "aguardando_cliente", "novo", "followup_enviado"])
             )
             .all()
         )
+
     except Exception as e:
         log_erro("Erro buscar_followups_pendentes:", e)
         return []
+
     finally:
         db.close()
 
@@ -946,9 +986,11 @@ def processar_followups():
                     registro.proximo_followup = agora() + timedelta(hours=6)
 
         db.commit()
+
     except Exception as e:
         db.rollback()
         log_erro("Erro processar_followups:", e)
+
     finally:
         db.close()
 
@@ -967,9 +1009,7 @@ def worker_followup():
 def iniciar_worker():
     t = threading.Thread(target=worker_followup, daemon=True)
     t.start()
-
-
-# =========================================================
+    # =========================================================
 # REGRAS DE NEGÓCIO
 # =========================================================
 def obter_horarios_disponiveis(revisao_numero, dia_semana):
@@ -1016,6 +1056,7 @@ def menu_ou_saudacao(texto):
 
 def confirmar_agendamento(telefone):
     d = clientes[telefone]
+
     resumo = (
         "✅ *Agendamento Registrado com Sucesso*\n\n"
         f"👤 *Nome:* {d.get('nome_cliente')}\n"
@@ -1029,13 +1070,14 @@ def confirmar_agendamento(telefone):
         "Nossa equipe confirma com você por aqui.\n\n"
         "*Equipe Motoshow Yamaha*"
     )
+
     enviar_mensagem(telefone, gerar_resposta_natural(telefone, resumo, "confirmacao_agendamento"))
     encerrar_atendimento_convertido(telefone)
     resetar_cliente(telefone)
 
 
 # =========================================================
-# DASHBOARD V2
+# DASHBOARD
 # =========================================================
 @app.route("/")
 def home():
@@ -1143,7 +1185,7 @@ def webhook():
         message_id = extrair_message_id(payload)
 
         log_info("TELEFONE:", telefone)
-        log_info("MESSAGE_ID:", message_id)
+        log_info("ID_DA_MENSAGEM:", message_id)
         log_info("TEXTO:", texto)
 
         if not telefone or telefone_eh_grupo(telefone):
@@ -1158,22 +1200,32 @@ def webhook():
         iniciar_cliente(telefone)
         atualizar_interacao(telefone, texto)
 
+        # qualquer resposta cancela follow-up pendente
         cancelar_followup(telefone)
 
+        # se já está em atendimento humano, não reenvia menu
         if clientes[telefone].get("atendimento_humano"):
             return jsonify({"status": "ok", "motivo": "em_atendimento_humano"}), 200
 
         texto_normalizado = normalizar(texto)
 
-        if menu_ou_saudacao(texto):
-            if clientes[telefone]["etapa"] != "menu":
-                resetar_cliente(telefone)
-                enviar_mensagem(telefone, MENU_PRINCIPAL)
-                salvar_contexto_cliente(telefone)
+        # menu explícito em qualquer etapa
+        if texto_normalizado == "menu":
+            resetar_cliente(telefone)
+            enviar_mensagem(telefone, MENU_PRINCIPAL)
+            salvar_contexto_cliente(telefone)
             return jsonify({"status": "ok", "rota": "menu"}), 200
 
+        # saudação inicial no menu
+        if clientes[telefone]["etapa"] == "menu" and menu_ou_saudacao(texto):
+            enviar_mensagem(telefone, MENU_PRINCIPAL)
+            salvar_contexto_cliente(telefone)
+            return jsonify({"status": "ok", "rota": "menu"}), 200
+
+        # Etapa 1 - classificação automática
         if clientes[telefone]["etapa"] == "menu":
             intencao = classificar_intencao_local(texto)
+
             if intencao == "revisao":
                 texto_normalizado = "1"
             elif intencao == "pecas":
@@ -1264,20 +1316,14 @@ def webhook():
             clientes[telefone]["nome_cliente"] = texto
             clientes[telefone]["etapa"] = "revisao_cpf"
             salvar_contexto_cliente(telefone)
-            enviar_mensagem(
-                telefone,
-                "🪪 Informe o *CPF do proprietário*:"
-            )
+            enviar_mensagem(telefone, "🪪 Informe o *CPF do proprietário*:")
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_cpf":
             clientes[telefone]["cpf"] = somente_numeros(texto)
             clientes[telefone]["etapa"] = "revisao_ano"
             salvar_contexto_cliente(telefone)
-            enviar_mensagem(
-                telefone,
-                "📅 Informe o *ano da moto*:"
-            )
+            enviar_mensagem(telefone, "📅 Informe o *ano da moto*:")
             return jsonify({"status": "ok"}), 200
 
         elif etapa == "revisao_ano":
@@ -1338,6 +1384,7 @@ def webhook():
 
         elif etapa == "revisao_horario":
             horarios = clientes[telefone].get("horarios_disponiveis", [])
+
             if texto_normalizado.isdigit() and 1 <= int(texto_normalizado) <= len(horarios):
                 clientes[telefone]["horario_escolhido"] = horarios[int(texto_normalizado) - 1]
                 clientes[telefone]["etapa"] = "revisao_venda_adicional"
@@ -1437,17 +1484,6 @@ def webhook():
                 "✅ Sua solicitação de peças foi registrada.\n\n"
                 "Nossa equipe irá analisar e retornar por aqui.\n\n"
                 "*Equipe Motoshow Yamaha*"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "pecas_disponibilidade":
-            clientes[telefone]["itens_venda"] = texto
-            salvar_contexto_cliente(telefone)
-            atualizar_status_lead(telefone, "aguardando_cliente", "consulta_disponibilidade")
-            enviar_mensagem(
-                telefone,
-                "📋 Consulta registrada com sucesso.\n"
-                "Nossa equipe vai verificar a disponibilidade e retornar por aqui."
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1677,6 +1713,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
+        # fallback
         enviar_mensagem(telefone, MENU_PRINCIPAL)
         return jsonify({"status": "ok", "fallback": True}), 200
 
