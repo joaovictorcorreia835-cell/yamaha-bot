@@ -1158,12 +1158,12 @@ def webhook():
         texto_normalizado = normalizar(texto)
 
         # gatilho rápido para menu
-        if menu_ou_saudacao(texto) and clientes[telefone]["etapa"] == "menu":
-            resetar_cliente(telefone)
-            enviar_mensagem(telefone, MENU_PRINCIPAL)
-            salvar_contexto_cliente(telefone)
-            return jsonify({"status": "ok", "rota": "menu"}), 200
-
+            if menu_ou_saudacao(texto):
+            if clientes[telefone]["etapa"] != "menu":
+                resetar_cliente(telefone)
+                enviar_mensagem(telefone, MENU_PRINCIPAL)
+                salvar_contexto_cliente(telefone)
+                return jsonify({"status": "ok", "rota": "menu"}), 200
         # Fase 2 - classificação básica de intenção a partir do texto livre
         if clientes[telefone]["etapa"] == "menu":
             intencao = classificar_intencao_local(texto)
