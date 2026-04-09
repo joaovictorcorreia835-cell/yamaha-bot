@@ -11,6 +11,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from database import criar_banco, SessionLocal, Atendimento
+from ia_intencao import classificar_intencao
 
 load_dotenv()
 
@@ -589,8 +590,6 @@ def menu_itens(itens):
     linhas.append("0️⃣ Não quero nenhum item")
     linhas.append("\nVocê pode responder com números separados por vírgula.")
     return "\n".join(linhas)
-
-
 # ==========================================
 # MENUS
 # ==========================================
@@ -687,6 +686,234 @@ def ativar_atendimento_humano(telefone, setor="Atendente"):
 
 
 # ==========================================
+# IA - CLASSIFICAÇÃO DE INTENÇÃO
+# ==========================================
+def tratar_intencao_ia(telefone, texto):
+    resultado = classificar_intencao(texto)
+
+    if not resultado:
+        return False
+
+    intent = str(resultado.get("intent", "")).strip().lower()
+    confidence = float(resultado.get("confidence", 0))
+
+    log_info(f"IA detectou intenção: {intent} | confiança: {confidence}")
+
+    if intent == "menu":
+        resetar_cliente(telefone, manter_origem=True)
+        clientes[telefone]["origem"] = "IA"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs=f"IA identificou intenção: {intent}",
+            intencao_ia="MENU",
+            proxima_acao="EXIBIR_MENU",
+            nivel_interesse="MORNO",
+            marcar_data_retorno=True
+        )
+
+        enviar_menu(telefone)
+        return True
+
+    elif intent == "agendar_revisao":
+        clientes[telefone]["origem"] = "IA"
+        clientes[telefone]["setor"] = "Revisão"
+        clientes[telefone]["etapa"] = "revisao_modelo"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="AGENDOU",
+            obs="IA direcionou cliente para fluxo de revisão",
+            intencao_ia="AGENDAR",
+            proxima_acao="ENTRAR_FLUXO_REVISAO",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_mensagem(
+            telefone,
+            "🔧 *Agendamento de Revisão*\n\n"
+            "Vamos iniciar seu agendamento.\n\n"
+            "🏍️ Informe o *modelo da sua Yamaha*:"
+        )
+        return True
+
+    elif intent == "pecas":
+        clientes[telefone]["origem"] = "IA"
+        clientes[telefone]["setor"] = "Peças"
+        clientes[telefone]["etapa"] = "submenu_pecas"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA direcionou cliente para submenu de peças",
+            intencao_ia="PECAS",
+            proxima_acao="ABRIR_SUBMENU_PECAS",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_submenu_pecas(telefone)
+        return True
+
+    elif intent == "acessorios":
+        clientes[telefone]["origem"] = "IA"
+        clientes[telefone]["setor"] = "Acessórios"
+        clientes[telefone]["etapa"] = "submenu_acessorios"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA direcionou cliente para submenu de acessórios",
+            intencao_ia="ACESSORIOS",
+            proxima_acao="ABRIR_SUBMENU_ACESSORIOS",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_submenu_acessorios(telefone)
+        return True
+
+    elif intent == "garantia":
+        clientes[telefone]["origem"] = "IA"
+        clientes[telefone]["setor"] = "Garantia"
+        clientes[telefone]["etapa"] = "submenu_garantia"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA direcionou cliente para submenu de garantia",
+            intencao_ia="GARANTIA",
+            proxima_acao="ABRIR_SUBMENU_GARANTIA",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_submenu_garantia(telefone)
+        return True
+
+    elif intent == "logista_atacado":
+        clientes[telefone]["origem"] = "IA"
+        clientes[telefone]["setor"] = "Logista/Atacado"
+        clientes[telefone]["etapa"] = "submenu_atacado"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA direcionou cliente para submenu de logista/atacado",
+            intencao_ia="ATACADO",
+            proxima_acao="ABRIR_SUBMENU_ATACADO",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_submenu_atacado(telefone)
+        return True
+
+    elif intent == "atendimento_humano":
+        clientes[telefone]["origem"] = "IA"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA identificou solicitação de atendimento humano",
+            intencao_ia="HUMANO",
+            proxima_acao="TRANSFERIR_HUMANO",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        ativar_atendimento_humano(telefone, setor="Atendente")
+        return True
+
+    elif intent == "acompanhar_servico":
+        clientes[telefone]["origem"] = "IA"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA identificou pedido de acompanhamento de serviço",
+            intencao_ia="ACOMPANHAR_SERVICO",
+            proxima_acao="TRANSFERIR_HUMANO",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_mensagem(
+            telefone,
+            "📋 *Acompanhamento de Serviço*\n\n"
+            "Vou encaminhar seu atendimento para nossa equipe verificar as informações do serviço.\n\n"
+            "Equipe Motoshow Yamaha"
+        )
+        ativar_atendimento_humano(telefone, setor="Atendente")
+        return True
+
+    elif intent == "orcamento":
+        clientes[telefone]["origem"] = "IA"
+        clientes[telefone]["setor"] = "Peças"
+        clientes[telefone]["etapa"] = "submenu_pecas"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA identificou interesse em orçamento",
+            intencao_ia="ORCAMENTO",
+            proxima_acao="ABRIR_SUBMENU_PECAS",
+            nivel_interesse="QUENTE",
+            marcar_data_retorno=True
+        )
+
+        enviar_mensagem(
+            telefone,
+            "💰 *Orçamentos Yamaha*\n\n"
+            "Vou te direcionar para o setor correto."
+        )
+        enviar_submenu_pecas(telefone)
+        return True
+
+    elif intent == "nao_interessado":
+        clientes[telefone]["origem"] = "IA"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="SEM INTERESSE",
+            obs="IA identificou cliente sem interesse",
+            intencao_ia="NAO_INTERESSADO",
+            proxima_acao="ENCERRAR",
+            nivel_interesse="FRIO",
+            marcar_data_retorno=True
+        )
+
+        enviar_mensagem(
+            telefone,
+            "Perfeito 👍\n\n"
+            "Quando precisar de revisão, peças, acessórios ou garantia, estaremos à disposição.\n\n"
+            "Equipe Motoshow Yamaha"
+        )
+        resetar_cliente(telefone, manter_origem=True)
+        return True
+
+    elif intent == "duvida_geral":
+        clientes[telefone]["origem"] = "IA"
+
+        atualizar_linha_planilha_disparo(
+            telefone=telefone,
+            status_retorno="EM ATENDIMENTO",
+            obs="IA identificou dúvida geral e exibiu menu",
+            intencao_ia="DUVIDA_GERAL",
+            proxima_acao="EXIBIR_MENU",
+            nivel_interesse="MORNO",
+            marcar_data_retorno=True
+        )
+
+        enviar_menu(telefone)
+        return True
+
+    return False
+
+
+# ==========================================
 # DASHBOARD
 # ==========================================
 @app.route("/dashboard")
@@ -768,8 +995,6 @@ def dashboard():
 @app.route("/pdf/<arquivo>")
 def pdf(arquivo):
     return send_from_directory("static/pdfs", arquivo)
-
-
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -824,6 +1049,14 @@ def webhook():
 
         etapa = clientes[telefone]["etapa"]
         log_info("ETAPA:", etapa)
+
+        # ==========================================
+        # IA - CLASSIFICAÇÃO DE INTENÇÃO
+        # Só roda no menu principal e apenas para texto livre
+        # ==========================================
+        if etapa == "menu" and texto_normalizado and not texto_normalizado.isdigit():
+            if tratar_intencao_ia(telefone, texto):
+                return jsonify({"status": "ok", "origem": "ia"}), 200
 
         # ==========================
         # MENU PRINCIPAL

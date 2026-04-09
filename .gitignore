@@ -5,20 +5,26 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.db
-*.sqlite3
+*.pyc
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
 
 # =========================
 # Ambiente virtual
 # =========================
 venv/
-.env/
 .env
+.env.*
+.venv/
 
 # =========================
 # VS Code
 # =========================
 .vscode/
+.history/
 
 # =========================
 # Sistema operacional
@@ -30,24 +36,54 @@ Thumbs.db
 # Logs
 # =========================
 *.log
+logs/
 
 # =========================
 # Banco Local
 # =========================
 yamaha.db
+*.sqlite3
+*.db
 
 # =========================
 # Arquivos temporários
 # =========================
 *.tmp
 *.temp
+*.cache
 
 # =========================
-# Uploads futuros
+# Uploads
 # =========================
 uploads/
+static/uploads/
 
 # =========================
 # Render
 # =========================
 .render
+
+# =========================
+# Excel / Disparos
+# =========================
+clientes.xlsx
+clientes_atacado.xlsx
+disparo_log.xlsx
+
+# =========================
+# PDFs locais
+# =========================
+static/pdfs/*.pdf
+
+# =========================
+# Secrets
+# =========================
+.env
+.env.local
+.env.production
+
+# =========================
+# Mac / Windows extras
+# =========================
+*.swp
+*.swo
