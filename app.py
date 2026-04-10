@@ -349,6 +349,7 @@ def extrair_texto(payload):
         data = payload.get("data", {}) or {}
 
         candidatos = [
+            # dentro de data
             data.get("text", {}).get("message") if isinstance(data.get("text"), dict) else None,
             data.get("text") if isinstance(data.get("text"), str) else None,
             data.get("body"),
@@ -360,9 +361,19 @@ def extrair_texto(payload):
             data.get("selectedDisplayText"),
             data.get("singleSelectReply", {}).get("selectedRowId") if isinstance(data.get("singleSelectReply"), dict) else None,
             data.get("singleSelectReply", {}).get("title") if isinstance(data.get("singleSelectReply"), dict) else None,
+
+            # no nível principal do payload
+            payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
+            payload.get("text") if isinstance(payload.get("text"), str) else None,
             payload.get("body"),
             payload.get("message"),
             payload.get("caption"),
+            payload.get("extendedTextMessage", {}).get("text") if isinstance(payload.get("extendedTextMessage"), dict) else None,
+            payload.get("conversation"),
+            payload.get("selectedButtonId"),
+            payload.get("selectedDisplayText"),
+            payload.get("singleSelectReply", {}).get("selectedRowId") if isinstance(payload.get("singleSelectReply"), dict) else None,
+            payload.get("singleSelectReply", {}).get("title") if isinstance(payload.get("singleSelectReply"), dict) else None,
         ]
 
         for valor in candidatos:
@@ -373,7 +384,6 @@ def extrair_texto(payload):
     except Exception as e:
         log_erro("Erro ao extrair texto:", e)
         return ""
-
 
 # ==========================================
 # ENVIO DE MENSAGEM
