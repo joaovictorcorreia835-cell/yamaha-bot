@@ -6,27 +6,15 @@ import os
 # ==========================================
 # CONFIG
 # ==========================================
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False}
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True
-    )
-
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
+
+SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
 
@@ -34,38 +22,50 @@ Base = declarative_base()
 # ==========================================
 # TABELA ATENDIMENTOS
 # ==========================================
+
 class Atendimento(Base):
+
     __tablename__ = "atendimentos"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     telefone = Column(String, index=True)
+
     nome = Column(String)
-    setor = Column(String, index=True)
+
+    setor = Column(String)
 
     modelo = Column(String)
+
     ano = Column(String)
-    revisao = Column(String, index=True)
+
+    revisao = Column(String)
 
     cpf = Column(String)
-    chassi = Column(String)
 
     dia_semana = Column(String)
+
     data_agendada = Column(String)
+
     horario = Column(String)
 
     itens = Column(Text)
-    venda_adicional = Column(String)
 
-    origem = Column(String, default="Bot")
-    status = Column(String, default="Em atendimento")
+    venda_adicional = Column(Text)
+
+    origem = Column(String)
+
+    status = Column(String)
+
     etapa = Column(String)
 
     atendimento_humano = Column(Boolean, default=False)
+
     concluido = Column(Boolean, default=False)
 
-    data = Column(DateTime, default=datetime.now)
     ultima_interacao = Column(DateTime, default=datetime.now)
+
+    data = Column(DateTime, default=datetime.now)
 
 
 # ==========================================
