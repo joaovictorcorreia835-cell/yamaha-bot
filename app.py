@@ -133,14 +133,6 @@ def dashboard():
 
     finally:
         db.close()
-
-<div class="filtros-dashboard">
-    <a href="/dashboard?filtro=hoje" class="filtro-btn {% if filtro_ativo == 'hoje' %}ativo{% endif %}">Hoje</a>
-    <a href="/dashboard?filtro=semana" class="filtro-btn {% if filtro_ativo == 'semana' %}ativo{% endif %}">Semana</a>
-    <a href="/dashboard?filtro=mes" class="filtro-btn {% if filtro_ativo == 'mes' %}ativo{% endif %}">Mês</a>
-    <a href="/dashboard?filtro=total" class="filtro-btn {% if filtro_ativo == 'total' %}ativo{% endif %}">Total</a>
-</div>
-
 # ==========================================
 # PDFS
 # ==========================================
