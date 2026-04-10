@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from collections import Counter, deque
 
-import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -319,7 +318,8 @@ def extrair_telefone(payload):
             or payload.get("from")
             or ""
         )
-    except Exception:
+    except Exception as e:
+        log_erro("Erro ao extrair telefone:", e)
         return ""
 
 
@@ -328,22 +328,33 @@ def extrair_texto(payload):
         data = payload.get("data", {}) or {}
 
         text_obj = data.get("text", {})
-        if isinstance(text_obj, dict) and text_obj.get("message"):
-            return text_obj.get("message", "")
+        if isinstance(text_obj, dict):
+            msg = text_obj.get("message")
+            if msg is not None:
+                return str(msg)
 
-        if isinstance(data.get("extendedTextMessage"), dict):
-            msg = data["extendedTextMessage"].get("text", "")
-            if msg:
-                return msg
+        if isinstance(data.get("text"), str) and data.get("text").strip():
+            return data.get("text")
 
-        return (
-            data.get("body")
-            or data.get("message")
-            or payload.get("body")
-            or payload.get("message")
-            or ""
-        )
-    except Exception:
+        extended = data.get("extendedTextMessage", {})
+        if isinstance(extended, dict):
+            msg = extended.get("text")
+            if msg is not None:
+                return str(msg)
+
+        for campo in ["body", "message", "caption"]:
+            valor = data.get(campo)
+            if valor is not None and str(valor).strip():
+                return str(valor)
+
+        for campo in ["body", "message", "caption"]:
+            valor = payload.get(campo)
+            if valor is not None and str(valor).strip():
+                return str(valor)
+
+        return ""
+    except Exception as e:
+        log_erro("Erro ao extrair texto:", e)
         return ""
 
 
@@ -507,10 +518,15 @@ def tratar_intencao_ia(telefone, texto):
         return True
 
     if intent == "atacado":
+        clientes[telefone]["etapa"] = "submenu_atacado"
         enviar_mensagem(
             telefone,
             "📦 *Logista / Atacado*\n\n"
-            "Informe sua necessidade e nossa equipe comercial seguirá com você."
+            "Digite uma opção:\n\n"
+            "1 - Solicitar cotação\n"
+            "2 - Cadastro de logista\n"
+            "3 - Receber catálogo\n"
+            "4 - Falar com consultor"
         )
         return True
 
@@ -624,6 +640,8 @@ def webhook():
     iniciar_cliente(telefone)
     atualizar_interacao(telefone)
 
+    log_info("Etapa atual antes do fluxo:", clientes.get(telefone, {}).get("etapa"))
+
     # ==========================================
     # COMANDOS GERAIS
     # ==========================================
@@ -648,40 +666,43 @@ def webhook():
     # MENU
     # ==========================================
     if etapa == "menu":
-        if texto == "1":
+        opcao = texto.replace("️⃣", "").strip()
+
+        if opcao == "1":
             clientes[telefone]["etapa"] = "revisao_modelo"
             enviar_mensagem(
                 telefone,
                 "🔧 *Agendamento de Revisão*\n\n"
                 "Informe o *modelo da moto*:"
             )
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "revisao_modelo"}), 200
 
-        elif texto == "2":
+        elif opcao == "2":
             enviar_mensagem(
                 telefone,
                 "🔩 *Peças*\n\n"
                 "Informe a *peça desejada* para seguirmos com o atendimento."
             )
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "pecas"}), 200
 
-        elif texto == "3":
+        elif opcao == "3":
             enviar_mensagem(
                 telefone,
                 "🛵 *Acessórios*\n\n"
                 "Informe o *acessório desejado* para seguirmos com o atendimento."
             )
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "acessorios"}), 200
 
-        elif texto == "4":
+        elif opcao == "4":
             enviar_mensagem(
                 telefone,
                 "🛡️ *Garantia*\n\n"
                 "Descreva sua solicitação de garantia para seguirmos com o atendimento."
             )
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "garantia"}), 200
 
-        elif texto == "5":
+        elif opcao == "5":
+            clientes[telefone]["etapa"] = "submenu_atacado"
             enviar_mensagem(
                 telefone,
                 "📦 *Logista / Atacado*\n\n"
@@ -691,22 +712,24 @@ def webhook():
                 "3 - Receber catálogo\n"
                 "4 - Falar com consultor"
             )
-            clientes[telefone]["etapa"] = "submenu_atacado"
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "submenu_atacado"}), 200
 
-        elif texto == "6":
+        elif opcao == "6":
             ativar_atendimento_humano(telefone)
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "humano"}), 200
 
         else:
+            log_info("Opção inválida no menu. Texto recebido:", texto)
             enviar_menu(telefone)
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "fluxo": "menu_reenviado"}), 200
 
     # ==========================================
     # SUBMENU ATACADO
     # ==========================================
     elif etapa == "submenu_atacado":
-        if texto == "1":
+        opcao = texto.replace("️⃣", "").strip()
+
+        if opcao == "1":
             ativar_atendimento_humano(telefone)
             enviar_mensagem(
                 telefone,
@@ -719,7 +742,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        elif texto == "2":
+        elif opcao == "2":
             ativar_atendimento_humano(telefone)
             enviar_mensagem(
                 telefone,
@@ -733,7 +756,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        elif texto == "3":
+        elif opcao == "3":
             ok = enviar_documento_pdf(
                 telefone,
                 "catalogo-atacado.pdf",
@@ -753,10 +776,11 @@ def webhook():
                     "⚠️ Não consegui enviar o catálogo agora.\n"
                     "Tente novamente em instantes ou envie *menu*."
                 )
+
             resetar_cliente(telefone)
             return jsonify({"status": "ok"}), 200
 
-        elif texto == "4":
+        elif opcao == "4":
             ativar_atendimento_humano(telefone)
             return jsonify({"status": "ok"}), 200
 
@@ -821,7 +845,9 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_tipo":
-        if texto not in ["1", "2", "3", "4", "5"]:
+        opcao = texto.replace("️⃣", "").strip()
+
+        if opcao not in ["1", "2", "3", "4", "5"]:
             enviar_mensagem(
                 telefone,
                 "❌ Opção inválida.\n\n"
@@ -834,7 +860,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        clientes[telefone]["revisao"] = texto
+        clientes[telefone]["revisao"] = opcao
         clientes[telefone]["etapa"] = "revisao_dia"
 
         enviar_mensagem(
@@ -850,7 +876,9 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_dia":
-        if texto not in ["1", "2", "3", "4", "5", "6"]:
+        opcao = texto.replace("️⃣", "").strip()
+
+        if opcao not in ["1", "2", "3", "4", "5", "6"]:
             enviar_mensagem(
                 telefone,
                 "❌ Dia inválido.\n\n"
@@ -860,7 +888,7 @@ def webhook():
 
         horarios = gerar_horarios_disponiveis(
             clientes[telefone]["revisao"],
-            texto
+            opcao
         )
 
         if not horarios:
@@ -877,8 +905,8 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        clientes[telefone]["dia"] = texto
-        clientes[telefone]["dia_texto"] = nome_dia(texto)
+        clientes[telefone]["dia"] = opcao
+        clientes[telefone]["dia_texto"] = nome_dia(opcao)
         clientes[telefone]["horarios_disponiveis"] = horarios
         clientes[telefone]["etapa"] = "revisao_data"
 
@@ -913,7 +941,7 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         try:
-            indice = int(texto) - 1
+            indice = int(texto.replace("️⃣", "").strip()) - 1
             horario_escolhido = horarios[indice]
         except Exception:
             enviar_mensagem(
@@ -942,7 +970,9 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_confirmar":
-        if texto == "2":
+        opcao = texto.replace("️⃣", "").strip()
+
+        if opcao == "2":
             resetar_cliente(telefone)
             enviar_mensagem(
                 telefone,
@@ -951,7 +981,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        if texto != "1":
+        if opcao != "1":
             enviar_mensagem(
                 telefone,
                 "Digite:\n"
