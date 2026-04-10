@@ -58,47 +58,55 @@ def dashboard():
     db = SessionLocal()
 
     try:
-        total = db.query(Atendimento).count()
+        filtro = request.args.get("filtro", "hoje")
 
-        revisao = 0
-        agendados = 0
-        primeira = 0
-        segunda = 0
-        terceira = 0
-        quarta = 0
-        quinta = 0
+        hoje = datetime.now().date()
+        inicio_semana = hoje.replace(day=hoje.day - hoje.weekday())
+        inicio_mes = hoje.replace(day=1)
 
-        try:
-            revisao = db.query(Atendimento).filter(Atendimento.setor == "Revisão").count()
-        except Exception:
-            pass
+        query = db.query(Atendimento)
 
-        try:
-            agendados = db.query(Atendimento).filter(Atendimento.status == "Agendado").count()
-        except Exception:
-            pass
+        if filtro == "hoje":
+            query = query.filter(
+                Atendimento.data >= datetime.combine(hoje, datetime.min.time())
+            )
 
-        try:
-            primeira = db.query(Atendimento).filter(Atendimento.revisao == "1").count()
-            segunda = db.query(Atendimento).filter(Atendimento.revisao == "2").count()
-            terceira = db.query(Atendimento).filter(Atendimento.revisao == "3").count()
-            quarta = db.query(Atendimento).filter(Atendimento.revisao == "4").count()
-            quinta = db.query(Atendimento).filter(Atendimento.revisao == "5").count()
-        except Exception:
-            pass
+        elif filtro == "semana":
+            query = query.filter(
+                Atendimento.data >= datetime.combine(inicio_semana, datetime.min.time())
+            )
+
+        elif filtro == "mes":
+            query = query.filter(
+                Atendimento.data >= datetime.combine(inicio_mes, datetime.min.time())
+            )
+
+        total = query.count()
+
+        revisao = query.filter(Atendimento.setor == "Revisão").count()
+
+        agendados = query.filter(
+            Atendimento.status == "Agendado"
+        ).count()
+
+        primeira = query.filter(Atendimento.revisao == "1").count()
+        segunda = query.filter(Atendimento.revisao == "2").count()
+        terceira = query.filter(Atendimento.revisao == "3").count()
+        quarta = query.filter(Atendimento.revisao == "4").count()
+        quinta = query.filter(Atendimento.revisao == "5").count()
 
         contador = Counter()
 
-        try:
-            itens = db.query(Atendimento.itens).all()
-            for item in itens:
-                valor = item[0] if isinstance(item, tuple) else item
-                if valor:
-                    lista = str(valor).split(",")
-                    for i in lista:
-                        contador[i.strip()] += 1
-        except Exception:
-            pass
+        itens = query.with_entities(Atendimento.itens).all()
+
+        for item in itens:
+            valor = item[0] if isinstance(item, tuple) else item
+
+            if valor:
+                lista = str(valor).split(",")
+
+                for i in lista:
+                    contador[i.strip()] += 1
 
         return render_template(
             "dashboard.html",
@@ -115,7 +123,8 @@ def dashboard():
             suporte=contador["Suporte para celular"],
             bau=contador["Baú"],
             filtro=contador["Filtro de ar"],
-            pastilha=contador["Pastilha de freio"]
+            pastilha=contador["Pastilha de freio"],
+            filtro_ativo=filtro
         )
 
     except Exception as e:
