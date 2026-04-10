@@ -249,21 +249,42 @@ def evento_eh_do_proprio_bot(payload):
     try:
         data = payload.get("data", {}) or {}
 
-        if payload.get("fromMe") is True:
+        marcadores_true = [
+            payload.get("fromMe"),
+            payload.get("isFromMe"),
+            payload.get("sentByMe"),
+            data.get("fromMe"),
+            data.get("isFromMe"),
+            data.get("sentByMe"),
+            data.get("isStatusReply"),
+        ]
+
+        if any(valor is True for valor in marcadores_true):
             return True
 
-        if data.get("fromMe") is True:
+        sender = str(
+            data.get("sender")
+            or data.get("from")
+            or payload.get("sender")
+            or payload.get("from")
+            or ""
+        ).lower()
+
+        if sender in ["api", "system", "bot"]:
             return True
 
-        if data.get("isStatusReply") is True:
-            return True
+        texto_evento = str(
+            data.get("event")
+            or payload.get("event")
+            or ""
+        ).lower()
 
-        sender = str(data.get("sender", "")).lower()
-        if sender == "api":
+        if texto_evento in ["sent", "message_sent", "outbound_message"]:
             return True
 
         return False
-    except Exception:
+    except Exception as e:
+        log_erro("Erro ao validar evento do proprio bot:", e)
         return False
 
 
@@ -327,30 +348,26 @@ def extrair_texto(payload):
     try:
         data = payload.get("data", {}) or {}
 
-        text_obj = data.get("text", {})
-        if isinstance(text_obj, dict):
-            msg = text_obj.get("message")
-            if msg is not None:
-                return str(msg)
+        candidatos = [
+            data.get("text", {}).get("message") if isinstance(data.get("text"), dict) else None,
+            data.get("text") if isinstance(data.get("text"), str) else None,
+            data.get("body"),
+            data.get("message"),
+            data.get("caption"),
+            data.get("extendedTextMessage", {}).get("text") if isinstance(data.get("extendedTextMessage"), dict) else None,
+            data.get("conversation"),
+            data.get("selectedButtonId"),
+            data.get("selectedDisplayText"),
+            data.get("singleSelectReply", {}).get("selectedRowId") if isinstance(data.get("singleSelectReply"), dict) else None,
+            data.get("singleSelectReply", {}).get("title") if isinstance(data.get("singleSelectReply"), dict) else None,
+            payload.get("body"),
+            payload.get("message"),
+            payload.get("caption"),
+        ]
 
-        if isinstance(data.get("text"), str) and data.get("text").strip():
-            return data.get("text")
-
-        extended = data.get("extendedTextMessage", {})
-        if isinstance(extended, dict):
-            msg = extended.get("text")
-            if msg is not None:
-                return str(msg)
-
-        for campo in ["body", "message", "caption"]:
-            valor = data.get(campo)
+        for valor in candidatos:
             if valor is not None and str(valor).strip():
-                return str(valor)
-
-        for campo in ["body", "message", "caption"]:
-            valor = payload.get(campo)
-            if valor is not None and str(valor).strip():
-                return str(valor)
+                return str(valor).strip()
 
         return ""
     except Exception as e:
@@ -624,6 +641,7 @@ def webhook():
 
     log_info("Telefone extraído:", telefone)
     log_info("Texto extraído:", texto)
+    log_info("Texto extraído repr:", repr(texto))
     log_info("Message ID:", message_id)
 
     if not telefone:
@@ -641,6 +659,10 @@ def webhook():
     atualizar_interacao(telefone)
 
     log_info("Etapa atual antes do fluxo:", clientes.get(telefone, {}).get("etapa"))
+
+    if not texto:
+        log_info("Mensagem ignorada: texto vazio")
+        return jsonify({"status": "ignorado", "motivo": "texto vazio"}), 200
 
     # ==========================================
     # COMANDOS GERAIS
@@ -666,7 +688,14 @@ def webhook():
     # MENU
     # ==========================================
     if etapa == "menu":
-        opcao = texto.replace("️⃣", "").strip()
+        opcao = (
+            texto.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        )
+
+        log_info("Opcao tratada no menu:", repr(opcao))
 
         if opcao == "1":
             clientes[telefone]["etapa"] = "revisao_modelo"
@@ -719,7 +748,7 @@ def webhook():
             return jsonify({"status": "ok", "fluxo": "humano"}), 200
 
         else:
-            log_info("Opção inválida no menu. Texto recebido:", texto)
+            log_info("Opção inválida no menu. Texto recebido:", repr(texto))
             enviar_menu(telefone)
             return jsonify({"status": "ok", "fluxo": "menu_reenviado"}), 200
 
@@ -727,7 +756,12 @@ def webhook():
     # SUBMENU ATACADO
     # ==========================================
     elif etapa == "submenu_atacado":
-        opcao = texto.replace("️⃣", "").strip()
+        opcao = (
+            texto.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        )
 
         if opcao == "1":
             ativar_atendimento_humano(telefone)
@@ -845,7 +879,12 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_tipo":
-        opcao = texto.replace("️⃣", "").strip()
+        opcao = (
+            texto.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        )
 
         if opcao not in ["1", "2", "3", "4", "5"]:
             enviar_mensagem(
@@ -876,7 +915,12 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_dia":
-        opcao = texto.replace("️⃣", "").strip()
+        opcao = (
+            texto.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        )
 
         if opcao not in ["1", "2", "3", "4", "5", "6"]:
             enviar_mensagem(
@@ -941,7 +985,12 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         try:
-            indice = int(texto.replace("️⃣", "").strip()) - 1
+            indice = int(
+                texto.replace("️⃣", "")
+                .replace("\u200e", "")
+                .replace("\u200f", "")
+                .strip()
+            ) - 1
             horario_escolhido = horarios[indice]
         except Exception:
             enviar_mensagem(
@@ -970,7 +1019,12 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_confirmar":
-        opcao = texto.replace("️⃣", "").strip()
+        opcao = (
+            texto.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        )
 
         if opcao == "2":
             resetar_cliente(telefone)
