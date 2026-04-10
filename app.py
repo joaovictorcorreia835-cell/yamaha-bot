@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory, render_template
 import requests
 import os
-import threading
 import time
 from datetime import datetime
 from collections import Counter, deque
@@ -16,12 +15,13 @@ from ia_intencao import classificar_intencao
 
 app = Flask(__name__)
 criar_banco()
+
 # ==========================================
 # CONFIG
 # ==========================================
-ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
-ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
-ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
+ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID", "")
+ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "")
+ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
 BASE_URL = os.getenv("BASE_URL", "")
 TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900"))
 
@@ -61,42 +61,45 @@ def dashboard():
     try:
         total = db.query(Atendimento).count()
 
-        revisao = db.query(Atendimento).filter(
-            Atendimento.setor == "Revisão"
-        ).count()
+        revisao = 0
+        agendados = 0
+        primeira = 0
+        segunda = 0
+        terceira = 0
+        quarta = 0
+        quinta = 0
 
-        agendados = db.query(Atendimento).filter(
-            Atendimento.status == "Agendado"
-        ).count()
+        try:
+            revisao = db.query(Atendimento).filter(Atendimento.setor == "Revisão").count()
+        except Exception:
+            pass
 
-        primeira = db.query(Atendimento).filter(
-            Atendimento.revisao == "1"
-        ).count()
+        try:
+            agendados = db.query(Atendimento).filter(Atendimento.status == "Agendado").count()
+        except Exception:
+            pass
 
-        segunda = db.query(Atendimento).filter(
-            Atendimento.revisao == "2"
-        ).count()
+        try:
+            primeira = db.query(Atendimento).filter(Atendimento.revisao == "1").count()
+            segunda = db.query(Atendimento).filter(Atendimento.revisao == "2").count()
+            terceira = db.query(Atendimento).filter(Atendimento.revisao == "3").count()
+            quarta = db.query(Atendimento).filter(Atendimento.revisao == "4").count()
+            quinta = db.query(Atendimento).filter(Atendimento.revisao == "5").count()
+        except Exception:
+            pass
 
-        terceira = db.query(Atendimento).filter(
-            Atendimento.revisao == "3"
-        ).count()
-
-        quarta = db.query(Atendimento).filter(
-            Atendimento.revisao == "4"
-        ).count()
-
-        quinta = db.query(Atendimento).filter(
-            Atendimento.revisao == "5"
-        ).count()
-
-        itens = db.query(Atendimento.itens).all()
         contador = Counter()
 
-        for item in itens:
-            if item[0]:
-                lista = item[0].split(",")
-                for i in lista:
-                    contador[i.strip()] += 1
+        try:
+            itens = db.query(Atendimento.itens).all()
+            for item in itens:
+                valor = item[0] if isinstance(item, tuple) else item
+                if valor:
+                    lista = str(valor).split(",")
+                    for i in lista:
+                        contador[i.strip()] += 1
+        except Exception:
+            pass
 
         return render_template(
             "dashboard.html",
@@ -118,10 +121,19 @@ def dashboard():
 
     except Exception as e:
         log_erro("Dashboard erro:", e)
-        return "Erro dashboard"
+        return "Erro dashboard", 500
 
     finally:
         db.close()
+
+
+# ==========================================
+# PDFS
+# ==========================================
+@app.route("/pdf/<path:arquivo>")
+def servir_pdf(arquivo):
+    pasta_pdfs = os.path.join(app.root_path)
+    return send_from_directory(pasta_pdfs, arquivo)
 
 
 # ==========================================
@@ -136,7 +148,8 @@ def normalizar_texto(texto):
 
 
 def telefone_eh_grupo(telefone):
-    return "@g.us" in str(telefone)
+    telefone = str(telefone or "")
+    return "@g.us" in telefone
 
 
 def agora():
@@ -169,7 +182,8 @@ def iniciar_cliente(telefone):
             "horario": "",
             "itens": "",
             "venda_adicional": "",
-            "concluido": False
+            "concluido": False,
+            "horarios_disponiveis": []
         }
 
 
@@ -189,7 +203,8 @@ def resetar_cliente(telefone):
         "horario": "",
         "itens": "",
         "venda_adicional": "",
-        "concluido": False
+        "concluido": False,
+        "horarios_disponiveis": []
     }
 
 
@@ -229,14 +244,41 @@ def processar_inatividade():
 
 
 # ==========================================
+# IGNORAR EVENTOS DO PRÓPRIO BOT
+# ==========================================
+def evento_eh_do_proprio_bot(payload):
+    try:
+        data = payload.get("data", {}) or {}
+
+        if payload.get("fromMe") is True:
+            return True
+
+        if data.get("fromMe") is True:
+            return True
+
+        if data.get("isStatusReply") is True:
+            return True
+
+        sender = str(data.get("sender", "")).lower()
+        if sender == "api":
+            return True
+
+        return False
+    except Exception:
+        return False
+
+
+# ==========================================
 # MENSAGENS DUPLICADAS
 # ==========================================
 def extrair_message_id(payload):
     try:
+        data = payload.get("data", {}) or {}
         return (
-            payload.get("data", {}).get("id")
-            or payload.get("data", {}).get("messageId")
+            data.get("id")
+            or data.get("messageId")
             or payload.get("messageId")
+            or payload.get("id")
             or ""
         )
     except Exception:
@@ -262,11 +304,56 @@ def registrar_mensagem_processada(message_id):
 
 
 # ==========================================
+# EXTRAÇÃO
+# ==========================================
+def extrair_telefone(payload):
+    try:
+        data = payload.get("data", {}) or {}
+
+        return (
+            data.get("phone")
+            or data.get("chatId")
+            or data.get("from")
+            or payload.get("phone")
+            or payload.get("chatId")
+            or payload.get("from")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def extrair_texto(payload):
+    try:
+        data = payload.get("data", {}) or {}
+
+        text_obj = data.get("text", {})
+        if isinstance(text_obj, dict) and text_obj.get("message"):
+            return text_obj.get("message", "")
+
+        if isinstance(data.get("extendedTextMessage"), dict):
+            msg = data["extendedTextMessage"].get("text", "")
+            if msg:
+                return msg
+
+        return (
+            data.get("body")
+            or data.get("message")
+            or payload.get("body")
+            or payload.get("message")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+# ==========================================
 # ENVIO DE MENSAGEM
 # ==========================================
 def headers_zapi():
     return {
-        "Client-Token": ZAPI_CLIENT_TOKEN
+        "Client-Token": ZAPI_CLIENT_TOKEN,
+        "Content-Type": "application/json"
     }
 
 
@@ -277,6 +364,9 @@ def enviar_mensagem(telefone, mensagem):
     }
 
     try:
+        log_info("Enviando mensagem para:", telefone)
+        log_info("Payload envio:", payload)
+
         response = requests.post(
             url_envio,
             json=payload,
@@ -284,8 +374,11 @@ def enviar_mensagem(telefone, mensagem):
             timeout=30
         )
 
+        log_info("Status envio:", response.status_code)
+        log_info("Resposta Z-API:", response.text)
+
         if 200 <= response.status_code < 300:
-            log_info("Mensagem enviada:", telefone)
+            log_info("Mensagem enviada com sucesso:", telefone)
             return True
 
         log_erro("Falha envio:", response.status_code, response.text)
@@ -293,6 +386,45 @@ def enviar_mensagem(telefone, mensagem):
 
     except Exception as e:
         log_erro("Erro envio:", e)
+        return False
+
+
+def enviar_documento_pdf(telefone, arquivo_pdf, nome_exibicao=None, legenda="📄 Catálogo Atacado Motoshow Yamaha"):
+    try:
+        if not BASE_URL:
+            log_erro("BASE_URL não configurada para envio de PDF.")
+            return False
+
+        nome_exibicao = nome_exibicao or arquivo_pdf
+        link_pdf = f"{BASE_URL}/pdf/{arquivo_pdf}"
+
+        payload = {
+            "phone": telefone,
+            "document": link_pdf,
+            "fileName": nome_exibicao,
+            "caption": legenda
+        }
+
+        log_info("Enviando PDF para:", telefone)
+        log_info("Payload PDF:", payload)
+
+        response = requests.post(
+            url_documento,
+            json=payload,
+            headers=headers_zapi(),
+            timeout=60
+        )
+
+        log_info("Status PDF:", response.status_code)
+        log_info("Resposta PDF:", response.text)
+
+        if 200 <= response.status_code < 300:
+            return True
+
+        return False
+
+    except Exception as e:
+        log_erro("Erro envio PDF:", e)
         return False
 
 
@@ -322,6 +454,7 @@ def enviar_menu(telefone):
 def tratar_intencao_ia(telefone, texto):
     try:
         resultado = classificar_intencao(texto)
+        log_info("Resultado IA:", resultado)
     except Exception as e:
         log_erro("Erro na IA de intenção:", e)
         return False
@@ -329,9 +462,9 @@ def tratar_intencao_ia(telefone, texto):
     if not resultado:
         return False
 
-    intent = resultado.get("intent", "")
+    intent = str(resultado).strip().lower()
 
-    if intent == "agendar_revisao":
+    if intent in ["revisao", "agendar_revisao"]:
         clientes[telefone]["etapa"] = "revisao_modelo"
         enviar_mensagem(
             telefone,
@@ -349,27 +482,39 @@ def tratar_intencao_ia(telefone, texto):
         ativar_atendimento_humano(telefone)
         return True
 
+    if intent == "pecas":
+        enviar_mensagem(
+            telefone,
+            "🔩 *Peças*\n\n"
+            "Informe a *peça desejada* para seguirmos com o atendimento."
+        )
+        return True
+
+    if intent == "acessorios":
+        enviar_mensagem(
+            telefone,
+            "🛵 *Acessórios*\n\n"
+            "Informe o *acessório desejado* para seguirmos com o atendimento."
+        )
+        return True
+
+    if intent == "garantia":
+        enviar_mensagem(
+            telefone,
+            "🛡️ *Garantia*\n\n"
+            "Descreva sua solicitação de garantia para seguirmos com o atendimento."
+        )
+        return True
+
+    if intent == "atacado":
+        enviar_mensagem(
+            telefone,
+            "📦 *Logista / Atacado*\n\n"
+            "Informe sua necessidade e nossa equipe comercial seguirá com você."
+        )
+        return True
+
     return False
-
-
-# ==========================================
-# EXTRAÇÃO
-# ==========================================
-def extrair_telefone(payload):
-    try:
-        return payload.get("data", {}).get("phone", "")
-    except Exception:
-        return ""
-
-
-def extrair_texto(payload):
-    try:
-        text_obj = payload.get("data", {}).get("text", {})
-        if isinstance(text_obj, dict):
-            return text_obj.get("message", "")
-        return ""
-    except Exception:
-        return ""
 
 
 # ==========================================
@@ -397,14 +542,12 @@ def gerar_horarios_disponiveis(revisao, dia):
                 "08:00", "09:00", "10:00", "11:00",
                 "12:00", "13:00", "14:00", "15:00"
             ]
-        else:
-            return ["08:00"]
+        return ["08:00"]
 
     if dia == "6":
         if revisao in ["1", "2"]:
             return ["08:00", "09:00", "10:00"]
-        else:
-            return []
+        return []
 
     return []
 
@@ -417,21 +560,55 @@ def montar_mensagem_horarios(horarios):
 
 
 # ==========================================
+# SALVAR ATENDIMENTO COM SEGURANÇA
+# ==========================================
+def salvar_atendimento_seguro(dados):
+    db = SessionLocal()
+    try:
+        atendimento = Atendimento()
+
+        for campo, valor in dados.items():
+            if hasattr(atendimento, campo):
+                setattr(atendimento, campo, valor)
+
+        db.add(atendimento)
+        db.commit()
+        log_info("Atendimento salvo com sucesso.")
+        return True
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro salvar atendimento:", e)
+        return False
+
+    finally:
+        db.close()
+
+
+# ==========================================
 # WEBHOOK
 # ==========================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
-        return "OK"
+        return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
 
     processar_inatividade()
 
     payload = request.get_json(silent=True) or {}
+    log_info("PAYLOAD RECEBIDO:", payload)
+
+    if evento_eh_do_proprio_bot(payload):
+        return jsonify({"status": "ignorado", "motivo": "evento do proprio bot"}), 200
 
     telefone = extrair_telefone(payload)
     texto = limpar_texto(extrair_texto(payload))
     texto_normalizado = normalizar_texto(texto)
     message_id = extrair_message_id(payload)
+
+    log_info("Telefone extraído:", telefone)
+    log_info("Texto extraído:", texto)
+    log_info("Message ID:", message_id)
 
     if not telefone:
         return jsonify({"status": "ignorado", "motivo": "telefone ausente"}), 200
@@ -453,7 +630,7 @@ def webhook():
     if texto_normalizado in ["menu", "oi", "ola", "olá", "bom dia", "boa tarde", "boa noite"]:
         resetar_cliente(telefone)
         enviar_menu(telefone)
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok", "acao": "menu"}), 200
 
     if clientes[telefone].get("atendimento_humano") and texto_normalizado != "menu":
         return jsonify({"status": "ok", "modo": "humano"}), 200
@@ -508,8 +685,13 @@ def webhook():
             enviar_mensagem(
                 telefone,
                 "📦 *Logista / Atacado*\n\n"
-                "Informe sua necessidade e nossa equipe comercial seguirá com você."
+                "Digite uma opção:\n\n"
+                "1 - Solicitar cotação\n"
+                "2 - Cadastro de logista\n"
+                "3 - Receber catálogo\n"
+                "4 - Falar com consultor"
             )
+            clientes[telefone]["etapa"] = "submenu_atacado"
             return jsonify({"status": "ok"}), 200
 
         elif texto == "6":
@@ -518,6 +700,76 @@ def webhook():
 
         else:
             enviar_menu(telefone)
+            return jsonify({"status": "ok"}), 200
+
+    # ==========================================
+    # SUBMENU ATACADO
+    # ==========================================
+    elif etapa == "submenu_atacado":
+        if texto == "1":
+            ativar_atendimento_humano(telefone)
+            enviar_mensagem(
+                telefone,
+                "📦 *Solicitação de Cotação*\n\n"
+                "Envie:\n"
+                "• Empresa\n"
+                "• CNPJ\n"
+                "• Cidade\n"
+                "• Peças desejadas"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif texto == "2":
+            ativar_atendimento_humano(telefone)
+            enviar_mensagem(
+                telefone,
+                "📝 *Cadastro de Logista*\n\n"
+                "Envie:\n"
+                "• Empresa\n"
+                "• CNPJ\n"
+                "• Responsável\n"
+                "• Cidade\n"
+                "• Telefone"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif texto == "3":
+            ok = enviar_documento_pdf(
+                telefone,
+                "catalogo-atacado.pdf",
+                nome_exibicao="catalogo-atacado.pdf",
+                legenda="📄 Catálogo Atacado Motoshow Yamaha"
+            )
+
+            if ok:
+                enviar_mensagem(
+                    telefone,
+                    "✅ Catálogo enviado com sucesso.\n\n"
+                    "Equipe Motoshow Yamaha"
+                )
+            else:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não consegui enviar o catálogo agora.\n"
+                    "Tente novamente em instantes ou envie *menu*."
+                )
+            resetar_cliente(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        elif texto == "4":
+            ativar_atendimento_humano(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        else:
+            enviar_mensagem(
+                telefone,
+                "❌ Opção inválida.\n\n"
+                "Digite:\n"
+                "1 - Solicitar cotação\n"
+                "2 - Cadastro de logista\n"
+                "3 - Receber catálogo\n"
+                "4 - Falar com consultor"
+            )
             return jsonify({"status": "ok"}), 200
 
     # ==========================================
@@ -651,6 +903,7 @@ def webhook():
 
     elif etapa == "revisao_horario":
         horarios = clientes[telefone].get("horarios_disponiveis", [])
+
         if not horarios:
             clientes[telefone]["etapa"] = "revisao_dia"
             enviar_mensagem(
@@ -707,39 +960,27 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        db = SessionLocal()
-
-        try:
-            atendimento = Atendimento(
-                telefone=telefone,
-                nome=clientes[telefone]["nome"],
-                setor="Revisão",
-                modelo=clientes[telefone]["modelo"],
-                ano=clientes[telefone]["ano"],
-                revisao=clientes[telefone]["revisao"],
-                cpf=clientes[telefone]["cpf"],
-                dia_semana=clientes[telefone]["dia_texto"],
-                data_agendada=clientes[telefone]["data"],
-                horario=clientes[telefone]["horario"],
-                itens=clientes[telefone].get("itens", ""),
-                venda_adicional=clientes[telefone].get("venda_adicional", ""),
-                origem="Bot",
-                status="Agendado",
-                etapa="revisao_confirmada",
-                atendimento_humano=False,
-                concluido=True,
-                ultima_interacao=agora_datetime()
-            )
-
-            db.add(atendimento)
-            db.commit()
-
-        except Exception as e:
-            db.rollback()
-            log_erro("Erro salvar atendimento:", e)
-
-        finally:
-            db.close()
+        salvar_atendimento_seguro({
+            "telefone": telefone,
+            "nome": clientes[telefone]["nome"],
+            "setor": "Revisão",
+            "modelo": clientes[telefone]["modelo"],
+            "ano": clientes[telefone]["ano"],
+            "revisao": clientes[telefone]["revisao"],
+            "cpf": clientes[telefone]["cpf"],
+            "dia_semana": clientes[telefone]["dia_texto"],
+            "data_agendada": clientes[telefone]["data"],
+            "horario": clientes[telefone]["horario"],
+            "itens": clientes[telefone].get("itens", ""),
+            "venda_adicional": clientes[telefone].get("venda_adicional", ""),
+            "origem": "Bot",
+            "status": "Agendado",
+            "etapa": "revisao_confirmada",
+            "atendimento_humano": False,
+            "concluido": True,
+            "ultima_interacao": agora_datetime(),
+            "data": agora_datetime()
+        })
 
         enviar_mensagem(
             telefone,
