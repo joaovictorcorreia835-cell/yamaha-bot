@@ -41,6 +41,35 @@
             margin: 0 auto;
         }
 
+        .filtros-dashboard {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .filtro-btn {
+            background: white;
+            color: #163b8f;
+            padding: 10px 18px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 700;
+            border: 2px solid #163b8f;
+            transition: 0.2s ease;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+        }
+
+        .filtro-btn:hover {
+            background: #163b8f;
+            color: white;
+        }
+
+        .filtro-btn.ativo {
+            background: #163b8f;
+            color: white;
+        }
+
         .cards {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -171,7 +200,13 @@
 
     <div class="container">
 
-        <!-- CARDS -->
+        <div class="filtros-dashboard">
+            <a href="/dashboard?filtro=hoje" class="filtro-btn {% if filtro_ativo == 'hoje' %}ativo{% endif %}">Hoje</a>
+            <a href="/dashboard?filtro=semana" class="filtro-btn {% if filtro_ativo == 'semana' %}ativo{% endif %}">Semana</a>
+            <a href="/dashboard?filtro=mes" class="filtro-btn {% if filtro_ativo == 'mes' %}ativo{% endif %}">Mês</a>
+            <a href="/dashboard?filtro=total" class="filtro-btn {% if filtro_ativo == 'total' %}ativo{% endif %}">Total</a>
+        </div>
+
         <div class="cards">
             <div class="card">
                 <h3>Total de Atendimentos</h3>
@@ -200,7 +235,6 @@
             </div>
         </div>
 
-        <!-- GRÁFICOS -->
         <div class="grid">
             <div class="panel">
                 <h2>📊 Revisões por Tipo</h2>
@@ -217,7 +251,6 @@
             </div>
         </div>
 
-        <!-- TABELA -->
         <div class="table-section">
             <h2>📌 Resumo de Itens Adicionais</h2>
             <table>
