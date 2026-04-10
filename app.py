@@ -2,9 +2,11 @@ from flask import Flask, request, jsonify, send_from_directory, render_template
 import requests
 import os
 import time
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from collections import Counter, deque
 
+import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -61,7 +63,7 @@ def dashboard():
         filtro = request.args.get("filtro", "hoje")
 
         hoje = datetime.now().date()
-        inicio_semana = hoje.replace(day=hoje.day - hoje.weekday())
+        inicio_semana = hoje - timedelta(days=hoje.weekday())
         inicio_mes = hoje.replace(day=1)
 
         query = db.query(Atendimento)
@@ -70,24 +72,18 @@ def dashboard():
             query = query.filter(
                 Atendimento.data >= datetime.combine(hoje, datetime.min.time())
             )
-
         elif filtro == "semana":
             query = query.filter(
                 Atendimento.data >= datetime.combine(inicio_semana, datetime.min.time())
             )
-
         elif filtro == "mes":
             query = query.filter(
                 Atendimento.data >= datetime.combine(inicio_mes, datetime.min.time())
             )
 
         total = query.count()
-
         revisao = query.filter(Atendimento.setor == "Revisão").count()
-
-        agendados = query.filter(
-            Atendimento.status == "Agendado"
-        ).count()
+        agendados = query.filter(Atendimento.status == "Agendado").count()
 
         primeira = query.filter(Atendimento.revisao == "1").count()
         segunda = query.filter(Atendimento.revisao == "2").count()
@@ -96,15 +92,12 @@ def dashboard():
         quinta = query.filter(Atendimento.revisao == "5").count()
 
         contador = Counter()
-
         itens = query.with_entities(Atendimento.itens).all()
 
         for item in itens:
             valor = item[0] if isinstance(item, tuple) else item
-
             if valor:
                 lista = str(valor).split(",")
-
                 for i in lista:
                     contador[i.strip()] += 1
 
@@ -133,13 +126,14 @@ def dashboard():
 
     finally:
         db.close()
-        
+
+
 # ==========================================
 # PDFS
 # ==========================================
 @app.route("/pdf/<path:arquivo>")
 def servir_pdf(arquivo):
-    pasta_pdfs = os.path.join(app.root_path)
+    pasta_pdfs = os.path.join(app.root_path, "static", "pdfs")
     return send_from_directory(pasta_pdfs, arquivo)
 
 
@@ -250,6 +244,80 @@ def processar_inatividade():
         log_erro("Erro ao processar inatividade:", e)
 
 
+def buscar_valor_revisao(modelo, revisao=None, km=None, meses=None):
+    try:
+        df = pd.read_excel("valores_revisao.xlsx")
+
+        df["MODELO"] = df["MODELO"].astype(str).str.upper().str.strip()
+        modelo = str(modelo).upper().strip()
+
+        df_modelo = df[df["MODELO"].str.contains(modelo, na=False)]
+
+        if revisao is not None:
+            resultado = df_modelo[df_modelo["REVISAO"] == int(revisao)]
+        elif km is not None:
+            resultado = df_modelo[df_modelo["KM"] == int(km)]
+        elif meses is not None:
+            resultado = df_modelo[df_modelo["MESES"] == int(meses)]
+        else:
+            return None
+
+        if not resultado.empty:
+            valor = resultado.iloc[0]["VALOR"]
+            revisao_encontrada = resultado.iloc[0]["REVISAO"]
+            km_encontrado = resultado.iloc[0]["KM"]
+            meses_encontrado = resultado.iloc[0]["MESES"]
+            return {
+                "valor": valor,
+                "revisao": revisao_encontrada,
+                "km": km_encontrado,
+                "meses": meses_encontrado
+            }
+
+        return None
+
+    except Exception as e:
+        log_erro("Erro ao buscar valor da revisão:", e)
+        return None
+
+
+def extrair_modelo_do_texto(texto):
+    try:
+        df = pd.read_excel("valores_revisao.xlsx")
+        modelos = df["MODELO"].dropna().astype(str).str.upper().str.strip().unique()
+
+        texto_upper = str(texto or "").upper()
+
+        for modelo in modelos:
+            if modelo in texto_upper:
+                return modelo
+
+        return None
+
+    except Exception as e:
+        log_erro("Erro ao extrair modelo do texto:", e)
+        return None
+
+
+def extrair_revisao_km_ou_meses(texto):
+    texto = str(texto or "").lower().strip()
+
+    padrao_revisao = re.search(r'(\d+)\s*(?:ª|a)?\s*revis', texto)
+    if padrao_revisao:
+        return {"revisao": int(padrao_revisao.group(1)), "km": None, "meses": None}
+
+    padrao_km = re.search(r'(\d{1,3}(?:[.\s]?\d{3})+|\d+)\s*km', texto)
+    if padrao_km:
+        km = re.sub(r"[^\d]", "", padrao_km.group(1))
+        return {"revisao": None, "km": int(km), "meses": None}
+
+    padrao_meses = re.search(r'(\d+)\s*(?:meses|mês|mes)', texto)
+    if padrao_meses:
+        return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
+
+    return {"revisao": None, "km": None, "meses": None}
+
+
 # ==========================================
 # IGNORAR EVENTOS DO PRÓPRIO BOT
 # ==========================================
@@ -357,7 +425,6 @@ def extrair_texto(payload):
         data = payload.get("data", {}) or {}
 
         candidatos = [
-            # dentro de data
             data.get("text", {}).get("message") if isinstance(data.get("text"), dict) else None,
             data.get("text") if isinstance(data.get("text"), str) else None,
             data.get("body"),
@@ -370,7 +437,6 @@ def extrair_texto(payload):
             data.get("singleSelectReply", {}).get("selectedRowId") if isinstance(data.get("singleSelectReply"), dict) else None,
             data.get("singleSelectReply", {}).get("title") if isinstance(data.get("singleSelectReply"), dict) else None,
 
-            # no nível principal do payload
             payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
             payload.get("text") if isinstance(payload.get("text"), str) else None,
             payload.get("body"),
@@ -392,6 +458,7 @@ def extrair_texto(payload):
     except Exception as e:
         log_erro("Erro ao extrair texto:", e)
         return ""
+
 
 # ==========================================
 # ENVIO DE MENSAGEM
@@ -516,6 +583,83 @@ def tratar_intencao_ia(telefone, texto):
             telefone,
             "🔧 *Agendamento de Revisão*\n\n"
             "Informe o *modelo da moto*:"
+        )
+        return True
+
+    if intent == "valor_revisao":
+        modelo = extrair_modelo_do_texto(texto)
+        dados_consulta = extrair_revisao_km_ou_meses(texto)
+
+        revisao = dados_consulta.get("revisao")
+        km = dados_consulta.get("km")
+        meses = dados_consulta.get("meses")
+
+        if not modelo:
+            enviar_mensagem(
+                telefone,
+                "🔎 Para eu consultar o valor da revisão, preciso do *modelo da moto*.\n\n"
+                "Exemplos:\n"
+                "• Valor da 3 revisão da Fluo\n"
+                "• Valor da revisão de 6000 km da Fluo\n"
+                "• Valor da revisão de 18 meses da Fluo"
+            )
+            return True
+
+        if revisao is None and km is None and meses is None:
+            enviar_mensagem(
+                telefone,
+                "🔎 Me informe qual revisão deseja consultar:\n\n"
+                "• Número da revisão\n"
+                "• Quilometragem\n"
+                "• Tempo em meses\n\n"
+                "Exemplos:\n"
+                "• 3 revisão da Fluo\n"
+                "• revisão de 6000 km da Fluo\n"
+                "• revisão de 18 meses da Fluo"
+            )
+            return True
+
+        resultado_busca = buscar_valor_revisao(
+            modelo=modelo,
+            revisao=revisao,
+            km=km,
+            meses=meses
+        )
+
+        if not resultado_busca:
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não encontrei esse valor na tabela no momento.\n\n"
+                "Verifique o modelo e a referência da revisão e tente novamente."
+            )
+            return True
+
+        valor = resultado_busca["valor"]
+        revisao_encontrada = resultado_busca["revisao"]
+        km_encontrado = resultado_busca["km"]
+        meses_encontrado = resultado_busca["meses"]
+
+        try:
+            valor_float = float(str(valor).replace("R$", "").replace(".", "").replace(",", ".").strip())
+            valor_formatado = f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            valor_formatado = f"R$ {valor}"
+
+        if revisao is not None:
+            referencia = f"{revisao_encontrada}ª revisão"
+        elif km is not None:
+            referencia = f"{km_encontrado} km"
+        else:
+            referencia = f"{meses_encontrado} meses"
+
+        enviar_mensagem(
+            telefone,
+            "🔧 *Valor da Revisão*\n\n"
+            f"🏍️ Modelo: *{modelo}*\n"
+            f"📌 Referência informada: *{referencia}*\n"
+            f"🔄 Equivale à: *{revisao_encontrada}ª revisão*\n"
+            f"💰 Valor: *{valor_formatado}*\n\n"
+            "Caso queira, já posso seguir com o *agendamento da sua revisão*."
         )
         return True
 

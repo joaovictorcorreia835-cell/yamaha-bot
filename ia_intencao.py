@@ -1,4 +1,5 @@
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -38,6 +39,22 @@ def obter_cliente():
         return None
 
 
+def texto_parece_valor_revisao(texto_normalizado):
+    tem_valor = any(p in texto_normalizado for p in [
+        "valor", "preço", "preco", "custa", "quanto custa", "quanto é", "quanto e"
+    ])
+
+    tem_contexto_revisao = any(p in texto_normalizado for p in [
+        "revisão", "revisao", "km", "quilometragem", "meses", "mês", "mes"
+    ])
+
+    tem_numero_revisao = re.search(r"\b\d+\s*(?:ª|a)?\s*revis", texto_normalizado) is not None
+    tem_km = re.search(r"\b\d{1,3}(?:[.\s]?\d{3})*\s*km\b", texto_normalizado) is not None
+    tem_meses = re.search(r"\b\d+\s*(?:meses|mês|mes)\b", texto_normalizado) is not None
+
+    return (tem_valor and tem_contexto_revisao) or tem_numero_revisao or tem_km or tem_meses
+
+
 def classificar_intencao(texto):
     texto = str(texto or "").strip()
 
@@ -51,6 +68,9 @@ def classificar_intencao(texto):
     # ==========================================
     if any(p in texto_normalizado for p in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]):
         return "menu"
+
+    if texto_parece_valor_revisao(texto_normalizado):
+        return "valor_revisao"
 
     if any(p in texto_normalizado for p in [
         "agendar revisão", "agendar revisao", "revisão", "revisao",
@@ -100,7 +120,8 @@ def classificar_intencao(texto):
                     "content": (
                         "Você é um classificador de intenção para um bot de pós-vendas Yamaha. "
                         "Responda com apenas uma única palavra, sem explicação, escolhendo uma destas opções exatas: "
-                        "revisao, pecas, acessorios, garantia, atacado, humano, menu. "
+                        "revisao, valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
+                        "Use valor_revisao quando a pessoa quiser saber preço, valor ou custo de revisão por número, km ou meses. "
                         "Nunca responda fora dessa lista."
                     )
                 },
@@ -116,6 +137,7 @@ def classificar_intencao(texto):
 
         permitidas = {
             "revisao",
+            "valor_revisao",
             "pecas",
             "acessorios",
             "garantia",
