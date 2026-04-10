@@ -3,6 +3,7 @@ import requests
 import os
 import time
 import re
+import threading
 from datetime import datetime, timedelta
 from collections import Counter, deque
 
@@ -26,12 +27,38 @@ ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
 BASE_URL = os.getenv("BASE_URL", "")
 TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900"))
 
+# FOLLOW-UP
+ARQUIVO_FOLLOWUP = os.getenv("ARQUIVO_FOLLOWUP", "clientes_disparo.xlsx")
+INTERVALO_WORKER_FOLLOWUP = int(os.getenv("INTERVALO_WORKER_FOLLOWUP", "300"))  # 5 min
+FOLLOWUP_1_HORAS = int(os.getenv("FOLLOWUP_1_HORAS", "48"))
+FOLLOWUP_2_DIAS = int(os.getenv("FOLLOWUP_2_DIAS", "5"))
+
+MENSAGEM_FOLLOWUP_1 = os.getenv(
+    "MENSAGEM_FOLLOWUP_1",
+    "Olá 👋\n\n"
+    "Passando para saber se conseguiu verificar nossa mensagem.\n\n"
+    "Estamos com agenda aberta para revisões e podemos verificar um horário para você.\n\n"
+    "Se desejar, responda esta mensagem e seguimos com seu atendimento.\n\n"
+    "Equipe Motoshow Yamaha"
+)
+
+MENSAGEM_FOLLOWUP_2 = os.getenv(
+    "MENSAGEM_FOLLOWUP_2",
+    "Olá 👋\n\n"
+    "Estamos finalizando nosso acompanhamento e gostaria de confirmar se ainda deseja atendimento.\n\n"
+    "Se quiser, posso verificar disponibilidade para sua revisão ou seguir com sua solicitação.\n\n"
+    "Equipe Motoshow Yamaha"
+)
+
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
 url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
 
 clientes = {}
 mensagens_processadas = set()
 fila_mensagens = deque(maxlen=2000)
+
+followup_lock = threading.Lock()
+worker_followup_iniciado = False
 
 # ==========================================
 # HOME
@@ -159,6 +186,47 @@ def agora():
 
 def agora_datetime():
     return datetime.now()
+
+
+def formatar_data_hora(dt=None):
+    dt = dt or datetime.now()
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
+def limpar_telefone(telefone):
+    return re.sub(r"\D", "", str(telefone or ""))
+
+
+def parse_data_hora(valor):
+    if valor is None:
+        return None
+
+    if isinstance(valor, datetime):
+        return valor
+
+    texto = str(valor).strip()
+    if not texto:
+        return None
+
+    formatos = [
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%d/%m/%Y",
+        "%Y-%m-%d",
+    ]
+
+    for fmt in formatos:
+        try:
+            return datetime.strptime(texto, fmt)
+        except Exception:
+            continue
+
+    try:
+        return pd.to_datetime(texto, dayfirst=True, errors="coerce").to_pydatetime()
+    except Exception:
+        return None
 
 
 def atualizar_interacao(telefone):
@@ -316,6 +384,212 @@ def extrair_revisao_km_ou_meses(texto):
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
+
+
+# ==========================================
+# FOLLOW-UP PLANILHA
+# ==========================================
+def garantir_colunas_followup(df):
+    colunas_necessarias = [
+        "TELEFONE",
+        "STATUS_ENVIO",
+        "STATUS_RETORNO",
+        "DATA_RETORNO",
+        "ULTIMA_INTERACAO",
+        "FOLLOWUP_1",
+        "FOLLOWUP_2",
+        "OBS",
+        "LINK_ORIGEM",
+        "INTENCAO_IA",
+        "PROXIMA_ACAO",
+        "NIVEL_INTERESSE",
+        "DATA_DISPARO",
+    ]
+
+    for coluna in colunas_necessarias:
+        if coluna not in df.columns:
+            df[coluna] = ""
+
+    return df
+
+
+def carregar_planilha_followup():
+    if not os.path.exists(ARQUIVO_FOLLOWUP):
+        log_info("Planilha de follow-up não encontrada:", ARQUIVO_FOLLOWUP)
+        return None
+
+    try:
+        df = pd.read_excel(ARQUIVO_FOLLOWUP)
+        df = garantir_colunas_followup(df)
+        return df
+    except Exception as e:
+        log_erro("Erro ao carregar planilha de follow-up:", e)
+        return None
+
+
+def salvar_planilha_followup(df):
+    try:
+        df.to_excel(ARQUIVO_FOLLOWUP, index=False)
+        return True
+    except Exception as e:
+        log_erro("Erro ao salvar planilha de follow-up:", e)
+        return False
+
+
+def obter_data_base_followup(row):
+    data_disparo = parse_data_hora(row.get("DATA_DISPARO"))
+    if data_disparo:
+        return data_disparo
+
+    ultima_interacao = parse_data_hora(row.get("ULTIMA_INTERACAO"))
+    if ultima_interacao:
+        return ultima_interacao
+
+    return None
+
+
+def append_obs(obs_atual, nova_obs):
+    obs_atual = str(obs_atual or "").strip()
+    nova_obs = str(nova_obs or "").strip()
+
+    if not obs_atual:
+        return nova_obs
+
+    return f"{obs_atual} | {nova_obs}"
+
+
+def atualizar_retorno_na_planilha(telefone, texto_recebido=""):
+    telefone_limpo = limpar_telefone(telefone)
+    if not telefone_limpo:
+        return
+
+    with followup_lock:
+        df = carregar_planilha_followup()
+        if df is None or df.empty or "TELEFONE" not in df.columns:
+            return
+
+        alterou = False
+
+        for idx, row in df.iterrows():
+            tel_planilha = limpar_telefone(row.get("TELEFONE"))
+            if not tel_planilha:
+                continue
+
+            if tel_planilha.endswith(telefone_limpo[-11:]) or telefone_limpo.endswith(tel_planilha[-11:]):
+                status_retorno = normalizar_texto(row.get("STATUS_RETORNO"))
+                if status_retorno != "respondido":
+                    df.at[idx, "STATUS_RETORNO"] = "RESPONDIDO"
+                    df.at[idx, "DATA_RETORNO"] = formatar_data_hora()
+                    df.at[idx, "ULTIMA_INTERACAO"] = formatar_data_hora()
+                    df.at[idx, "PROXIMA_ACAO"] = "ANALISAR_RETORNO"
+                    df.at[idx, "OBS"] = append_obs(
+                        row.get("OBS"),
+                        f"Cliente respondeu em {formatar_data_hora()}"
+                    )
+                    alterou = True
+
+        if alterou:
+            salvar_planilha_followup(df)
+            log_info("Retorno atualizado na planilha para:", telefone)
+
+
+def processar_followups():
+    with followup_lock:
+        df = carregar_planilha_followup()
+        if df is None or df.empty:
+            return
+
+        agora_dt = datetime.now()
+        alterou = False
+
+        for idx, row in df.iterrows():
+            try:
+                telefone = limpar_telefone(row.get("TELEFONE"))
+                status_envio = normalizar_texto(row.get("STATUS_ENVIO"))
+                status_retorno = normalizar_texto(row.get("STATUS_RETORNO"))
+                followup_1 = limpar_texto(row.get("FOLLOWUP_1"))
+                followup_2 = limpar_texto(row.get("FOLLOWUP_2"))
+
+                if not telefone:
+                    continue
+
+                if status_envio != "enviado":
+                    continue
+
+                if status_retorno == "respondido":
+                    continue
+
+                data_base = obter_data_base_followup(row)
+                if not data_base:
+                    continue
+
+                horas_passadas = (agora_dt - data_base).total_seconds() / 3600
+                dias_passados = (agora_dt - data_base).days
+
+                # FOLLOWUP 1 - 48h
+                if not followup_1 and horas_passadas >= FOLLOWUP_1_HORAS:
+                    ok = enviar_mensagem(telefone, MENSAGEM_FOLLOWUP_1)
+                    if ok:
+                        df.at[idx, "FOLLOWUP_1"] = formatar_data_hora()
+                        df.at[idx, "ULTIMA_INTERACAO"] = formatar_data_hora()
+                        df.at[idx, "PROXIMA_ACAO"] = "AGUARDAR_FOLLOWUP_2"
+                        df.at[idx, "OBS"] = append_obs(
+                            row.get("OBS"),
+                            f"FOLLOWUP_1 enviado em {formatar_data_hora()}"
+                        )
+                        alterou = True
+                    continue
+
+                # FOLLOWUP 2 - 5 dias
+                if not followup_2 and dias_passados >= FOLLOWUP_2_DIAS:
+                    ok = enviar_mensagem(telefone, MENSAGEM_FOLLOWUP_2)
+                    if ok:
+                        df.at[idx, "FOLLOWUP_2"] = formatar_data_hora()
+                        df.at[idx, "ULTIMA_INTERACAO"] = formatar_data_hora()
+                        df.at[idx, "PROXIMA_ACAO"] = "ENCERRAR_SEM_RETORNO"
+                        df.at[idx, "OBS"] = append_obs(
+                            row.get("OBS"),
+                            f"FOLLOWUP_2 enviado em {formatar_data_hora()}"
+                        )
+                        alterou = True
+
+            except Exception as e:
+                log_erro("Erro ao processar linha do follow-up:", e)
+
+        if alterou:
+            salvar_planilha_followup(df)
+
+
+def worker_followup():
+    log_info("Worker de follow-up iniciado.")
+    while True:
+        try:
+            processar_followups()
+        except Exception as e:
+            log_erro("Erro no worker de follow-up:", e)
+        time.sleep(INTERVALO_WORKER_FOLLOWUP)
+
+
+def iniciar_worker_followup():
+    global worker_followup_iniciado
+
+    if worker_followup_iniciado:
+        return
+
+    worker_followup_iniciado = True
+    thread = threading.Thread(target=worker_followup, daemon=True)
+    thread.start()
+    log_info("Thread de follow-up iniciada com sucesso.")
+
+
+@app.route("/processar-followups", methods=["GET"])
+def rota_processar_followups():
+    try:
+        processar_followups()
+        return jsonify({"status": "ok", "message": "Follow-ups processados"}), 200
+    except Exception as e:
+        log_erro("Erro na rota de processar follow-ups:", e)
+        return jsonify({"status": "erro", "message": str(e)}), 500
 
 
 # ==========================================
@@ -820,6 +1094,9 @@ def webhook():
     iniciar_cliente(telefone)
     atualizar_interacao(telefone)
 
+    # marca retorno do cliente na planilha de disparo/follow-up
+    atualizar_retorno_na_planilha(telefone, texto)
+
     log_info("Etapa atual antes do fluxo:", clientes.get(telefone, {}).get("etapa"))
 
     if not texto:
@@ -1245,6 +1522,12 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     return jsonify({"status": "ok"}), 200
+
+
+# ==========================================
+# INICIAR WORKER
+# ==========================================
+iniciar_worker_followup()
 
 
 # ==========================================
