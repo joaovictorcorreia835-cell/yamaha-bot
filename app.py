@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory, render_template
 import requests
 import os
-import json
 import threading
 import time
 from datetime import datetime
@@ -10,21 +9,20 @@ from collections import Counter, deque
 import pandas as pd
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from database import criar_banco, SessionLocal, Atendimento
 from ia_intencao import classificar_intencao
 
-load_dotenv()
-
 app = Flask(__name__)
 criar_banco()
-
 # ==========================================
 # CONFIG
 # ==========================================
 ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
-BASE_URL = os.getenv("BASE_URL", "https://yamaha-bot-1.onrender.com")
+BASE_URL = os.getenv("BASE_URL", "")
 TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900"))
 
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
@@ -34,43 +32,16 @@ clientes = {}
 mensagens_processadas = set()
 fila_mensagens = deque(maxlen=2000)
 
-ARQUIVO_JSON = "atendimentos.json"
-ARQUIVO_PLANILHA_DISPARO = "clientes.xlsx"
-
-MODELOS_YAMAHA = [
-    "FAZER 250", "FZ15", "CROSSER", "LANDER", "MT03", "MT07",
-    "R15", "R3", "FLUO", "NEO", "NMAX", "TENERE 700", "AEROX"
-]
-
-
 # ==========================================
-# TESTE BANCO
+# HOME
 # ==========================================
-@app.route("/test-banco")
-def test_banco():
-    db = SessionLocal()
-    try:
-        total = db.query(Atendimento).count()
-        return {
-            "status": "ok",
-            "total_atendimentos": total
-        }, 200
-    except Exception as e:
-        return {
-            "status": "erro",
-            "detalhe": str(e)
-        }, 500
-    finally:
-        db.close()
-
-
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
 
 
 # ==========================================
-# UTILITÁRIOS GERAIS
+# LOG
 # ==========================================
 def log_info(*args):
     print("[INFO]", *args, flush=True)
@@ -80,33 +51,82 @@ def log_erro(*args):
     print("[ERRO]", *args, flush=True)
 
 
-def carregar_json():
-    if not os.path.exists(ARQUIVO_JSON):
-        with open(ARQUIVO_JSON, "w", encoding="utf-8") as f:
-            json.dump([], f, ensure_ascii=False, indent=2)
+# ==========================================
+# DASHBOARD
+# ==========================================
+@app.route("/dashboard")
+def dashboard():
+    db = SessionLocal()
 
     try:
-        with open(ARQUIVO_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
+        total = db.query(Atendimento).count()
+
+        revisao = db.query(Atendimento).filter(
+            Atendimento.setor == "Revisão"
+        ).count()
+
+        agendados = db.query(Atendimento).filter(
+            Atendimento.status == "Agendado"
+        ).count()
+
+        primeira = db.query(Atendimento).filter(
+            Atendimento.revisao == "1"
+        ).count()
+
+        segunda = db.query(Atendimento).filter(
+            Atendimento.revisao == "2"
+        ).count()
+
+        terceira = db.query(Atendimento).filter(
+            Atendimento.revisao == "3"
+        ).count()
+
+        quarta = db.query(Atendimento).filter(
+            Atendimento.revisao == "4"
+        ).count()
+
+        quinta = db.query(Atendimento).filter(
+            Atendimento.revisao == "5"
+        ).count()
+
+        itens = db.query(Atendimento.itens).all()
+        contador = Counter()
+
+        for item in itens:
+            if item[0]:
+                lista = item[0].split(",")
+                for i in lista:
+                    contador[i.strip()] += 1
+
+        return render_template(
+            "dashboard.html",
+            total=total,
+            revisao=revisao,
+            agendados=agendados,
+            primeira=primeira,
+            segunda=segunda,
+            terceira=terceira,
+            quarta=quarta,
+            quinta=quinta,
+            protetor=contador["Protetor de motor"],
+            slider=contador["Slider"],
+            suporte=contador["Suporte para celular"],
+            bau=contador["Baú"],
+            filtro=contador["Filtro de ar"],
+            pastilha=contador["Pastilha de freio"]
+        )
+
     except Exception as e:
-        log_erro("Falha ao carregar JSON:", e)
-        return []
+        log_erro("Dashboard erro:", e)
+        return "Erro dashboard"
+
+    finally:
+        db.close()
 
 
-def salvar_json_registro(registro):
-    try:
-        dados = carregar_json()
-        dados.append(registro)
-        with open(ARQUIVO_JSON, "w", encoding="utf-8") as f:
-            json.dump(dados, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        log_erro("Falha ao salvar JSON:", e)
-
-
-def telefone_eh_grupo(telefone):
-    return "@g.us" in str(telefone)
-
-
+# ==========================================
+# UTILITÁRIOS
+# ==========================================
 def limpar_texto(texto):
     return str(texto or "").strip()
 
@@ -115,18 +135,125 @@ def normalizar_texto(texto):
     return limpar_texto(texto).lower()
 
 
-def normalizar_telefone_planilha(numero):
-    numero = str(numero or "").strip()
-    numero = numero.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    numero = numero.replace("@c.us", "").replace("@s.whatsapp.net", "").replace("@g.us", "")
-    return numero
+def telefone_eh_grupo(telefone):
+    return "@g.us" in str(telefone)
+
+
+def agora():
+    return time.time()
+
+
+def agora_datetime():
+    return datetime.now()
+
+
+def atualizar_interacao(telefone):
+    if telefone in clientes:
+        clientes[telefone]["ultima_interacao"] = agora()
+
+
+def iniciar_cliente(telefone):
+    if telefone not in clientes:
+        clientes[telefone] = {
+            "etapa": "menu",
+            "ultima_interacao": agora(),
+            "atendimento_humano": False,
+            "modelo": "",
+            "nome": "",
+            "cpf": "",
+            "ano": "",
+            "revisao": "",
+            "dia": "",
+            "dia_texto": "",
+            "data": "",
+            "horario": "",
+            "itens": "",
+            "venda_adicional": "",
+            "concluido": False
+        }
+
+
+def resetar_cliente(telefone):
+    clientes[telefone] = {
+        "etapa": "menu",
+        "ultima_interacao": agora(),
+        "atendimento_humano": False,
+        "modelo": "",
+        "nome": "",
+        "cpf": "",
+        "ano": "",
+        "revisao": "",
+        "dia": "",
+        "dia_texto": "",
+        "data": "",
+        "horario": "",
+        "itens": "",
+        "venda_adicional": "",
+        "concluido": False
+    }
+
+
+def ativar_atendimento_humano(telefone):
+    iniciar_cliente(telefone)
+    clientes[telefone]["atendimento_humano"] = True
+    clientes[telefone]["etapa"] = "atendimento_humano"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    enviar_mensagem(
+        telefone,
+        "👨‍💼 *Atendimento humano acionado.*\n\n"
+        "Nossa equipe seguirá com você por aqui.\n"
+        "Quando quiser voltar ao menu automático, envie *menu*."
+    )
+
+
+def processar_inatividade():
+    try:
+        agora_atual = agora()
+
+        for telefone in list(clientes.keys()):
+            dados = clientes.get(telefone, {})
+            ultima = dados.get("ultima_interacao", agora_atual)
+
+            if agora_atual - ultima > TEMPO_INATIVIDADE:
+                if dados.get("etapa") != "menu":
+                    enviar_mensagem(
+                        telefone,
+                        "⏰ Seu atendimento foi encerrado por inatividade.\n\n"
+                        "Quando quiser continuar, envie *menu*."
+                    )
+                resetar_cliente(telefone)
+
+    except Exception as e:
+        log_erro("Erro ao processar inatividade:", e)
+
+
+# ==========================================
+# MENSAGENS DUPLICADAS
+# ==========================================
+def extrair_message_id(payload):
+    try:
+        return (
+            payload.get("data", {}).get("id")
+            or payload.get("data", {}).get("messageId")
+            or payload.get("messageId")
+            or ""
+        )
+    except Exception:
+        return ""
+
+
+def mensagem_ja_processada(message_id):
+    if not message_id:
+        return False
+    return message_id in mensagens_processadas
 
 
 def registrar_mensagem_processada(message_id):
-    if message_id in mensagens_processadas:
+    if not message_id:
         return
 
-    if len(fila_mensagens) == fila_mensagens.maxlen:
+    if len(fila_mensagens) >= fila_mensagens.maxlen:
         antigo = fila_mensagens.popleft()
         mensagens_processadas.discard(antigo)
 
@@ -134,82 +261,9 @@ def registrar_mensagem_processada(message_id):
     mensagens_processadas.add(message_id)
 
 
-def iniciar_cliente(telefone):
-    if telefone not in clientes:
-        clientes[telefone] = {
-            "etapa": "menu",
-            "ultima_interacao": time.time(),
-            "atendimento_humano": False,
-            "origem": "Menu Normal",
-            "nome_cliente": "",
-            "modelo_moto": "",
-            "ano_moto": "",
-            "revisao_numero": "",
-            "dia_semana": "",
-            "data_agendada": "",
-            "horario_escolhido": "",
-            "itens": [],
-            "setor": "",
-            "peca_nome": "",
-            "acessorio_nome": "",
-            "empresa": "",
-            "cnpj": "",
-            "cidade": "",
-            "cpf": "",
-            "descricao": "",
-            "responsavel": "",
-            "telefone_empresa": "",
-            "mensagem_original": "",
-            "horarios_disponiveis": [],
-            "itens_menu": [],
-            "cor_moto": ""
-        }
-
-
-def atualizar_interacao(telefone):
-    iniciar_cliente(telefone)
-    clientes[telefone]["ultima_interacao"] = time.time()
-
-
-def resetar_cliente(telefone, manter_origem=False):
-    origem_atual = clientes.get(telefone, {}).get("origem", "Menu Normal")
-    clientes[telefone] = {
-        "etapa": "menu",
-        "ultima_interacao": time.time(),
-        "atendimento_humano": False,
-        "origem": origem_atual if manter_origem else "Menu Normal",
-        "nome_cliente": "",
-        "modelo_moto": "",
-        "ano_moto": "",
-        "revisao_numero": "",
-        "dia_semana": "",
-        "data_agendada": "",
-        "horario_escolhido": "",
-        "itens": [],
-        "setor": "",
-        "peca_nome": "",
-        "acessorio_nome": "",
-        "empresa": "",
-        "cnpj": "",
-        "cidade": "",
-        "cpf": "",
-        "descricao": "",
-        "responsavel": "",
-        "telefone_empresa": "",
-        "mensagem_original": "",
-        "horarios_disponiveis": [],
-        "itens_menu": [],
-        "cor_moto": ""
-    }
-
-
-def resposta_fallback(telefone):
-    enviar_mensagem(
-        telefone,
-        "Não entendi sua resposta 🤖\n\nDigite uma opção válida ou digite *menu* para voltar ao início.\n\nEquipe Motoshow Yamaha"
-    )
-
-
+# ==========================================
+# ENVIO DE MENSAGEM
+# ==========================================
 def headers_zapi():
     return {
         "Client-Token": ZAPI_CLIENT_TOKEN
@@ -223,1631 +277,492 @@ def enviar_mensagem(telefone, mensagem):
     }
 
     try:
-        log_info("URL_ENVIO:", url_envio)
-        log_info("PAYLOAD_ENVIO:", payload)
-
-        r = requests.post(url_envio, json=payload, headers=headers_zapi(), timeout=30)
-
-        log_info("RESPOSTA_ZAPI:", r.text)
-        log_info("Envio mensagem:", telefone, "status:", r.status_code)
-        return r.ok
-
-    except Exception as e:
-        log_erro("Erro ao enviar mensagem:", e)
-        return False
-
-
-def enviar_catalogo(telefone):
-    payload = {
-        "phone": telefone,
-        "document": f"{BASE_URL}/pdf/catalogo-atacado.pdf",
-        "fileName": "catalogo-atacado.pdf",
-        "caption": "📄 Catálogo Atacado Motoshow Yamaha"
-    }
-
-    try:
-        r = requests.post(url_documento, json=payload, headers=headers_zapi(), timeout=30)
-        log_info("Envio catálogo:", telefone, "status:", r.status_code)
-        return r.ok
-    except Exception as e:
-        log_erro("Erro ao enviar catálogo:", e)
-        return False
-
-
-def salvar_atendimento(
-    telefone,
-    nome="",
-    setor="",
-    modelo="",
-    ano="",
-    revisao="",
-    dia_semana="",
-    data_agendada="",
-    horario="",
-    cpf="",
-    itens="",
-    venda_adicional="",
-    origem="Menu Normal",
-    status="Em atendimento",
-    etapa="",
-    atendimento_humano=False,
-    concluido=False
-):
-    db = None
-    try:
-        db = SessionLocal()
-
-        atendimento = Atendimento(
-            telefone=telefone,
-            nome=nome,
-            setor=setor,
-            modelo=modelo,
-            ano=ano,
-            revisao=revisao,
-            dia_semana=dia_semana,
-            data_agendada=data_agendada,
-            horario=horario,
-            cpf=cpf,
-            itens=itens,
-            venda_adicional=venda_adicional,
-            origem=origem,
-            status=status,
-            etapa=etapa,
-            atendimento_humano=atendimento_humano,
-            concluido=concluido,
-            ultima_interacao=datetime.now()
+        response = requests.post(
+            url_envio,
+            json=payload,
+            headers=headers_zapi(),
+            timeout=30
         )
 
-        db.add(atendimento)
-        db.commit()
+        if 200 <= response.status_code < 300:
+            log_info("Mensagem enviada:", telefone)
+            return True
 
-        salvar_json_registro({
-            "telefone": telefone,
-            "nome": nome,
-            "setor": setor,
-            "modelo": modelo,
-            "ano": ano,
-            "revisao": revisao,
-            "dia_semana": dia_semana,
-            "data_agendada": data_agendada,
-            "horario": horario,
-            "cpf": cpf,
-            "itens": itens,
-            "venda_adicional": venda_adicional,
-            "origem": origem,
-            "status": status,
-            "etapa": etapa,
-            "atendimento_humano": atendimento_humano,
-            "concluido": concluido,
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        })
-
-        log_info("✅ Atendimento salvo com sucesso:", telefone)
+        log_erro("Falha envio:", response.status_code, response.text)
+        return False
 
     except Exception as e:
-        if db:
-            db.rollback()
-        log_erro("Erro ao salvar atendimento:", e)
-
-    finally:
-        if db:
-            db.close()
-
-
-# ==========================================
-# PLANILHA DISPARO
-# ==========================================
-def atualizar_linha_planilha_disparo(
-    telefone,
-    status_retorno="",
-    obs="",
-    intencao_ia="",
-    proxima_acao="",
-    nivel_interesse="",
-    marcar_data_retorno=False,
-    marcar_followup_1=False,
-    marcar_followup_2=False
-):
-    try:
-        if not os.path.exists(ARQUIVO_PLANILHA_DISPARO):
-            log_info("Planilha de disparo não encontrada:", ARQUIVO_PLANILHA_DISPARO)
-            return False
-
-        df = pd.read_excel(ARQUIVO_PLANILHA_DISPARO, dtype=str).fillna("")
-
-        if "TELEFONE" not in df.columns:
-            log_erro("Coluna TELEFONE não encontrada na planilha.")
-            return False
-
-        telefone_normalizado = normalizar_telefone_planilha(telefone)
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-
-        linha_encontrada = None
-
-        for index, row in df.iterrows():
-            telefone_planilha = normalizar_telefone_planilha(row.get("TELEFONE", ""))
-            if telefone_planilha == telefone_normalizado:
-                linha_encontrada = index
-                break
-
-        if linha_encontrada is None:
-            log_info("Telefone não encontrado na planilha de disparo:", telefone)
-            return False
-
-        df.at[linha_encontrada, "ULTIMA_INTERACAO"] = agora
-
-        if status_retorno:
-            df.at[linha_encontrada, "STATUS_RETORNO"] = status_retorno
-
-        if marcar_data_retorno:
-            df.at[linha_encontrada, "DATA_RETORNO"] = agora
-
-        if obs:
-            df.at[linha_encontrada, "OBS"] = obs
-
-        if intencao_ia:
-            df.at[linha_encontrada, "INTENCAO_IA"] = intencao_ia
-
-        if proxima_acao:
-            df.at[linha_encontrada, "PROXIMA_ACAO"] = proxima_acao
-
-        if nivel_interesse:
-            df.at[linha_encontrada, "NIVEL_INTERESSE"] = nivel_interesse
-
-        if marcar_followup_1:
-            df.at[linha_encontrada, "FOLLOWUP_1"] = agora
-
-        if marcar_followup_2:
-            df.at[linha_encontrada, "FOLLOWUP_2"] = agora
-
-        df.to_excel(ARQUIVO_PLANILHA_DISPARO, index=False)
-        log_info("Planilha atualizada com sucesso para:", telefone)
-        return True
-
-    except Exception as e:
-        log_erro("Erro ao atualizar planilha de disparo:", e)
+        log_erro("Erro envio:", e)
         return False
 
 
 # ==========================================
-# EXTRAÇÃO DE PAYLOAD Z-API
-# ==========================================
-def extrair_payload_base(payload):
-    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
-        return payload["data"]
-    return payload if isinstance(payload, dict) else {}
-
-
-def extrair_telefone(payload):
-    base = extrair_payload_base(payload)
-
-    candidatos = [
-        base.get("phone"),
-        base.get("chatLid"),
-        base.get("from"),
-        base.get("sender"),
-        base.get("jid"),
-    ]
-
-    if isinstance(base.get("sender"), dict):
-        candidatos.extend([
-            base["sender"].get("phone"),
-            base["sender"].get("id"),
-        ])
-
-    for c in candidatos:
-        if c:
-            return str(c)
-
-    return ""
-
-
-def extrair_mensagem_texto(payload):
-    try:
-        base = extrair_payload_base(payload)
-
-        text = base.get("text")
-
-        if isinstance(text, dict):
-            mensagem = text.get("message")
-            if mensagem:
-                return mensagem.strip()
-
-        if isinstance(text, str):
-            return text.strip()
-
-        message = base.get("message")
-
-        if isinstance(message, dict):
-            for campo in ["text", "body", "caption", "message"]:
-                valor = message.get(campo)
-                if isinstance(valor, str) and valor.strip():
-                    return valor.strip()
-
-        for campo in ["body", "caption", "message"]:
-            valor = base.get(campo)
-            if isinstance(valor, str) and valor.strip():
-                return valor.strip()
-
-        return ""
-
-    except Exception as e:
-        log_erro("Erro ao extrair mensagem:", e)
-        return ""
-
-
-def extrair_message_id(payload):
-    base = extrair_payload_base(payload)
-
-    possibilidades = [
-        base.get("messageId"),
-        base.get("id"),
-        base.get("msgId"),
-    ]
-
-    if isinstance(base.get("message"), dict):
-        possibilidades.append(base["message"].get("id"))
-
-    for p in possibilidades:
-        if p:
-            return str(p)
-
-    return f"sem-id-{time.time()}"
-
-
-def evento_eh_do_proprio_bot(payload):
-    base = extrair_payload_base(payload)
-
-    if base.get("fromMe") is True:
-        return True
-
-    if isinstance(base.get("message"), dict) and base["message"].get("fromMe") is True:
-        return True
-
-    return False
-
-
-# ==========================================
-# INATIVIDADE
-# ==========================================
-def verificar_inatividade():
-    while True:
-        try:
-            agora = time.time()
-
-            for telefone in list(clientes.keys()):
-                info = clientes.get(telefone, {})
-
-                if info.get("atendimento_humano"):
-                    continue
-
-                ultima = info.get("ultima_interacao", agora)
-
-                if agora - ultima > TEMPO_INATIVIDADE:
-                    enviar_mensagem(
-                        telefone,
-                        "⏰ Atendimento encerrado por inatividade\n\nDigite *menu* para continuar o atendimento.\n\nEquipe Motoshow Yamaha"
-                    )
-                    resetar_cliente(telefone, manter_origem=True)
-
-        except Exception as e:
-            log_erro("Erro no monitor de inatividade:", e)
-
-        time.sleep(30)
-
-
-threading.Thread(target=verificar_inatividade, daemon=True).start()
-
-
-# ==========================================
-# REGRAS DE HORÁRIO
-# ==========================================
-def horarios_disponiveis(revisao, dia):
-    revisao = str(revisao).strip()
-    dia = normalizar_texto(dia)
-
-    if dia in ["sabado", "sábado"]:
-        if revisao in ["1", "2"]:
-            return ["08:00", "09:00", "10:00"]
-        return []
-
-    if dia in ["segunda", "terça", "terca", "quarta", "quinta", "sexta"]:
-        if revisao in ["1", "2"]:
-            return ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00"]
-        return ["08:00"]
-
-    return []
-
-
-def menu_horarios(horarios):
-    linhas = ["Escolha um horário:\n"]
-    for i, h in enumerate(horarios, start=1):
-        linhas.append(f"{i}️⃣ {h}")
-    return "\n".join(linhas)
-
-
-def itens_adicionais_disponiveis(revisao):
-    itens = [
-        "Protetor de motor",
-        "Slider",
-        "Suporte para celular",
-        "Baú"
-    ]
-
-    if str(revisao).strip() not in ["1"]:
-        itens.extend([
-            "Filtro de ar",
-            "Pastilha de freio"
-        ])
-
-    return itens
-
-
-def menu_itens(itens):
-    linhas = ["Deseja incluir algum item adicional?\n"]
-    for i, item in enumerate(itens, start=1):
-        linhas.append(f"{i}️⃣ {item}")
-    linhas.append("0️⃣ Não quero nenhum item")
-    linhas.append("\nVocê pode responder com números separados por vírgula.")
-    return "\n".join(linhas)
-# ==========================================
-# MENUS
+# MENU
 # ==========================================
 def enviar_menu(telefone):
     mensagem = (
         "Olá 👋\n\n"
-        "Bem-vindo ao Pós-Vendas Motoshow Yamaha 🏍️\n\n"
-        "Escolha uma opção:\n\n"
+        "🏍️ *Pós-Vendas Motoshow Yamaha*\n\n"
+        "Escolha uma opção abaixo:\n\n"
         "1️⃣ Agendar Revisão\n"
         "2️⃣ Peças\n"
         "3️⃣ Acessórios\n"
         "4️⃣ Garantia\n"
         "5️⃣ Logista / Atacado\n"
-        "6️⃣ Falar com atendente\n\n"
+        "6️⃣ Falar com Atendente\n\n"
+        "Digite apenas o número da opção desejada.\n\n"
         "Equipe Motoshow Yamaha"
     )
     enviar_mensagem(telefone, mensagem)
 
 
-def enviar_submenu_pecas(telefone):
-    enviar_mensagem(
-        telefone,
-        "Peças Yamaha 🧩\n\n"
-        "Escolha uma opção:\n\n"
-        "1️⃣ Peças Originais\n"
-        "2️⃣ Consultar Disponibilidade\n"
-        "3️⃣ Falar com Atendente\n"
-        "4️⃣ Voltar ao Menu"
-    )
-
-
-def enviar_submenu_acessorios(telefone):
-    enviar_mensagem(
-        telefone,
-        "Acessórios Yamaha 🛵\n\n"
-        "Escolha uma opção:\n\n"
-        "1️⃣ Solicitar Acessório\n"
-        "2️⃣ Falar com Atendente\n"
-        "3️⃣ Voltar ao Menu"
-    )
-
-
-def enviar_submenu_garantia(telefone):
-    enviar_mensagem(
-        telefone,
-        "Garantia Yamaha 🛠️\n\n"
-        "Escolha uma opção:\n\n"
-        "1️⃣ Nova Solicitação\n"
-        "2️⃣ Acompanhar Garantia\n"
-        "3️⃣ Falar com Atendente\n"
-        "4️⃣ Voltar ao Menu"
-    )
-
-
-def enviar_submenu_atacado(telefone):
-    enviar_mensagem(
-        telefone,
-        "Logista / Atacado 📦\n\n"
-        "Escolha uma opção:\n\n"
-        "1️⃣ Solicitar Cotação\n"
-        "2️⃣ Cadastro de Logista\n"
-        "3️⃣ Catálogo de Peças\n"
-        "4️⃣ Falar com Consultor\n"
-        "5️⃣ Voltar ao Menu"
-    )
-
-
-def ativar_atendimento_humano(telefone, setor="Atendente"):
-    clientes[telefone]["atendimento_humano"] = True
-    clientes[telefone]["setor"] = setor
-
-    salvar_atendimento(
-        telefone=telefone,
-        nome=clientes[telefone].get("nome_cliente", ""),
-        setor=setor,
-        modelo=clientes[telefone].get("modelo_moto", ""),
-        ano=clientes[telefone].get("ano_moto", ""),
-        revisao=clientes[telefone].get("revisao_numero", ""),
-        dia_semana=clientes[telefone].get("dia_semana", ""),
-        data_agendada=clientes[telefone].get("data_agendada", ""),
-        horario=clientes[telefone].get("horario_escolhido", ""),
-        cpf=clientes[telefone].get("cpf", ""),
-        itens=", ".join(clientes[telefone].get("itens", [])),
-        origem=clientes[telefone].get("origem", "Menu Normal"),
-        status="Atendimento Humano",
-        etapa=clientes[telefone].get("etapa", ""),
-        atendimento_humano=True
-    )
-
-    enviar_mensagem(
-        telefone,
-        "👨‍💼 Seu atendimento foi encaminhado para um consultor.\n\nEquipe Motoshow Yamaha"
-    )
-
-
 # ==========================================
-# IA - CLASSIFICAÇÃO DE INTENÇÃO
+# IA INTENÇÃO
 # ==========================================
 def tratar_intencao_ia(telefone, texto):
-    resultado = classificar_intencao(texto)
+    try:
+        resultado = classificar_intencao(texto)
+    except Exception as e:
+        log_erro("Erro na IA de intenção:", e)
+        return False
 
     if not resultado:
         return False
 
-    intent = str(resultado.get("intent", "")).strip().lower()
-    confidence = float(resultado.get("confidence", 0))
+    intent = resultado.get("intent", "")
 
-    log_info(f"IA detectou intenção: {intent} | confiança: {confidence}")
-
-    if intent == "menu":
-        resetar_cliente(telefone, manter_origem=True)
-        clientes[telefone]["origem"] = "IA"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs=f"IA identificou intenção: {intent}",
-            intencao_ia="MENU",
-            proxima_acao="EXIBIR_MENU",
-            nivel_interesse="MORNO",
-            marcar_data_retorno=True
-        )
-
-        enviar_menu(telefone)
-        return True
-
-    elif intent == "agendar_revisao":
-        clientes[telefone]["origem"] = "IA"
-        clientes[telefone]["setor"] = "Revisão"
+    if intent == "agendar_revisao":
         clientes[telefone]["etapa"] = "revisao_modelo"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="AGENDOU",
-            obs="IA direcionou cliente para fluxo de revisão",
-            intencao_ia="AGENDAR",
-            proxima_acao="ENTRAR_FLUXO_REVISAO",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
         enviar_mensagem(
             telefone,
             "🔧 *Agendamento de Revisão*\n\n"
-            "Vamos iniciar seu agendamento.\n\n"
-            "🏍️ Informe o *modelo da sua Yamaha*:"
+            "Informe o *modelo da moto*:"
         )
         return True
 
-    elif intent == "pecas":
-        clientes[telefone]["origem"] = "IA"
-        clientes[telefone]["setor"] = "Peças"
-        clientes[telefone]["etapa"] = "submenu_pecas"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA direcionou cliente para submenu de peças",
-            intencao_ia="PECAS",
-            proxima_acao="ABRIR_SUBMENU_PECAS",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        enviar_submenu_pecas(telefone)
-        return True
-
-    elif intent == "acessorios":
-        clientes[telefone]["origem"] = "IA"
-        clientes[telefone]["setor"] = "Acessórios"
-        clientes[telefone]["etapa"] = "submenu_acessorios"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA direcionou cliente para submenu de acessórios",
-            intencao_ia="ACESSORIOS",
-            proxima_acao="ABRIR_SUBMENU_ACESSORIOS",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        enviar_submenu_acessorios(telefone)
-        return True
-
-    elif intent == "garantia":
-        clientes[telefone]["origem"] = "IA"
-        clientes[telefone]["setor"] = "Garantia"
-        clientes[telefone]["etapa"] = "submenu_garantia"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA direcionou cliente para submenu de garantia",
-            intencao_ia="GARANTIA",
-            proxima_acao="ABRIR_SUBMENU_GARANTIA",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        enviar_submenu_garantia(telefone)
-        return True
-
-    elif intent == "logista_atacado":
-        clientes[telefone]["origem"] = "IA"
-        clientes[telefone]["setor"] = "Logista/Atacado"
-        clientes[telefone]["etapa"] = "submenu_atacado"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA direcionou cliente para submenu de logista/atacado",
-            intencao_ia="ATACADO",
-            proxima_acao="ABRIR_SUBMENU_ATACADO",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        enviar_submenu_atacado(telefone)
-        return True
-
-    elif intent == "atendimento_humano":
-        clientes[telefone]["origem"] = "IA"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA identificou solicitação de atendimento humano",
-            intencao_ia="HUMANO",
-            proxima_acao="TRANSFERIR_HUMANO",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        ativar_atendimento_humano(telefone, setor="Atendente")
-        return True
-
-    elif intent == "acompanhar_servico":
-        clientes[telefone]["origem"] = "IA"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA identificou pedido de acompanhamento de serviço",
-            intencao_ia="ACOMPANHAR_SERVICO",
-            proxima_acao="TRANSFERIR_HUMANO",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        enviar_mensagem(
-            telefone,
-            "📋 *Acompanhamento de Serviço*\n\n"
-            "Vou encaminhar seu atendimento para nossa equipe verificar as informações do serviço.\n\n"
-            "Equipe Motoshow Yamaha"
-        )
-        ativar_atendimento_humano(telefone, setor="Atendente")
-        return True
-
-    elif intent == "orcamento":
-        clientes[telefone]["origem"] = "IA"
-        clientes[telefone]["setor"] = "Peças"
-        clientes[telefone]["etapa"] = "submenu_pecas"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA identificou interesse em orçamento",
-            intencao_ia="ORCAMENTO",
-            proxima_acao="ABRIR_SUBMENU_PECAS",
-            nivel_interesse="QUENTE",
-            marcar_data_retorno=True
-        )
-
-        enviar_mensagem(
-            telefone,
-            "💰 *Orçamentos Yamaha*\n\n"
-            "Vou te direcionar para o setor correto."
-        )
-        enviar_submenu_pecas(telefone)
-        return True
-
-    elif intent == "nao_interessado":
-        clientes[telefone]["origem"] = "IA"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="SEM INTERESSE",
-            obs="IA identificou cliente sem interesse",
-            intencao_ia="NAO_INTERESSADO",
-            proxima_acao="ENCERRAR",
-            nivel_interesse="FRIO",
-            marcar_data_retorno=True
-        )
-
-        enviar_mensagem(
-            telefone,
-            "Perfeito 👍\n\n"
-            "Quando precisar de revisão, peças, acessórios ou garantia, estaremos à disposição.\n\n"
-            "Equipe Motoshow Yamaha"
-        )
-        resetar_cliente(telefone, manter_origem=True)
-        return True
-
-    elif intent == "duvida_geral":
-        clientes[telefone]["origem"] = "IA"
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs="IA identificou dúvida geral e exibiu menu",
-            intencao_ia="DUVIDA_GERAL",
-            proxima_acao="EXIBIR_MENU",
-            nivel_interesse="MORNO",
-            marcar_data_retorno=True
-        )
-
+    if intent == "menu":
+        resetar_cliente(telefone)
         enviar_menu(telefone)
+        return True
+
+    if intent == "humano":
+        ativar_atendimento_humano(telefone)
         return True
 
     return False
 
 
 # ==========================================
-# DASHBOARD
+# EXTRAÇÃO
 # ==========================================
-@app.route("/dashboard")
-def dashboard():
-    db = SessionLocal()
-
+def extrair_telefone(payload):
     try:
-        total = db.query(Atendimento).count()
-        agendamentos = db.query(Atendimento).filter(Atendimento.status == "Agendado").count()
-        humano = db.query(Atendimento).filter(Atendimento.atendimento_humano == True).count()
+        return payload.get("data", {}).get("phone", "")
+    except Exception:
+        return ""
 
-        revisao = db.query(Atendimento).filter(Atendimento.setor == "Revisão").count()
-        pecas = db.query(Atendimento).filter(Atendimento.setor == "Peças").count()
-        acessorios = db.query(Atendimento).filter(Atendimento.setor == "Acessórios").count()
-        garantia = db.query(Atendimento).filter(Atendimento.setor == "Garantia").count()
-        logista = db.query(Atendimento).filter(
-            Atendimento.setor.in_(["Logista", "Logista/Atacado"])
-        ).count()
 
-        campanha = db.query(Atendimento).filter(Atendimento.origem == "Campanha").count()
-        menu = db.query(Atendimento).filter(Atendimento.origem == "Menu Normal").count()
-
-        r1 = db.query(Atendimento).filter(Atendimento.revisao == "1").count()
-        r2 = db.query(Atendimento).filter(Atendimento.revisao == "2").count()
-        r3 = db.query(Atendimento).filter(Atendimento.revisao == "3").count()
-        r4 = db.query(Atendimento).filter(Atendimento.revisao == "4").count()
-        r5 = db.query(Atendimento).filter(Atendimento.revisao.notin_(["1", "2", "3", "4", "", None])).count()
-
-        todos_itens = db.query(Atendimento.itens).all()
-        contador_itens = Counter()
-
-        for linha in todos_itens:
-            valor = linha[0] or ""
-            for item in [x.strip() for x in valor.split(",") if x.strip()]:
-                contador_itens[item] += 1
-
-        protetor = contador_itens.get("Protetor de motor", 0)
-        slider = contador_itens.get("Slider", 0)
-        suporte = contador_itens.get("Suporte para celular", 0)
-        bau = contador_itens.get("Baú", 0)
-        filtro = contador_itens.get("Filtro de ar", 0)
-        pastilha = contador_itens.get("Pastilha de freio", 0)
-
-        return render_template(
-            "dashboard.html",
-            total=total,
-            agendamentos=agendamentos,
-            humano=humano,
-            revisao=revisao,
-            pecas=pecas,
-            acessorios=acessorios,
-            garantia=garantia,
-            logista=logista,
-            campanha=campanha,
-            menu=menu,
-            r1=r1,
-            r2=r2,
-            r3=r3,
-            r4=r4,
-            r5=r5,
-            protetor=protetor,
-            slider=slider,
-            suporte=suporte,
-            bau=bau,
-            filtro=filtro,
-            pastilha=pastilha
-        )
-
-    except Exception as e:
-        log_erro("Erro dashboard:", e)
-        return f"Erro ao carregar dashboard: {e}", 500
-    finally:
-        db.close()
+def extrair_texto(payload):
+    try:
+        text_obj = payload.get("data", {}).get("text", {})
+        if isinstance(text_obj, dict):
+            return text_obj.get("message", "")
+        return ""
+    except Exception:
+        return ""
 
 
 # ==========================================
-# PDF
+# HORÁRIOS
 # ==========================================
-@app.route("/pdf/<arquivo>")
-def pdf(arquivo):
-    return send_from_directory("static/pdfs", arquivo)
+def nome_dia(opcao):
+    mapa = {
+        "1": "Segunda",
+        "2": "Terça",
+        "3": "Quarta",
+        "4": "Quinta",
+        "5": "Sexta",
+        "6": "Sábado"
+    }
+    return mapa.get(str(opcao), "")
+
+
+def gerar_horarios_disponiveis(revisao, dia):
+    revisao = str(revisao).strip()
+    dia = str(dia).strip()
+
+    if dia in ["1", "2", "3", "4", "5"]:
+        if revisao in ["1", "2"]:
+            return [
+                "08:00", "09:00", "10:00", "11:00",
+                "12:00", "13:00", "14:00", "15:00"
+            ]
+        else:
+            return ["08:00"]
+
+    if dia == "6":
+        if revisao in ["1", "2"]:
+            return ["08:00", "09:00", "10:00"]
+        else:
+            return []
+
+    return []
+
+
+def montar_mensagem_horarios(horarios):
+    mensagem = "⏰ *Escolha o horário:*\n\n"
+    for i, horario in enumerate(horarios, start=1):
+        mensagem += f"{i} - {horario}\n"
+    return mensagem
+
+
 # ==========================================
 # WEBHOOK
 # ==========================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
-        return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
+        return "OK"
+
+    processar_inatividade()
 
     payload = request.get_json(silent=True) or {}
-    log_info("PAYLOAD RECEBIDO:", payload)
 
-    try:
-        if evento_eh_do_proprio_bot(payload):
-            return jsonify({"status": "ignorado", "motivo": "mensagem do proprio bot"}), 200
-
-        telefone = extrair_telefone(payload)
-        texto = limpar_texto(extrair_mensagem_texto(payload))
-        texto_normalizado = normalizar_texto(texto)
-        message_id = extrair_message_id(payload)
-
-        log_info("TELEFONE:", telefone)
-        log_info("TEXTO:", texto)
-        log_info("MESSAGE_ID:", message_id)
-
-        if not telefone or telefone_eh_grupo(telefone):
-            return jsonify({"status": "ignorado", "motivo": "grupo ou telefone invalido"}), 200
-
-        if message_id in mensagens_processadas:
-            return jsonify({"status": "ignorado", "motivo": "mensagem duplicada"}), 200
-
-        registrar_mensagem_processada(message_id)
-
-        iniciar_cliente(telefone)
-        atualizar_interacao(telefone)
-        clientes[telefone]["mensagem_original"] = texto
-
-        atualizar_linha_planilha_disparo(
-            telefone=telefone,
-            status_retorno="EM ATENDIMENTO",
-            obs=f"Cliente respondeu: {texto}",
-            marcar_data_retorno=True
-        )
-
-        if clientes[telefone].get("atendimento_humano"):
-            log_info("Atendimento humano ativo - Bot não responde")
-            return jsonify({"status": "atendimento_humano"}), 200
-
-        if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
-            resetar_cliente(telefone, manter_origem=True)
-            enviar_menu(telefone)
-            return jsonify({"status": "menu"}), 200
-
-        etapa = clientes[telefone]["etapa"]
-        log_info("ETAPA:", etapa)
-
-        # ==========================================
-        # IA - CLASSIFICAÇÃO DE INTENÇÃO
-        # Só roda no menu principal e apenas para texto livre
-        # ==========================================
-        if etapa == "menu" and texto_normalizado and not texto_normalizado.isdigit():
-            if tratar_intencao_ia(telefone, texto):
-                return jsonify({"status": "ok", "origem": "ia"}), 200
-
-        # ==========================
-        # MENU PRINCIPAL
-        # ==========================
-        if etapa == "menu":
-
-            if texto_normalizado == "1":
-                clientes[telefone]["etapa"] = "revisao_modelo"
-                clientes[telefone]["setor"] = "Revisão"
-
-                atualizar_linha_planilha_disparo(
-                    telefone=telefone,
-                    status_retorno="AGENDOU",
-                    obs="Cliente iniciou fluxo de agendamento de revisão",
-                    intencao_ia="AGENDAR",
-                    proxima_acao="ENTRAR_FLUXO_REVISAO",
-                    nivel_interesse="QUENTE",
-                    marcar_data_retorno=True
-                )
-
-                enviar_mensagem(telefone, "Informe o modelo da sua Yamaha:")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "2":
-                clientes[telefone]["etapa"] = "submenu_pecas"
-                clientes[telefone]["setor"] = "Peças"
-                enviar_submenu_pecas(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "3":
-                clientes[telefone]["etapa"] = "submenu_acessorios"
-                clientes[telefone]["setor"] = "Acessórios"
-                enviar_submenu_acessorios(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "4":
-                clientes[telefone]["etapa"] = "submenu_garantia"
-                clientes[telefone]["setor"] = "Garantia"
-                enviar_submenu_garantia(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "5":
-                clientes[telefone]["etapa"] = "submenu_atacado"
-                clientes[telefone]["setor"] = "Logista/Atacado"
-                enviar_submenu_atacado(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "6":
-                atualizar_linha_planilha_disparo(
-                    telefone=telefone,
-                    status_retorno="EM ATENDIMENTO",
-                    obs="Cliente solicitou atendimento humano",
-                    intencao_ia="HUMANO",
-                    proxima_acao="TRANSFERIR_HUMANO",
-                    nivel_interesse="QUENTE",
-                    marcar_data_retorno=True
-                )
-
-                ativar_atendimento_humano(telefone, setor="Atendente")
-                return jsonify({"status": "ok"}), 200
-
-            else:
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-        # ==========================
-        # SUBMENU PEÇAS
-        # ==========================
-        elif etapa == "submenu_pecas":
-            if texto_normalizado == "1":
-                clientes[telefone]["etapa"] = "pecas_nome"
-                enviar_mensagem(telefone, "Informe o nome da peça desejada:")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "2":
-                clientes[telefone]["etapa"] = "pecas_disponibilidade_nome"
-                enviar_mensagem(telefone, "Informe o item que deseja consultar:")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "3":
-                atualizar_linha_planilha_disparo(
-                    telefone=telefone,
-                    status_retorno="EM ATENDIMENTO",
-                    obs="Cliente solicitou atendente no setor de peças",
-                    intencao_ia="HUMANO",
-                    proxima_acao="TRANSFERIR_HUMANO",
-                    nivel_interesse="QUENTE",
-                    marcar_data_retorno=True
-                )
-
-                ativar_atendimento_humano(telefone, setor="Peças")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "4":
-                resetar_cliente(telefone, manter_origem=True)
-                enviar_menu(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            else:
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-        # ===============================
-        # PEÇAS ORIGINAIS
-        # ===============================
-        elif etapa == "pecas_nome":
-            clientes[telefone]["peca_nome"] = texto
-            clientes[telefone]["etapa"] = "pecas_modelo"
-            enviar_mensagem(telefone, "Informe o modelo da moto:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "pecas_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-            clientes[telefone]["etapa"] = "pecas_ano"
-            enviar_mensagem(telefone, "Informe o ano da moto:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "pecas_ano":
-            clientes[telefone]["ano_moto"] = texto
-            clientes[telefone]["etapa"] = "pecas_cor"
-            enviar_mensagem(telefone, "Informe a cor da moto:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "pecas_cor":
-            clientes[telefone]["cor_moto"] = texto
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("nome_cliente", ""),
-                setor="Peças",
-                modelo=clientes[telefone].get("modelo_moto", ""),
-                ano=clientes[telefone].get("ano_moto", ""),
-                horario="",
-                cpf=clientes[telefone].get("cpf", ""),
-                itens=clientes[telefone].get("peca_nome", ""),
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Orçamento Peças",
-                etapa="pecas_cor",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs=f"Solicitação de peça: {clientes[telefone].get('peca_nome', '')}",
-                intencao_ia="PECAS",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="MORNO",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\nSua solicitação de peças foi registrada e será encaminhada para orçamento.\n\nEquipe Motoshow Yamaha"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "pecas_disponibilidade_nome":
-            clientes[telefone]["peca_nome"] = texto
-            clientes[telefone]["etapa"] = "pecas_disponibilidade_modelo"
-            enviar_mensagem(telefone, "Informe o modelo da moto:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "pecas_disponibilidade_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("nome_cliente", ""),
-                setor="Peças",
-                modelo=clientes[telefone].get("modelo_moto", ""),
-                itens=clientes[telefone].get("peca_nome", ""),
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Consulta Disponibilidade",
-                etapa="pecas_disponibilidade_modelo",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs=f"Consulta de disponibilidade: {clientes[telefone].get('peca_nome', '')}",
-                intencao_ia="PECAS",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="MORNO",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\nVamos consultar a disponibilidade no estoque e retornar em breve.\n\nEquipe Motoshow Yamaha"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        # ==========================
-        # SUBMENU ACESSÓRIOS
-        # ==========================
-        elif etapa == "submenu_acessorios":
-            if texto_normalizado == "1":
-                clientes[telefone]["etapa"] = "acessorio_nome"
-                enviar_mensagem(telefone, "Informe o acessório desejado:")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "2":
-                atualizar_linha_planilha_disparo(
-                    telefone=telefone,
-                    status_retorno="EM ATENDIMENTO",
-                    obs="Cliente solicitou atendente no setor de acessórios",
-                    intencao_ia="HUMANO",
-                    proxima_acao="TRANSFERIR_HUMANO",
-                    nivel_interesse="QUENTE",
-                    marcar_data_retorno=True
-                )
-
-                ativar_atendimento_humano(telefone, setor="Acessórios")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "3":
-                resetar_cliente(telefone, manter_origem=True)
-                enviar_menu(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            else:
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-        elif etapa == "acessorio_nome":
-            clientes[telefone]["acessorio_nome"] = texto
-            clientes[telefone]["etapa"] = "acessorio_modelo"
-            enviar_mensagem(telefone, "Informe o modelo da moto:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "acessorio_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("nome_cliente", ""),
-                setor="Acessórios",
-                modelo=clientes[telefone].get("modelo_moto", ""),
-                itens=clientes[telefone].get("acessorio_nome", ""),
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Orçamento Acessórios",
-                etapa="acessorio_modelo",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs=f"Solicitação de acessório: {clientes[telefone].get('acessorio_nome', '')}",
-                intencao_ia="ACESSORIOS",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="MORNO",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\nSua solicitação de acessório foi registrada e será encaminhada para orçamento.\n\nEquipe Motoshow Yamaha"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        # ==========================
-        # SUBMENU GARANTIA
-        # ==========================
-        elif etapa == "submenu_garantia":
-            if texto_normalizado == "1":
-                clientes[telefone]["etapa"] = "garantia_nova_nome"
-                enviar_mensagem(
-                    telefone,
-                    "🛡️ *Nova Solicitação de Garantia*\n\n"
-                    "Para continuarmos, informe seu *nome completo*:"
-                )
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "2":
-                clientes[telefone]["etapa"] = "garantia_acompanhar_nome"
-                enviar_mensagem(
-                    telefone,
-                    "📋 *Acompanhar Garantia*\n\n"
-                    "Para localizar sua solicitação, informe seu *nome completo*:"
-                )
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "3":
-                atualizar_linha_planilha_disparo(
-                    telefone=telefone,
-                    status_retorno="EM ATENDIMENTO",
-                    obs="Cliente solicitou atendimento humano em garantia",
-                    intencao_ia="HUMANO",
-                    proxima_acao="TRANSFERIR_HUMANO",
-                    nivel_interesse="QUENTE",
-                    marcar_data_retorno=True
-                )
-
-                ativar_atendimento_humano(telefone, setor="Garantia")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "4":
-                resetar_cliente(telefone, manter_origem=True)
-                enviar_menu(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            else:
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-        elif etapa == "garantia_nova_nome":
-            clientes[telefone]["nome_cliente"] = texto
-            clientes[telefone]["etapa"] = "garantia_nova_modelo"
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\n🏍️ Informe o *modelo da sua Yamaha*:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_nova_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-            clientes[telefone]["etapa"] = "garantia_nova_descricao"
-            enviar_mensagem(
-                telefone,
-                "📝 Descreva o *problema apresentado* na moto para registrarmos sua solicitação de garantia:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_nova_descricao":
-            clientes[telefone]["descricao"] = texto
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("nome_cliente", ""),
-                setor="Garantia",
-                modelo=clientes[telefone].get("modelo_moto", ""),
-                itens="Nova Solicitação",
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Nova Garantia",
-                etapa="garantia_nova_descricao",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs="Cliente abriu solicitação de garantia",
-                intencao_ia="GARANTIA",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="MORNO",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "✅ *Solicitação de garantia registrada com sucesso!*\n\n"
-                "📋 *Resumo do atendimento*\n\n"
-                f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
-                f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
-                f"📝 Problema informado: {clientes[telefone].get('descricao', '')}\n\n"
-                "Nossa equipe fará a análise e retornará em breve.\n\n"
-                "🏍️ *Equipe Motoshow Yamaha*"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_acompanhar_nome":
-            clientes[telefone]["nome_cliente"] = texto
-            clientes[telefone]["etapa"] = "garantia_acompanhar_cpf"
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\nAgora informe seu *CPF* para localizar a solicitação:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "garantia_acompanhar_cpf":
-            clientes[telefone]["cpf"] = texto
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs="Cliente solicitou acompanhamento de garantia",
-                intencao_ia="GARANTIA",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="MORNO",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "📋 Sua solicitação de acompanhamento foi registrada.\n\nNossa equipe irá localizar as informações e retornar em breve.\n\nEquipe Motoshow Yamaha"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        # ==========================
-        # SUBMENU ATACADO
-        # ==========================
-        elif etapa == "submenu_atacado":
-            if texto_normalizado == "1":
-                clientes[telefone]["etapa"] = "atacado_empresa"
-                enviar_mensagem(
-                    telefone,
-                    "🏢 Informe o *nome da empresa*:"
-                )
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "2":
-                clientes[telefone]["etapa"] = "cadastro_empresa"
-                enviar_mensagem(
-                    telefone,
-                    "🏢 Informe o *nome da empresa* para cadastro:"
-                )
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "3":
-                ok = enviar_catalogo(telefone)
-
-                if ok:
-                    enviar_mensagem(
-                        telefone,
-                        "📄 Catálogo enviado com sucesso ✅"
-                    )
-                else:
-                    enviar_mensagem(
-                        telefone,
-                        "⚠️ Não foi possível enviar o catálogo. Tente novamente."
-                    )
-
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "4":
-                atualizar_linha_planilha_disparo(
-                    telefone=telefone,
-                    status_retorno="EM ATENDIMENTO",
-                    obs="Cliente solicitou consultor em logista/atacado",
-                    intencao_ia="HUMANO",
-                    proxima_acao="TRANSFERIR_HUMANO",
-                    nivel_interesse="QUENTE",
-                    marcar_data_retorno=True
-                )
-
-                ativar_atendimento_humano(telefone, setor="Logista/Atacado")
-                return jsonify({"status": "ok"}), 200
-
-            elif texto_normalizado == "5":
-                resetar_cliente(telefone, manter_origem=True)
-                enviar_menu(telefone)
-                return jsonify({"status": "ok"}), 200
-
-            else:
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-        elif etapa == "atacado_empresa":
-            clientes[telefone]["empresa"] = texto
-            clientes[telefone]["etapa"] = "atacado_cnpj"
-            enviar_mensagem(telefone, "Informe o CNPJ:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "atacado_cnpj":
-            clientes[telefone]["cnpj"] = texto
-            clientes[telefone]["etapa"] = "atacado_cidade"
-            enviar_mensagem(telefone, "Informe a cidade:")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "atacado_cidade":
-            clientes[telefone]["cidade"] = texto
-            clientes[telefone]["etapa"] = "atacado_pecas"
-            enviar_mensagem(telefone, "Informe as peças desejadas (código ou modelo):")
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "atacado_pecas":
-            clientes[telefone]["descricao"] = texto
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("empresa", ""),
-                setor="Logista/Atacado",
-                itens=clientes[telefone].get("descricao", ""),
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Cotação Atacado",
-                etapa="atacado_pecas",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs="Cliente solicitou cotação atacado",
-                intencao_ia="ATACADO",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="QUENTE",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\n"
-                "Sua solicitação de cotação foi registrada e será encaminhada para o consultor comercial.\n\n"
-                "Equipe Motoshow Yamaha"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "cadastro_empresa":
-            clientes[telefone]["empresa"] = texto
-            clientes[telefone]["etapa"] = "cadastro_cnpj"
-            enviar_mensagem(
-                telefone,
-                "Informe o CNPJ:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "cadastro_cnpj":
-            clientes[telefone]["cnpj"] = texto
-            clientes[telefone]["etapa"] = "cadastro_responsavel"
-            enviar_mensagem(
-                telefone,
-                "Informe o nome do responsável:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "cadastro_responsavel":
-            clientes[telefone]["responsavel"] = texto
-            clientes[telefone]["etapa"] = "cadastro_cidade"
-            enviar_mensagem(
-                telefone,
-                "Informe a cidade:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "cadastro_cidade":
-            clientes[telefone]["cidade"] = texto
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("responsavel", ""),
-                setor="Logista/Atacado",
-                itens="Cadastro Logista",
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Cadastro Logista",
-                etapa="cadastro_cidade",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="EM ATENDIMENTO",
-                obs="Cliente solicitou cadastro logista",
-                intencao_ia="ATACADO",
-                proxima_acao="TRANSFERIR_HUMANO",
-                nivel_interesse="QUENTE",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "✅ Cadastro recebido com sucesso!\n\n"
-                "Nossa equipe comercial entrará em contato em breve.\n\n"
-                "Equipe Motoshow Yamaha"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
-            return jsonify({"status": "ok"}), 200
-
-        # ==========================
-        # FLUXO REVISÃO
-        # ==========================
-        elif etapa == "revisao_modelo":
-            clientes[telefone]["modelo_moto"] = texto
-            clientes[telefone]["etapa"] = "revisao_nome"
-
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\n👤 Agora informe seu *nome completo* do proprietário:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "revisao_nome":
-            clientes[telefone]["nome_cliente"] = texto
-            clientes[telefone]["etapa"] = "revisao_cpf"
-            enviar_mensagem(
-                telefone,
-                "Ótimo ✅\n\n📄 Agora informe o *CPF do proprietário*:"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "revisao_cpf":
-            clientes[telefone]["cpf"] = texto
-            clientes[telefone]["etapa"] = "revisao_ano"
-            enviar_mensagem(
-                telefone,
-                "Perfeito 👍\n\n📅 Informe o *ano da sua moto*.\nExemplo: *2024*"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif etapa == "revisao_ano":
-            clientes[telefone]["ano_moto"] = texto
-            clientes[telefone]["etapa"] = "revisao_numero"
+    telefone = extrair_telefone(payload)
+    texto = limpar_texto(extrair_texto(payload))
+    texto_normalizado = normalizar_texto(texto)
+    message_id = extrair_message_id(payload)
+
+    if not telefone:
+        return jsonify({"status": "ignorado", "motivo": "telefone ausente"}), 200
+
+    if telefone_eh_grupo(telefone):
+        return jsonify({"status": "ignorado", "motivo": "grupo"}), 200
+
+    if mensagem_ja_processada(message_id):
+        return jsonify({"status": "ignorado", "motivo": "duplicada"}), 200
+
+    registrar_mensagem_processada(message_id)
+
+    iniciar_cliente(telefone)
+    atualizar_interacao(telefone)
+
+    # ==========================================
+    # COMANDOS GERAIS
+    # ==========================================
+    if texto_normalizado in ["menu", "oi", "ola", "olá", "bom dia", "boa tarde", "boa noite"]:
+        resetar_cliente(telefone)
+        enviar_menu(telefone)
+        return jsonify({"status": "ok"}), 200
+
+    if clientes[telefone].get("atendimento_humano") and texto_normalizado != "menu":
+        return jsonify({"status": "ok", "modo": "humano"}), 200
+
+    etapa = clientes[telefone]["etapa"]
+
+    # ==========================================
+    # IA NO MENU
+    # ==========================================
+    if etapa == "menu" and texto and texto not in ["1", "2", "3", "4", "5", "6"]:
+        if tratar_intencao_ia(telefone, texto):
+            return jsonify({"status": "ok", "origem": "ia"}), 200
+
+    # ==========================================
+    # MENU
+    # ==========================================
+    if etapa == "menu":
+        if texto == "1":
+            clientes[telefone]["etapa"] = "revisao_modelo"
             enviar_mensagem(
                 telefone,
                 "🔧 *Agendamento de Revisão*\n\n"
-                "Informe o número da revisão desejada:\n\n"
-                "1️⃣ 1ª Revisão\n"
-                "2️⃣ 2ª Revisão\n"
-                "3️⃣ 3ª Revisão\n"
-                "4️⃣ 4ª Revisão\n"
-                "5️⃣ 5ª Revisão ou mais"
+                "Informe o *modelo da moto*:"
             )
             return jsonify({"status": "ok"}), 200
 
-        elif etapa == "revisao_numero":
-            if not texto_normalizado.isdigit():
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-            clientes[telefone]["revisao_numero"] = texto_normalizado
-            clientes[telefone]["etapa"] = "revisao_dia"
+        elif texto == "2":
             enviar_mensagem(
                 telefone,
-                "📅 *Escolha o dia para o agendamento:*\n\n"
-                "1️⃣ Segunda-feira\n"
-                "2️⃣ Terça-feira\n"
-                "3️⃣ Quarta-feira\n"
-                "4️⃣ Quinta-feira\n"
-                "5️⃣ Sexta-feira\n"
-                "6️⃣ Sábado"
+                "🔩 *Peças*\n\n"
+                "Informe a *peça desejada* para seguirmos com o atendimento."
             )
             return jsonify({"status": "ok"}), 200
 
-        elif etapa == "revisao_dia":
-            mapa_dias = {
-                "1": "segunda",
-                "2": "terca",
-                "3": "quarta",
-                "4": "quinta",
-                "5": "sexta",
-                "6": "sabado"
-            }
-
-            if texto_normalizado not in mapa_dias:
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-            dia = mapa_dias[texto_normalizado]
-            clientes[telefone]["dia_semana"] = dia
-            clientes[telefone]["etapa"] = "revisao_data"
-
+        elif texto == "3":
             enviar_mensagem(
                 telefone,
-                "📆 *Agora informe a data desejada para o agendamento.*\n\n"
-                "Exemplo: *25/04/2026*"
+                "🛵 *Acessórios*\n\n"
+                "Informe o *acessório desejado* para seguirmos com o atendimento."
             )
             return jsonify({"status": "ok"}), 200
 
-        elif etapa == "revisao_data":
-            clientes[telefone]["data_agendada"] = texto
-
-            horarios = horarios_disponiveis(
-                clientes[telefone]["revisao_numero"],
-                clientes[telefone]["dia_semana"]
-            )
-
-            if not horarios:
-                enviar_mensagem(
-                    telefone,
-                    "❌ *Não há horário disponível para esse tipo de revisão nesse dia.*\n\n"
-                    "Digite outro dia ou envie *menu* para voltar ao início."
-                )
-                return jsonify({"status": "ok"}), 200
-
-            clientes[telefone]["horarios_disponiveis"] = horarios
-            clientes[telefone]["etapa"] = "revisao_horario"
-
+        elif texto == "4":
             enviar_mensagem(
                 telefone,
-                "⏰ *Escolha um horário disponível:*\n\n" + menu_horarios(horarios)
+                "🛡️ *Garantia*\n\n"
+                "Descreva sua solicitação de garantia para seguirmos com o atendimento."
             )
             return jsonify({"status": "ok"}), 200
 
-        elif etapa == "revisao_horario":
-            if not texto_normalizado.isdigit():
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-            indice = int(texto_normalizado) - 1
-            horarios = clientes[telefone].get("horarios_disponiveis", [])
-
-            if indice < 0 or indice >= len(horarios):
-                resposta_fallback(telefone)
-                return jsonify({"status": "fallback"}), 200
-
-            clientes[telefone]["horario_escolhido"] = horarios[indice]
-            clientes[telefone]["itens_menu"] = itens_adicionais_disponiveis(
-                clientes[telefone]["revisao_numero"]
-            )
-            clientes[telefone]["etapa"] = "revisao_itens"
-
+        elif texto == "5":
             enviar_mensagem(
                 telefone,
-                "🛠️ *Deseja incluir algum item adicional?*\n\n" + menu_itens(clientes[telefone]["itens_menu"])
+                "📦 *Logista / Atacado*\n\n"
+                "Informe sua necessidade e nossa equipe comercial seguirá com você."
             )
             return jsonify({"status": "ok"}), 200
 
-        elif etapa == "revisao_itens":
-            if texto_normalizado == "0":
-                clientes[telefone]["itens"] = []
-            else:
-                escolhidos = []
-                itens_menu = clientes[telefone].get("itens_menu", [])
-                partes = [p.strip() for p in texto.split(",") if p.strip()]
-
-                for p in partes:
-                    if p.isdigit():
-                        idx = int(p) - 1
-                        if 0 <= idx < len(itens_menu):
-                            escolhidos.append(itens_menu[idx])
-
-                clientes[telefone]["itens"] = list(dict.fromkeys(escolhidos))
-
-            itens_txt = ", ".join(clientes[telefone]["itens"]) if clientes[telefone]["itens"] else "Nenhum"
-
-            salvar_atendimento(
-                telefone=telefone,
-                nome=clientes[telefone].get("nome_cliente", ""),
-                setor="Revisão",
-                modelo=clientes[telefone].get("modelo_moto", ""),
-                ano=clientes[telefone].get("ano_moto", ""),
-                revisao=clientes[telefone].get("revisao_numero", ""),
-                dia_semana=clientes[telefone].get("dia_semana", ""),
-                data_agendada=clientes[telefone].get("data_agendada", ""),
-                horario=clientes[telefone].get("horario_escolhido", ""),
-                cpf=clientes[telefone].get("cpf", ""),
-                itens=itens_txt,
-                origem=clientes[telefone].get("origem", "Menu Normal"),
-                status="Agendado",
-                etapa="revisao_itens",
-                atendimento_humano=False
-            )
-
-            atualizar_linha_planilha_disparo(
-                telefone=telefone,
-                status_retorno="AGENDOU",
-                obs=(
-                    f"Agendamento solicitado para "
-                    f"{clientes[telefone].get('data_agendada', '')} "
-                    f"às {clientes[telefone].get('horario_escolhido', '')}"
-                ),
-                intencao_ia="AGENDAR",
-                proxima_acao="AGUARDAR_CONFIRMACAO_INTERNA",
-                nivel_interesse="QUENTE",
-                marcar_data_retorno=True
-            )
-
-            enviar_mensagem(
-                telefone,
-                "✅ *Agendamento solicitado com sucesso!*\n\n"
-                "📋 *Resumo do agendamento*\n\n"
-                f"👤 Cliente: {clientes[telefone].get('nome_cliente', '')}\n"
-                f"📄 CPF: {clientes[telefone].get('cpf', '')}\n"
-                f"🏍️ Modelo: {clientes[telefone].get('modelo_moto', '')}\n"
-                f"📅 Ano: {clientes[telefone].get('ano_moto', '')}\n"
-                f"🔧 Revisão: {clientes[telefone].get('revisao_numero', '')}ª\n"
-                f"🗓️ Dia: {clientes[telefone].get('dia_semana', '').title()}\n"
-                f"📆 Data: {clientes[telefone].get('data_agendada', '')}\n"
-                f"⏰ Horário: {clientes[telefone].get('horario_escolhido', '')}\n"
-                f"🛠️ Itens adicionais: {itens_txt}\n\n"
-                "Em breve nossa equipe fará a confirmação.\n\n"
-                "🏍️ *Equipe Motoshow Yamaha*"
-            )
-
-            resetar_cliente(telefone, manter_origem=True)
+        elif texto == "6":
+            ativar_atendimento_humano(telefone)
             return jsonify({"status": "ok"}), 200
 
         else:
-            resposta_fallback(telefone)
-            return jsonify({"status": "fallback"}), 200
+            enviar_menu(telefone)
+            return jsonify({"status": "ok"}), 200
 
-    except Exception as e:
-        log_erro("ERRO WEBHOOK:", e)
-        return jsonify({"status": "erro", "detalhe": str(e)}), 500
+    # ==========================================
+    # FLUXO REVISÃO
+    # ==========================================
+    elif etapa == "revisao_modelo":
+        clientes[telefone]["modelo"] = texto
+        clientes[telefone]["etapa"] = "revisao_nome"
+
+        enviar_mensagem(
+            telefone,
+            "👤 Informe seu *nome completo*:"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_nome":
+        clientes[telefone]["nome"] = texto
+        clientes[telefone]["etapa"] = "revisao_cpf"
+
+        enviar_mensagem(
+            telefone,
+            "📄 Informe o *CPF do proprietário*:"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_cpf":
+        clientes[telefone]["cpf"] = texto
+        clientes[telefone]["etapa"] = "revisao_ano"
+
+        enviar_mensagem(
+            telefone,
+            "📅 Informe o *ano da moto*:"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_ano":
+        clientes[telefone]["ano"] = texto
+        clientes[telefone]["etapa"] = "revisao_tipo"
+
+        enviar_mensagem(
+            telefone,
+            "🔧 *Qual revisão deseja agendar?*\n\n"
+            "1 - 1ª revisão\n"
+            "2 - 2ª revisão\n"
+            "3 - 3ª revisão\n"
+            "4 - 4ª revisão\n"
+            "5 - 5ª ou acima"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_tipo":
+        if texto not in ["1", "2", "3", "4", "5"]:
+            enviar_mensagem(
+                telefone,
+                "❌ Opção inválida.\n\n"
+                "Digite:\n"
+                "1 - 1ª\n"
+                "2 - 2ª\n"
+                "3 - 3ª\n"
+                "4 - 4ª\n"
+                "5 - 5ª+"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        clientes[telefone]["revisao"] = texto
+        clientes[telefone]["etapa"] = "revisao_dia"
+
+        enviar_mensagem(
+            telefone,
+            "📅 *Escolha o dia da semana:*\n\n"
+            "1 - Segunda\n"
+            "2 - Terça\n"
+            "3 - Quarta\n"
+            "4 - Quinta\n"
+            "5 - Sexta\n"
+            "6 - Sábado"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_dia":
+        if texto not in ["1", "2", "3", "4", "5", "6"]:
+            enviar_mensagem(
+                telefone,
+                "❌ Dia inválido.\n\n"
+                "Digite um número de 1 a 6."
+            )
+            return jsonify({"status": "ok"}), 200
+
+        horarios = gerar_horarios_disponiveis(
+            clientes[telefone]["revisao"],
+            texto
+        )
+
+        if not horarios:
+            enviar_mensagem(
+                telefone,
+                "⚠️ Para essa revisão não há atendimento no dia selecionado.\n\n"
+                "Escolha outro dia:\n"
+                "1 - Segunda\n"
+                "2 - Terça\n"
+                "3 - Quarta\n"
+                "4 - Quinta\n"
+                "5 - Sexta\n"
+                "6 - Sábado"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        clientes[telefone]["dia"] = texto
+        clientes[telefone]["dia_texto"] = nome_dia(texto)
+        clientes[telefone]["horarios_disponiveis"] = horarios
+        clientes[telefone]["etapa"] = "revisao_data"
+
+        enviar_mensagem(
+            telefone,
+            "📆 Informe a *data desejada* do agendamento:\n"
+            "Exemplo: 15/04/2026"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_data":
+        clientes[telefone]["data"] = texto
+        clientes[telefone]["etapa"] = "revisao_horario"
+
+        enviar_mensagem(
+            telefone,
+            montar_mensagem_horarios(
+                clientes[telefone].get("horarios_disponiveis", ["08:00"])
+            )
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_horario":
+        horarios = clientes[telefone].get("horarios_disponiveis", [])
+        if not horarios:
+            clientes[telefone]["etapa"] = "revisao_dia"
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não encontrei horários disponíveis. Vamos escolher o dia novamente."
+            )
+            return jsonify({"status": "ok"}), 200
+
+        try:
+            indice = int(texto) - 1
+            horario_escolhido = horarios[indice]
+        except Exception:
+            enviar_mensagem(
+                telefone,
+                montar_mensagem_horarios(horarios)
+            )
+            return jsonify({"status": "ok"}), 200
+
+        clientes[telefone]["horario"] = horario_escolhido
+        clientes[telefone]["etapa"] = "revisao_confirmar"
+
+        enviar_mensagem(
+            telefone,
+            "✅ *Confira seu agendamento:*\n\n"
+            f"👤 Nome: {clientes[telefone]['nome']}\n"
+            f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
+            f"📄 CPF: {clientes[telefone]['cpf']}\n"
+            f"📅 Data: {clientes[telefone]['data']}\n"
+            f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
+            f"⏰ Horário: {clientes[telefone]['horario']}\n"
+            f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n\n"
+            "Digite:\n"
+            "1 - Confirmar\n"
+            "2 - Cancelar"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_confirmar":
+        if texto == "2":
+            resetar_cliente(telefone)
+            enviar_mensagem(
+                telefone,
+                "❌ Agendamento cancelado.\n\n"
+                "Envie *menu* para iniciar novamente."
+            )
+            return jsonify({"status": "ok"}), 200
+
+        if texto != "1":
+            enviar_mensagem(
+                telefone,
+                "Digite:\n"
+                "1 - Confirmar\n"
+                "2 - Cancelar"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        db = SessionLocal()
+
+        try:
+            atendimento = Atendimento(
+                telefone=telefone,
+                nome=clientes[telefone]["nome"],
+                setor="Revisão",
+                modelo=clientes[telefone]["modelo"],
+                ano=clientes[telefone]["ano"],
+                revisao=clientes[telefone]["revisao"],
+                cpf=clientes[telefone]["cpf"],
+                dia_semana=clientes[telefone]["dia_texto"],
+                data_agendada=clientes[telefone]["data"],
+                horario=clientes[telefone]["horario"],
+                itens=clientes[telefone].get("itens", ""),
+                venda_adicional=clientes[telefone].get("venda_adicional", ""),
+                origem="Bot",
+                status="Agendado",
+                etapa="revisao_confirmada",
+                atendimento_humano=False,
+                concluido=True,
+                ultima_interacao=agora_datetime()
+            )
+
+            db.add(atendimento)
+            db.commit()
+
+        except Exception as e:
+            db.rollback()
+            log_erro("Erro salvar atendimento:", e)
+
+        finally:
+            db.close()
+
+        enviar_mensagem(
+            telefone,
+            "✅ *Revisão agendada com sucesso!*\n\n"
+            f"👤 {clientes[telefone]['nome']}\n"
+            f"🏍️ {clientes[telefone]['modelo']}\n"
+            f"📄 CPF: {clientes[telefone]['cpf']}\n"
+            f"📅 {clientes[telefone]['data']}\n"
+            f"📍 {clientes[telefone]['dia_texto']}\n"
+            f"⏰ {clientes[telefone]['horario']}\n\n"
+            "Agradecemos o contato.\n"
+            "Equipe Motoshow Yamaha"
+        )
+
+        resetar_cliente(telefone)
+        return jsonify({"status": "ok"}), 200
+
+    return jsonify({"status": "ok"}), 200
 
 
+# ==========================================
+# EXECUÇÃO
+# ==========================================
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
+    port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

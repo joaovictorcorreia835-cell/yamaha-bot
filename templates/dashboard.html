@@ -1,230 +1,340 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Pós-Vendas Motoshow Yamaha</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
+        }
 
-<title>Dashboard Yamaha Bot</title>
+        body {
+            background: #f4f7fb;
+            color: #1f2937;
+        }
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        .topbar {
+            background: linear-gradient(90deg, #0b1f4d, #163b8c);
+            color: white;
+            padding: 24px 32px;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.12);
+        }
 
-<style>
+        .topbar h1 {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
 
-body{
-font-family: Arial, Helvetica, sans-serif;
-background:#f5f6fa;
-margin:0;
-padding:0;
-}
+        .topbar p {
+            font-size: 14px;
+            opacity: 0.92;
+        }
 
-.header{
-background:#0b3d91;
-color:white;
-padding:20px;
-font-size:24px;
-font-weight:bold;
-}
+        .container {
+            padding: 28px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
 
-.container{
-padding:20px;
-}
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
+            margin-bottom: 28px;
+        }
 
-.cards{
-display:grid;
-grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
-gap:20px;
-margin-bottom:30px;
-}
+        .card {
+            background: white;
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+            border-left: 6px solid #163b8c;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
 
-.card{
-background:white;
-padding:20px;
-border-radius:10px;
-box-shadow:0px 2px 8px rgba(0,0,0,0.1);
-}
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+        }
 
-.card h3{
-margin:0;
-font-size:14px;
-color:#888;
-}
+        .card h3 {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-.card h1{
-margin:5px 0;
-color:#0b3d91;
-}
+        .card .numero {
+            font-size: 34px;
+            font-weight: bold;
+            color: #111827;
+        }
 
-.grid{
-display:grid;
-grid-template-columns:1fr 1fr;
-gap:20px;
-}
+        .grid {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 22px;
+            margin-bottom: 24px;
+        }
 
-.chart{
-background:white;
-padding:20px;
-border-radius:10px;
-box-shadow:0px 2px 8px rgba(0,0,0,0.1);
-}
+        .panel {
+            background: white;
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        }
 
-</style>
+        .panel h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: #0f172a;
+        }
 
+        .chart-box {
+            position: relative;
+            width: 100%;
+            height: 340px;
+        }
+
+        .table-section {
+            background: white;
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .table-section h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            overflow: hidden;
+            border-radius: 12px;
+        }
+
+        thead {
+            background: #163b8c;
+            color: white;
+        }
+
+        th, td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 13px;
+        }
+
+        @media (max-width: 980px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar h1 {
+                font-size: 22px;
+            }
+
+            .card .numero {
+                font-size: 28px;
+            }
+
+            .container {
+                padding: 18px;
+            }
+        }
+    </style>
 </head>
-
 <body>
 
-<div class="header">
-Dashboard Pós-Vendas Motoshow Yamaha
-</div>
+    <div class="topbar">
+        <h1>🏍️ Dashboard Pós-Vendas Motoshow Yamaha</h1>
+        <p>Painel gerencial de atendimentos, revisões e vendas adicionais</p>
+    </div>
 
-<div class="container">
+    <div class="container">
 
-<div class="cards">
+        <!-- CARDS -->
+        <div class="cards">
+            <div class="card">
+                <h3>Total de Atendimentos</h3>
+                <div class="numero">{{ total }}</div>
+            </div>
 
-<div class="card">
-<h3>Total Atendimentos</h3>
-<h1>{{ total }}</h1>
-</div>
+            <div class="card">
+                <h3>Total Revisões</h3>
+                <div class="numero">{{ revisao }}</div>
+            </div>
 
-<div class="card">
-<h3>Agendamentos</h3>
-<h1>{{ agendamentos }}</h1>
-</div>
+            <div class="card">
+                <h3>Revisões Agendadas</h3>
+                <div class="numero">{{ agendados }}</div>
+            </div>
 
-<div class="card">
-<h3>Atendimento Humano</h3>
-<h1>{{ humano }}</h1>
-</div>
+            <div class="card">
+                <h3>Conversão em Agendamento</h3>
+                <div class="numero">
+                    {% if total > 0 %}
+                        {{ ((agendados / total) * 100) | round(1) }}%
+                    {% else %}
+                        0%
+                    {% endif %}
+                </div>
+            </div>
+        </div>
 
-<div class="card">
-<h3>Revisões</h3>
-<h1>{{ revisao }}</h1>
-</div>
+        <!-- GRÁFICOS -->
+        <div class="grid">
+            <div class="panel">
+                <h2>📊 Revisões por Tipo</h2>
+                <div class="chart-box">
+                    <canvas id="graficoRevisoes"></canvas>
+                </div>
+            </div>
 
-</div>
+            <div class="panel">
+                <h2>🛒 Venda Adicional</h2>
+                <div class="chart-box">
+                    <canvas id="graficoAdicionais"></canvas>
+                </div>
+            </div>
+        </div>
 
+        <!-- TABELA -->
+        <div class="table-section">
+            <h2>📌 Resumo de Itens Adicionais</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Protetor de motor</td>
+                        <td>{{ protetor }}</td>
+                    </tr>
+                    <tr>
+                        <td>Slider</td>
+                        <td>{{ slider }}</td>
+                    </tr>
+                    <tr>
+                        <td>Suporte para celular</td>
+                        <td>{{ suporte }}</td>
+                    </tr>
+                    <tr>
+                        <td>Baú</td>
+                        <td>{{ bau }}</td>
+                    </tr>
+                    <tr>
+                        <td>Filtro de ar</td>
+                        <td>{{ filtro }}</td>
+                    </tr>
+                    <tr>
+                        <td>Pastilha de freio</td>
+                        <td>{{ pastilha }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
 
-<div class="grid">
+    </div>
 
-<div class="chart">
-<h3>Atendimentos por Setor</h3>
-<canvas id="setorChart"></canvas>
-</div>
+    <div class="footer">
+        Dashboard CRM - Pós-Vendas Motoshow Yamaha
+    </div>
 
-<div class="chart">
-<h3>Origem dos Leads</h3>
-<canvas id="origemChart"></canvas>
-</div>
+    <script>
+        const ctxRevisoes = document.getElementById('graficoRevisoes').getContext('2d');
+        new Chart(ctxRevisoes, {
+            type: 'bar',
+            data: {
+                labels: ['1ª', '2ª', '3ª', '4ª', '5ª+'],
+                datasets: [{
+                    label: 'Quantidade',
+                    data: [
+                        {{ primeira }},
+                        {{ segunda }},
+                        {{ terceira }},
+                        {{ quarta }},
+                        {{ quinta }}
+                    ],
+                    backgroundColor: [
+                        '#163b8c',
+                        '#2563eb',
+                        '#0f766e',
+                        '#f59e0b',
+                        '#dc2626'
+                    ],
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
 
-</div>
-
-
-<div class="grid" style="margin-top:20px;">
-
-<div class="chart">
-<h3>Revisões Mais Solicitadas</h3>
-<canvas id="revisaoChart"></canvas>
-</div>
-
-<div class="chart">
-<h3>Itens Adicionais</h3>
-<canvas id="itensChart"></canvas>
-</div>
-
-</div>
-
-
-</div>
-
-<script>
-
-const setorChart = new Chart(document.getElementById('setorChart'), {
-type: 'bar',
-data: {
-labels: ['Revisão','Peças','Acessórios','Garantia','Logista'],
-datasets: [{
-label: 'Atendimentos',
-data: [
-{{ revisao }},
-{{ pecas }},
-{{ acessorios }},
-{{ garantia }},
-{{ logista }}
-],
-backgroundColor:[
-'#0b3d91',
-'#1976d2',
-'#42a5f5',
-'#64b5f6',
-'#90caf9'
-]
-}]
-}
-});
-
-
-const origemChart = new Chart(document.getElementById('origemChart'), {
-type:'pie',
-data:{
-labels:['Campanha','Menu'],
-datasets:[{
-data:[
-{{ campanha }},
-{{ menu }}
-],
-backgroundColor:[
-'#0b3d91',
-'#42a5f5'
-]
-}]
-}
-});
-
-
-const revisaoChart = new Chart(document.getElementById('revisaoChart'), {
-type:'bar',
-data:{
-labels:['1ª','2ª','3ª','4ª','5ª+'],
-datasets:[{
-data:[
-{{ r1 }},
-{{ r2 }},
-{{ r3 }},
-{{ r4 }},
-{{ r5 }}
-],
-backgroundColor:'#0b3d91'
-}]
-}
-});
-
-
-const itensChart = new Chart(document.getElementById('itensChart'), {
-type:'bar',
-data:{
-labels:[
-'Protetor',
-'Slider',
-'Suporte',
-'Baú',
-'Filtro',
-'Pastilha'
-],
-datasets:[{
-data:[
-{{ protetor }},
-{{ slider }},
-{{ suporte }},
-{{ bau }},
-{{ filtro }},
-{{ pastilha }}
-],
-backgroundColor:'#1976d2'
-}]
-}
-});
-
-</script>
+        const ctxAdicionais = document.getElementById('graficoAdicionais').getContext('2d');
+        new Chart(ctxAdicionais, {
+            type: 'doughnut',
+            data: {
+                labels: [
+                    'Protetor de motor',
+                    'Slider',
+                    'Suporte para celular',
+                    'Baú',
+                    'Filtro de ar',
+                    'Pastilha de freio'
+                ],
+                datasets: [{
+                    data: [
+                        {{ protetor }},
+                        {{ slider }},
+                        {{ suporte }},
+                        {{ bau }},
+                        {{ filtro }},
+                        {{ pastilha }}
+                    ],
+                    backgroundColor: [
+                        '#163b8c',
+                        '#2563eb',
+                        '#0f766e',
+                        '#f59e0b',
+                        '#dc2626',
+                        '#7c3aed'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+    </script>
 
 </body>
 </html>

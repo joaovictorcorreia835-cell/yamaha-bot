@@ -17,7 +17,10 @@ if DATABASE_URL.startswith("sqlite"):
         connect_args={"check_same_thread": False}
     )
 else:
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True
+    )
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -38,22 +41,24 @@ class Atendimento(Base):
 
     telefone = Column(String, index=True)
     nome = Column(String)
-    setor = Column(String)
+    setor = Column(String, index=True)
+
     modelo = Column(String)
     ano = Column(String)
-    revisao = Column(String)
+    revisao = Column(String, index=True)
+
+    cpf = Column(String)
+    chassi = Column(String)
 
     dia_semana = Column(String)
     data_agendada = Column(String)
     horario = Column(String)
 
-    cpf = Column(String)
-
     itens = Column(Text)
     venda_adicional = Column(String)
 
-    origem = Column(String)
-    status = Column(String)
+    origem = Column(String, default="Bot")
+    status = Column(String, default="Em atendimento")
     etapa = Column(String)
 
     atendimento_humano = Column(Boolean, default=False)
@@ -75,6 +80,9 @@ class Disparo(Base):
     nome = Column(String)
     modelo = Column(String)
     periodo = Column(String)
+
+    cpf = Column(String)
+    chassi = Column(String)
 
     status = Column(String, default="pendente")
     data_envio = Column(DateTime)

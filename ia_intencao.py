@@ -1,89 +1,60 @@
 import os
-import json
 from dotenv import load_dotenv
 from openai import OpenAI
+from pathlib import Path
 
-load_dotenv()
-
-# ==========================================
-# CONFIG
-# ==========================================
+# Carregar .env corretamente
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-IA_HABILITADA = os.getenv("IA_HABILITADA", "false").lower() == "true"
-IA_CONFIANCA_MINIMA = float(os.getenv("IA_CONFIANCA_MINIMA", "0.75"))
-IA_MODELO = os.getenv("IA_MODELO", "gpt-4o-mini")
+IA_MODEL = os.getenv("IA_MODEL", "gpt-4o-mini")
+
+print("OPENAI_API_KEY carregada:", "OK" if OPENAI_API_KEY else "NÃO ENCONTRADA")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ==========================================
-# CLASSIFICAR INTENÇÃO
-# ==========================================
-
 def classificar_intencao(texto):
-
-    if not IA_HABILITADA:
-        return None
-
-    if not texto or len(texto.strip()) < 2:
-        return None
 
     try:
 
         prompt = f"""
-Você é um classificador de intenção para atendimento de pós-vendas Yamaha.
+Você é um classificador de intenção para um bot de concessionária Yamaha.
 
-Classifique a mensagem do cliente em apenas uma das intenções abaixo:
+Classifique a intenção do cliente:
 
+Possíveis intenções:
 - agendar_revisao
 - pecas
 - acessorios
 - garantia
-- logista_atacado
-- atendimento_humano
-- acompanhar_servico
-- orcamento
-- duvida_geral
-- nao_interessado
+- atacado
+- humano
 - menu
-
-Responda apenas em JSON no formato:
-
-{{
- "intent": "nome_da_intencao",
- "confidence": 0.00
-}}
+- outro
 
 Mensagem do cliente:
-"{texto}"
+{texto}
+
+Retorne apenas JSON:
+{{"intent":"nome_da_intencao"}}
 """
 
         response = client.chat.completions.create(
-            model=IA_MODELO,
+            model=IA_MODEL,
             messages=[
-                {"role": "system", "content": "Você classifica intenção de mensagens de clientes."},
+                {"role": "system", "content": "Você classifica intenção."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0
         )
 
-        resposta = response.choices[0].message.content.strip()
+        resposta = response.choices[0].message.content
 
-        resultado = json.loads(resposta)
-
-        intent = resultado.get("intent")
-        confidence = float(resultado.get("confidence", 0))
-
-        if confidence >= IA_CONFIANCA_MINIMA:
-
-            return {
-                "intent": intent,
-                "confidence": confidence
-            }
-
-        return None
+        import json
+        return json.loads(resposta)
 
     except Exception as e:
-        print("Erro IA:", str(e))
+        print("Erro IA:", e)
         return None
