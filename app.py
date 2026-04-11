@@ -1604,18 +1604,7 @@ def webhook():
 
     return jsonify({"status": "ok"}), 200
 
-@app.route("/reset-banco-teste", methods=["GET"])
-def reset_banco_teste():
-    db = SessionLocal()
-    try:
-        db.query(Atendimento).delete()
-        db.commit()
-        return jsonify({"status": "ok", "message": "Banco de atendimentos resetado com sucesso"}), 200
-    except Exception as e:
-        db.rollback()
-        return jsonify({"status": "erro", "message": str(e)}), 500
-    finally:
-        db.close()
+
 # ==========================================
 # INICIAR WORKER
 # ==========================================
