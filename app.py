@@ -400,6 +400,8 @@ def extrair_revisao_km_ou_meses(texto):
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
+
+
 # ==========================================
 # FOLLOW-UP PLANILHA
 # ==========================================
@@ -570,8 +572,6 @@ def processar_followups():
 
         if alterou:
             salvar_planilha_followup(df)
-
-
 def worker_followup():
     log_info("Worker de follow-up iniciado.")
     while True:
@@ -1011,6 +1011,8 @@ def nome_dia(opcao):
         "6": "Sábado"
     }
     return mapa.get(str(opcao), "")
+
+
 def gerar_horarios_disponiveis(revisao, dia):
     revisao = str(revisao).strip()
     dia = str(dia).strip()
@@ -1062,8 +1064,6 @@ def salvar_atendimento_seguro(dados):
 
     finally:
         db.close()
-
-
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1448,51 +1448,75 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         clientes[telefone]["horario"] = horario_escolhido
-        clientes[telefone]["etapa"] = "revisao_venda_adicional"
+        clientes[telefone]["etapa"] = "revisao_venda_opcao"
 
         enviar_mensagem(
             telefone,
             "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
-            "Digite os números separados por vírgula:\n\n"
-            "1 - Protetor de motor\n"
-            "2 - Slider\n"
-            "3 - Suporte para celular\n"
-            "4 - Baú\n"
-            "5 - Filtro de ar\n"
-            "6 - Pastilha de freio\n"
-            "0 - Nenhum"
+            "1 - Sim\n"
+            "2 - Não"
         )
         return jsonify({"status": "ok"}), 200
 
-    elif etapa == "revisao_venda_adicional":
-        opcoes = {
-            "1": "Protetor de motor",
-            "2": "Slider",
-            "3": "Suporte para celular",
-            "4": "Baú",
-            "5": "Filtro de ar",
-            "6": "Pastilha de freio"
-        }
+    elif etapa == "revisao_venda_opcao":
+        opcao = (
+            texto.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        )
 
-        texto_limpo = texto.replace(" ", "").replace(";", ",")
+        if opcao == "1":
+            clientes[telefone]["etapa"] = "revisao_venda_adicional"
 
-        if texto_limpo == "0":
+            enviar_mensagem(
+                telefone,
+                "🛠️ *Peça ou acessório adicional*\n\n"
+                "Informe qual item deseja adicionar.\n\n"
+                "Exemplos:\n"
+                "• Baú\n"
+                "• Slider\n"
+                "• Suporte celular\n"
+                "• Protetor motor"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif opcao == "2":
             clientes[telefone]["itens"] = ""
             clientes[telefone]["venda_adicional"] = "Não"
+            clientes[telefone]["etapa"] = "revisao_confirmar"
+
+            enviar_mensagem(
+                telefone,
+                "✅ *Confira seu agendamento:*\n\n"
+                f"👤 Nome: {clientes[telefone]['nome']}\n"
+                f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
+                f"📄 CPF: {clientes[telefone]['cpf']}\n"
+                f"📅 Data: {clientes[telefone]['data']}\n"
+                f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
+                f"⏰ Horário: {clientes[telefone]['horario']}\n"
+                f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
+                f"🛒 Adicionais: Nenhum\n\n"
+                "Digite:\n"
+                "1 - Confirmar\n"
+                "2 - Cancelar"
+            )
+            return jsonify({"status": "ok"}), 200
+
         else:
-            selecionados = texto_limpo.split(",")
-            itens = []
+            enviar_mensagem(
+                telefone,
+                "❌ Opção inválida.\n\n"
+                "Digite:\n"
+                "1 - Sim\n"
+                "2 - Não"
+            )
+            return jsonify({"status": "ok"}), 200
 
-            for s in selecionados:
-                if s in opcoes and opcoes[s] not in itens:
-                    itens.append(opcoes[s])
-
-            clientes[telefone]["itens"] = ", ".join(itens)
-            clientes[telefone]["venda_adicional"] = "Sim" if itens else "Não"
-
+    elif etapa == "revisao_venda_adicional":
+        clientes[telefone]["itens"] = texto
+        clientes[telefone]["venda_adicional"] = "Sim"
         clientes[telefone]["etapa"] = "revisao_confirmar"
-
-        itens_texto = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
 
         enviar_mensagem(
             telefone,
@@ -1504,7 +1528,7 @@ def webhook():
             f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
             f"⏰ Horário: {clientes[telefone]['horario']}\n"
             f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
-            f"🛒 Adicionais: {itens_texto}\n\n"
+            f"🛒 Adicionais: {clientes[telefone]['itens']}\n\n"
             "Digite:\n"
             "1 - Confirmar\n"
             "2 - Cancelar"
