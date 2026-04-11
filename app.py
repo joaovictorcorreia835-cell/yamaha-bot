@@ -129,22 +129,21 @@ def dashboard():
         registros_itens = query.with_entities(Atendimento.itens).all()
 
         for item in registros_itens:
-    valor = item[0] if isinstance(item, tuple) else item
+            valor = item[0] if isinstance(item, tuple) else item
 
-    if not valor:
-        continue
+            if not valor:
+                continue
 
-    texto = str(valor)
+            texto = str(valor)
+            texto = texto.replace("[", "")
+            texto = texto.replace("]", "")
+            texto = texto.replace("'", "")
+            texto = texto.replace('"', "")
 
-    texto = texto.replace("[", "")
-    texto = texto.replace("]", "")
-    texto = texto.replace("'", "")
-    texto = texto.replace('"', "")
+            lista = [i.strip() for i in texto.split(",") if i.strip()]
 
-    lista = [i.strip() for i in texto.split(",") if i.strip()]
-
-    for i in lista:
-        contador_itens[i] += 1
+            for i in lista:
+                contador_itens[i] += 1
 
         ranking_itens = contador_itens.most_common(20)
         total_itens_vendidos = sum(contador_itens.values())
@@ -1012,8 +1011,6 @@ def nome_dia(opcao):
         "6": "Sábado"
     }
     return mapa.get(str(opcao), "")
-
-
 def gerar_horarios_disponiveis(revisao, dia):
     revisao = str(revisao).strip()
     dia = str(dia).strip()
@@ -1065,6 +1062,8 @@ def salvar_atendimento_seguro(dados):
 
     finally:
         db.close()
+
+
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1105,7 +1104,6 @@ def webhook():
     iniciar_cliente(telefone)
     atualizar_interacao(telefone)
 
-    # marca retorno do cliente na planilha de disparo/follow-up
     atualizar_retorno_na_planilha(telefone, texto)
 
     log_info("Etapa atual antes do fluxo:", clientes.get(telefone, {}).get("etapa"))
