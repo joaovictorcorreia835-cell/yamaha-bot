@@ -29,7 +29,7 @@ TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900"))
 
 # FOLLOW-UP
 ARQUIVO_FOLLOWUP = os.getenv("ARQUIVO_FOLLOWUP", "clientes_disparo.xlsx")
-INTERVALO_WORKER_FOLLOWUP = int(os.getenv("INTERVALO_WORKER_FOLLOWUP", "300"))  # 5 min
+INTERVALO_WORKER_FOLLOWUP = int(os.getenv("INTERVALO_WORKER_FOLLOWUP", "300"))
 FOLLOWUP_1_HORAS = int(os.getenv("FOLLOWUP_1_HORAS", "48"))
 FOLLOWUP_2_DIAS = int(os.getenv("FOLLOWUP_2_DIAS", "5"))
 
@@ -107,6 +107,13 @@ def dashboard():
             query = query.filter(
                 Atendimento.data >= datetime.combine(inicio_mes, datetime.min.time())
             )
+        elif filtro == "total":
+            pass
+        else:
+            filtro = "hoje"
+            query = query.filter(
+                Atendimento.data >= datetime.combine(hoje, datetime.min.time())
+            )
 
         total = query.count()
         revisao = query.filter(Atendimento.setor == "Revisão").count()
@@ -118,15 +125,21 @@ def dashboard():
         quarta = query.filter(Atendimento.revisao == "4").count()
         quinta = query.filter(Atendimento.revisao == "5").count()
 
-        contador = Counter()
-        itens = query.with_entities(Atendimento.itens).all()
+        contador_itens = Counter()
+        registros_itens = query.with_entities(Atendimento.itens).all()
 
-        for item in itens:
+        for item in registros_itens:
             valor = item[0] if isinstance(item, tuple) else item
-            if valor:
-                lista = str(valor).split(",")
-                for i in lista:
-                    contador[i.strip()] += 1
+
+            if not valor:
+                continue
+
+            lista = [i.strip() for i in str(valor).split(",") if i.strip()]
+            for i in lista:
+                contador_itens[i] += 1
+
+        ranking_itens = contador_itens.most_common(20)
+        total_itens_vendidos = sum(contador_itens.values())
 
         return render_template(
             "dashboard.html",
@@ -138,12 +151,8 @@ def dashboard():
             terceira=terceira,
             quarta=quarta,
             quinta=quinta,
-            protetor=contador["Protetor de motor"],
-            slider=contador["Slider"],
-            suporte=contador["Suporte para celular"],
-            bau=contador["Baú"],
-            filtro=contador["Filtro de ar"],
-            pastilha=contador["Pastilha de freio"],
+            total_itens_vendidos=total_itens_vendidos,
+            ranking_itens=ranking_itens,
             filtro_ativo=filtro
         )
 
@@ -384,8 +393,6 @@ def extrair_revisao_km_ou_meses(texto):
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
-
-
 # ==========================================
 # FOLLOW-UP PLANILHA
 # ==========================================
@@ -526,7 +533,6 @@ def processar_followups():
                 horas_passadas = (agora_dt - data_base).total_seconds() / 3600
                 dias_passados = (agora_dt - data_base).days
 
-                # FOLLOWUP 1 - 48h
                 if not followup_1 and horas_passadas >= FOLLOWUP_1_HORAS:
                     ok = enviar_mensagem(telefone, MENSAGEM_FOLLOWUP_1)
                     if ok:
@@ -540,7 +546,6 @@ def processar_followups():
                         alterou = True
                     continue
 
-                # FOLLOWUP 2 - 5 dias
                 if not followup_2 and dias_passados >= FOLLOWUP_2_DIAS:
                     ok = enviar_mensagem(telefone, MENSAGEM_FOLLOWUP_2)
                     if ok:
@@ -1052,8 +1057,6 @@ def salvar_atendimento_seguro(dados):
 
     finally:
         db.close()
-
-
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1439,7 +1442,51 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         clientes[telefone]["horario"] = horario_escolhido
+        clientes[telefone]["etapa"] = "revisao_venda_adicional"
+
+        enviar_mensagem(
+            telefone,
+            "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
+            "Digite os números separados por vírgula:\n\n"
+            "1 - Protetor de motor\n"
+            "2 - Slider\n"
+            "3 - Suporte para celular\n"
+            "4 - Baú\n"
+            "5 - Filtro de ar\n"
+            "6 - Pastilha de freio\n"
+            "0 - Nenhum"
+        )
+        return jsonify({"status": "ok"}), 200
+
+    elif etapa == "revisao_venda_adicional":
+        opcoes = {
+            "1": "Protetor de motor",
+            "2": "Slider",
+            "3": "Suporte para celular",
+            "4": "Baú",
+            "5": "Filtro de ar",
+            "6": "Pastilha de freio"
+        }
+
+        texto_limpo = texto.replace(" ", "").replace(";", ",")
+
+        if texto_limpo == "0":
+            clientes[telefone]["itens"] = ""
+            clientes[telefone]["venda_adicional"] = "Não"
+        else:
+            selecionados = texto_limpo.split(",")
+            itens = []
+
+            for s in selecionados:
+                if s in opcoes and opcoes[s] not in itens:
+                    itens.append(opcoes[s])
+
+            clientes[telefone]["itens"] = ", ".join(itens)
+            clientes[telefone]["venda_adicional"] = "Sim" if itens else "Não"
+
         clientes[telefone]["etapa"] = "revisao_confirmar"
+
+        itens_texto = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
 
         enviar_mensagem(
             telefone,
@@ -1450,7 +1497,8 @@ def webhook():
             f"📅 Data: {clientes[telefone]['data']}\n"
             f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
             f"⏰ Horário: {clientes[telefone]['horario']}\n"
-            f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n\n"
+            f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
+            f"🛒 Adicionais: {itens_texto}\n\n"
             "Digite:\n"
             "1 - Confirmar\n"
             "2 - Cancelar"
@@ -1495,7 +1543,7 @@ def webhook():
             "data_agendada": clientes[telefone]["data"],
             "horario": clientes[telefone]["horario"],
             "itens": clientes[telefone].get("itens", ""),
-            "venda_adicional": clientes[telefone].get("venda_adicional", ""),
+            "venda_adicional": clientes[telefone].get("venda_adicional", "Não"),
             "origem": "Bot",
             "status": "Agendado",
             "etapa": "revisao_confirmada",
@@ -1505,6 +1553,8 @@ def webhook():
             "data": agora_datetime()
         })
 
+        itens_texto = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
+
         enviar_mensagem(
             telefone,
             "✅ *Revisão agendada com sucesso!*\n\n"
@@ -1513,7 +1563,8 @@ def webhook():
             f"📄 CPF: {clientes[telefone]['cpf']}\n"
             f"📅 {clientes[telefone]['data']}\n"
             f"📍 {clientes[telefone]['dia_texto']}\n"
-            f"⏰ {clientes[telefone]['horario']}\n\n"
+            f"⏰ {clientes[telefone]['horario']}\n"
+            f"🛒 Adicionais: {itens_texto}\n\n"
             "Agradecemos o contato.\n"
             "Equipe Motoshow Yamaha"
         )

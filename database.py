@@ -6,7 +6,6 @@ import os
 # ==========================================
 # CONFIG
 # ==========================================
-
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
 engine = create_engine(
@@ -14,57 +13,41 @@ engine = create_engine(
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
 
-SessionLocal = sessionmaker(bind=engine)
-
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 
 # ==========================================
 # TABELA ATENDIMENTOS
 # ==========================================
-
 class Atendimento(Base):
-
     __tablename__ = "atendimentos"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
 
     telefone = Column(String, index=True)
-
     nome = Column(String)
-
     setor = Column(String)
-
     modelo = Column(String)
-
     ano = Column(String)
-
     revisao = Column(String)
 
     cpf = Column(String)
-
     dia_semana = Column(String)
-
     data_agendada = Column(String)
-
     horario = Column(String)
 
     itens = Column(Text)
-
     venda_adicional = Column(Text)
 
     origem = Column(String)
-
     status = Column(String)
-
     etapa = Column(String)
 
     atendimento_humano = Column(Boolean, default=False)
-
     concluido = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
-
     data = Column(DateTime, default=datetime.now)
 
 

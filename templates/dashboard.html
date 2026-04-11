@@ -165,6 +165,12 @@
             background: #f9fafb;
         }
 
+        .vazio {
+            text-align: center;
+            color: #6b7280;
+            padding: 18px;
+        }
+
         .footer {
             text-align: center;
             padding: 20px;
@@ -224,6 +230,11 @@
             </div>
 
             <div class="card">
+                <h3>Itens Vendidos</h3>
+                <div class="numero">{{ total_itens_vendidos }}</div>
+            </div>
+
+            <div class="card">
                 <h3>Conversão em Agendamento</h3>
                 <div class="numero">
                     {% if total > 0 %}
@@ -252,41 +263,30 @@
         </div>
 
         <div class="table-section">
-            <h2>📌 Resumo de Itens Adicionais</h2>
+            <h2>📌 Ranking de Itens Adicionais</h2>
+
+            {% if ranking_itens %}
             <table>
                 <thead>
                     <tr>
+                        <th>#</th>
                         <th>Item</th>
                         <th>Quantidade</th>
                     </tr>
                 </thead>
                 <tbody>
+                    {% for item, qtd in ranking_itens %}
                     <tr>
-                        <td>Protetor de motor</td>
-                        <td>{{ protetor }}</td>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ item }}</td>
+                        <td>{{ qtd }}</td>
                     </tr>
-                    <tr>
-                        <td>Slider</td>
-                        <td>{{ slider }}</td>
-                    </tr>
-                    <tr>
-                        <td>Suporte para celular</td>
-                        <td>{{ suporte }}</td>
-                    </tr>
-                    <tr>
-                        <td>Baú</td>
-                        <td>{{ bau }}</td>
-                    </tr>
-                    <tr>
-                        <td>Filtro de ar</td>
-                        <td>{{ filtro }}</td>
-                    </tr>
-                    <tr>
-                        <td>Pastilha de freio</td>
-                        <td>{{ pastilha }}</td>
-                    </tr>
+                    {% endfor %}
                 </tbody>
             </table>
+            {% else %}
+                <div class="vazio">Nenhum item vendido no período selecionado.</div>
+            {% endif %}
         </div>
 
     </div>
@@ -331,34 +331,36 @@
             }
         });
 
+        const labelsAdicionais = [
+            {% for item, qtd in ranking_itens[:10] %}
+                "{{ item|escape }}"{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+
+        const dadosAdicionais = [
+            {% for item, qtd in ranking_itens[:10] %}
+                {{ qtd }}{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+
         const ctxAdicionais = document.getElementById('graficoAdicionais').getContext('2d');
         new Chart(ctxAdicionais, {
             type: 'doughnut',
             data: {
-                labels: [
-                    'Protetor de motor',
-                    'Slider',
-                    'Suporte para celular',
-                    'Baú',
-                    'Filtro de ar',
-                    'Pastilha de freio'
-                ],
+                labels: labelsAdicionais,
                 datasets: [{
-                    data: [
-                        {{ protetor }},
-                        {{ slider }},
-                        {{ suporte }},
-                        {{ bau }},
-                        {{ filtro }},
-                        {{ pastilha }}
-                    ],
+                    data: dadosAdicionais,
                     backgroundColor: [
                         '#163b8c',
                         '#2563eb',
                         '#0f766e',
                         '#f59e0b',
                         '#dc2626',
-                        '#7c3aed'
+                        '#7c3aed',
+                        '#0891b2',
+                        '#65a30d',
+                        '#ea580c',
+                        '#be123c'
                     ]
                 }]
             },
