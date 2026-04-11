@@ -129,14 +129,22 @@ def dashboard():
         registros_itens = query.with_entities(Atendimento.itens).all()
 
         for item in registros_itens:
-            valor = item[0] if isinstance(item, tuple) else item
+    valor = item[0] if isinstance(item, tuple) else item
 
-            if not valor:
-                continue
+    if not valor:
+        continue
 
-            lista = [i.strip() for i in str(valor).split(",") if i.strip()]
-            for i in lista:
-                contador_itens[i] += 1
+    texto = str(valor)
+
+    texto = texto.replace("[", "")
+    texto = texto.replace("]", "")
+    texto = texto.replace("'", "")
+    texto = texto.replace('"', "")
+
+    lista = [i.strip() for i in texto.split(",") if i.strip()]
+
+    for i in lista:
+        contador_itens[i] += 1
 
         ranking_itens = contador_itens.most_common(20)
         total_itens_vendidos = sum(contador_itens.values())
