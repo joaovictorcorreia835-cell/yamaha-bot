@@ -860,6 +860,51 @@ def iniciar_worker_followup():
 
     log_info("Worker follow-up iniciado")
 # ==========================================
+# IGNORAR EVENTOS DO PRÓPRIO BOT
+# ==========================================
+def evento_eh_do_proprio_bot(payload):
+    try:
+        data = payload.get("data", {}) or {}
+
+        marcadores_true = [
+            payload.get("fromMe"),
+            payload.get("isFromMe"),
+            payload.get("sentByMe"),
+            data.get("fromMe"),
+            data.get("isFromMe"),
+            data.get("sentByMe"),
+            data.get("isStatusReply"),
+        ]
+
+        if any(valor is True for valor in marcadores_true):
+            return True
+
+        sender = str(
+            data.get("sender")
+            or data.get("from")
+            or payload.get("sender")
+            or payload.get("from")
+            or ""
+        ).lower()
+
+        if sender in ["api", "system", "bot"]:
+            return True
+
+        texto_evento = str(
+            data.get("event")
+            or payload.get("event")
+            or ""
+        ).lower()
+
+        if texto_evento in ["sent", "message_sent", "outbound_message"]:
+            return True
+
+        return False
+
+    except Exception as e:
+        log_erro("Erro validar evento bot:", e)
+        return False
+# ==========================================
 # WEBHOOK
 # ==========================================
 @app.route("/webhook", methods=["GET", "POST"])
