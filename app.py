@@ -220,7 +220,7 @@ def webhook():
 
     try:
 
-        data = request.json
+        data = request.json or {}
 
         telefone = data.get("phone")
         texto = data.get("message")
@@ -228,10 +228,38 @@ def webhook():
         if not telefone or not texto:
             return jsonify({"status": "ok"})
 
+        texto = str(texto).strip()
 
         iniciar_cliente(telefone)
+        clientes[telefone]["ultima_interacao"] = time.time()
 
+        # =====================================
+        # SAIR DO ATENDIMENTO HUMANO
+        # =====================================
 
+        if clientes[telefone].get("atendimento_humano"):
+
+            if texto.lower() in ["menu", "voltar", "oi", "inicio", "início"]:
+
+                resetar_cliente(telefone)
+
+                enviar_mensagem(
+                    telefone,
+                    "🔄 Retornando ao menu automático...\n\n"
+                    "Olá 👋\n\n"
+                    "🏍️ *Pós-Vendas Motoshow Yamaha*\n\n"
+                    "1️⃣ Agendar Revisão\n"
+                    "2️⃣ Peças\n"
+                    "3️⃣ Acessórios\n"
+                    "4️⃣ Garantia\n"
+                    "5️⃣ Logista / Atacado\n"
+                    "6️⃣ Falar com Atendente\n\n"
+                    "Ou escreva diretamente o que precisa."
+                )
+
+                return jsonify({"status": "ok"})
+
+            return jsonify({"status": "ok", "modo": "humano"})
         # =====================================
         # IA
         # =====================================
@@ -239,7 +267,7 @@ def webhook():
         resultado_ia = classificar_intencao(texto)
 
         intencao = resultado_ia.get("intencao")
-        dados = resultado_ia.get("dados_extraidos")
+        dados = resultado_ia.get("dados_extraidos", {})
 
         preencher_dados_ia(telefone, dados)
         etapa = clientes[telefone]["etapa"]
@@ -267,7 +295,8 @@ def webhook():
             enviar_mensagem(
                 telefone,
                 "👨‍💼 Atendimento humano acionado\n\n"
-                "Nossa equipe irá assumir seu atendimento."
+                "Nossa equipe irá assumir seu atendimento.\n\n"
+                "Para voltar ao menu automático, envie *menu*."
             )
 
             return jsonify({"status": "ok"})
@@ -292,8 +321,6 @@ def webhook():
 
             dados = clientes[telefone]
 
-            # MODELO
-
             if not dados["modelo"]:
 
                 enviar_mensagem(
@@ -308,8 +335,6 @@ def webhook():
                 return jsonify({"status": "ok"})
 
 
-            # NOME
-
             if not dados["nome"]:
 
                 enviar_mensagem(
@@ -319,8 +344,6 @@ def webhook():
 
                 return jsonify({"status": "ok"})
 
-
-            # CPF
 
             if not dados["cpf"]:
 
@@ -332,8 +355,6 @@ def webhook():
                 return jsonify({"status": "ok"})
 
 
-            # ANO
-
             if not dados["ano"]:
 
                 enviar_mensagem(
@@ -343,8 +364,6 @@ def webhook():
 
                 return jsonify({"status": "ok"})
 
-
-            # REVISÃO
 
             if not dados["revisao"]:
 
@@ -360,8 +379,6 @@ def webhook():
 
                 return jsonify({"status": "ok"})
 
-
-            # DIA
 
             if not dados["dia_texto"]:
 
@@ -379,8 +396,6 @@ def webhook():
                 return jsonify({"status": "ok"})
 
 
-            # DATA
-
             if not dados["data"]:
 
                 enviar_mensagem(
@@ -391,8 +406,6 @@ def webhook():
 
                 return jsonify({"status": "ok"})
 
-
-            # HORÁRIO
 
             if not dados["horario"]:
 
@@ -427,8 +440,6 @@ def webhook():
 
                 return jsonify({"status": "ok"})
 
-
-            # VENDA ADICIONAL
 
             if not dados["itens"]:
 
@@ -545,9 +556,13 @@ def webhook():
 
         if texto == "6":
 
+            clientes[telefone]["atendimento_humano"] = True
+
             enviar_mensagem(
                 telefone,
-                "Atendimento humano acionado"
+                "👨‍💼 Atendimento humano acionado\n\n"
+                "Nossa equipe irá assumir seu atendimento.\n\n"
+                "Para voltar ao menu automático, envie *menu*."
             )
 
             return jsonify({"status": "ok"})
