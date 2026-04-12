@@ -353,6 +353,23 @@ def resetar_cliente(telefone):
     }
 
 
+def limpar_dados_fluxo_revisao(telefone):
+    iniciar_cliente(telefone)
+    clientes[telefone]["modelo"] = ""
+    clientes[telefone]["nome"] = ""
+    clientes[telefone]["cpf"] = ""
+    clientes[telefone]["ano"] = ""
+    clientes[telefone]["revisao"] = ""
+    clientes[telefone]["dia"] = ""
+    clientes[telefone]["dia_texto"] = ""
+    clientes[telefone]["data"] = ""
+    clientes[telefone]["horario"] = ""
+    clientes[telefone]["itens"] = ""
+    clientes[telefone]["venda_adicional"] = ""
+    clientes[telefone]["concluido"] = False
+    clientes[telefone]["horarios_disponiveis"] = []
+
+
 def ativar_atendimento_humano(telefone):
     iniciar_cliente(telefone)
     clientes[telefone]["atendimento_humano"] = True
@@ -943,6 +960,38 @@ def opcao_dia_por_nome(nome):
     return mapa.get(nome, "")
 
 
+def sugerir_itens_por_revisao(revisao):
+    revisao = str(revisao or "").strip()
+
+    if revisao in ["2", "3", "4", "5"]:
+        return ["FILTRO DE AR", "PASTILHA DE FREIO"]
+
+    return []
+
+
+def montar_mensagem_venda_adicional(telefone):
+    revisao = str(clientes.get(telefone, {}).get("revisao", "")).strip()
+    sugestoes = sugerir_itens_por_revisao(revisao)
+
+    if sugestoes:
+        return (
+            "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
+            "📌 Recomendados para essa revisão:\n"
+            f"• {sugestoes[0]}\n"
+            f"• {sugestoes[1]}\n\n"
+            "Digite:\n"
+            "1 - Sim\n"
+            "2 - Não"
+        )
+
+    return (
+        "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
+        "Digite:\n"
+        "1 - Sim\n"
+        "2 - Não"
+    )
+
+
 def preencher_dados_ia_no_cliente(telefone, dados):
     if telefone not in clientes:
         iniciar_cliente(telefone)
@@ -970,7 +1019,7 @@ def preencher_dados_ia_no_cliente(telefone, dados):
         clientes[telefone]["ano"] = ano
 
     if revisao:
-        clientes[telefone]["revisao"] = revisao
+        clientes[telefone]["revisao"] = str(revisao)
 
     if dia_opcao:
         clientes[telefone]["dia"] = dia_opcao
@@ -981,7 +1030,11 @@ def preencher_dados_ia_no_cliente(telefone, dados):
             clientes[telefone]["horarios_disponiveis"] = horarios
 
     if horario:
-        clientes[telefone]["horario"] = horario
+        if clientes[telefone].get("horarios_disponiveis"):
+            if horario in clientes[telefone]["horarios_disponiveis"]:
+                clientes[telefone]["horario"] = horario
+        else:
+            clientes[telefone]["horario"] = horario
 
     if item_adicional:
         clientes[telefone]["itens"] = item_adicional
@@ -1036,19 +1089,16 @@ def tratar_intencao_ia(telefone, texto):
         return False
 
     intencao = str(resultado.get("intencao", "")).strip().lower()
-    confianca = float(resultado.get("confianca", 0) or 0)
     resposta = limpar_texto(resultado.get("resposta", ""))
-    proxima_etapa = str(resultado.get("proxima_etapa", "menu")).strip()
     dados = resultado.get("dados_extraidos", {}) or {}
 
     log_info("Intenção:", intencao)
-    log_info("Confiança:", confianca)
-    log_info("Próxima etapa IA:", proxima_etapa)
     log_info("Dados extraídos:", dados)
 
-    preencher_dados_ia_no_cliente(telefone, dados)
-
     if intencao == "agendar_revisao":
+        limpar_dados_fluxo_revisao(telefone)
+        preencher_dados_ia_no_cliente(telefone, dados)
+
         etapa_destino = proxima_etapa_revisao(telefone)
         clientes[telefone]["etapa"] = etapa_destino
 
@@ -1156,12 +1206,7 @@ def tratar_intencao_ia(telefone, texto):
             return True
 
         if etapa_destino == "revisao_venda_opcao":
-            enviar_mensagem(
-                telefone,
-                "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
-                "1 - Sim\n"
-                "2 - Não"
-            )
+            enviar_mensagem(telefone, montar_mensagem_venda_adicional(telefone))
             return True
 
         if etapa_destino == "revisao_confirmar":
@@ -1772,12 +1817,7 @@ def webhook():
         clientes[telefone]["horario"] = horario_escolhido
         clientes[telefone]["etapa"] = "revisao_venda_opcao"
 
-        enviar_mensagem(
-            telefone,
-            "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
-            "1 - Sim\n"
-            "2 - Não"
-        )
+        enviar_mensagem(telefone, montar_mensagem_venda_adicional(telefone))
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_venda_opcao":
@@ -1796,6 +1836,8 @@ def webhook():
                 "🛠️ *Peça ou acessório adicional*\n\n"
                 "Informe qual item deseja adicionar.\n\n"
                 "Exemplos:\n"
+                "• Filtro de ar\n"
+                "• Pastilha de freio\n"
                 "• Baú\n"
                 "• Slider\n"
                 "• Suporte celular\n"
