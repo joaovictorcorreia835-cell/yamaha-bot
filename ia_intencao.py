@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -85,6 +86,25 @@ def extrair_modelo(texto):
         if modelo in texto_upper:
             return modelo
 
+    aliases = {
+        "FAZER": "FAZER 250",
+        "FZ 15": "FZ15",
+        "FZ-15": "FZ15",
+        "MT 03": "MT03",
+        "MT-03": "MT03",
+        "MT 07": "MT07",
+        "MT-07": "MT07",
+        "R 15": "R15",
+        "R-15": "R15",
+        "R 3": "R3",
+        "R-3": "R3",
+        "TENERE": "TENERE 700",
+    }
+
+    for alias, modelo in aliases.items():
+        if alias in texto_upper:
+            return modelo
+
     return ""
 
 
@@ -98,9 +118,40 @@ def extrair_ano(texto):
 def extrair_revisao(texto):
     texto = normalizar_texto(texto)
 
-    match = re.search(r"(\d+)\s*(?:a|ª)?\s*revis", texto)
+    padroes = [
+        r"(\d+)\s*(?:a|ª|o)?\s*revis",
+        r"\bprimeira revisão\b",
+        r"\bsegunda revisão\b",
+        r"\bterceira revisão\b",
+        r"\bquarta revisão\b",
+        r"\bquinta revisão\b",
+        r"\b1 revisão\b",
+        r"\b2 revisão\b",
+        r"\b3 revisão\b",
+        r"\b4 revisão\b",
+        r"\b5 revisão\b",
+    ]
+
+    match = re.search(padroes[0], texto)
     if match:
         return match.group(1)
+
+    mapa_texto = {
+        "primeira revisão": "1",
+        "segunda revisão": "2",
+        "terceira revisão": "3",
+        "quarta revisão": "4",
+        "quinta revisão": "5",
+        "1 revisão": "1",
+        "2 revisão": "2",
+        "3 revisão": "3",
+        "4 revisão": "4",
+        "5 revisão": "5",
+    }
+
+    for chave, valor in mapa_texto.items():
+        if chave in texto:
+            return valor
 
     return ""
 
@@ -139,19 +190,22 @@ def extrair_horario(texto):
 
     match = re.search(r"\b(\d{1,2}):(\d{2})\b", texto)
     if match:
-        return f"{int(match.group(1)):02d}:{match.group(2)}"
+        hora = int(match.group(1))
+        minuto = match.group(2)
+        if 0 <= hora <= 23:
+            return f"{hora:02d}:{minuto}"
 
     match = re.search(r"\b(\d{1,2})\s*h\b", texto)
     if match:
-        return f"{int(match.group(1)):02d}:00"
+        hora = int(match.group(1))
+        if 0 <= hora <= 23:
+            return f"{hora:02d}:00"
 
-    match = re.search(r"\bàs\s*(\d{1,2})\b", texto)
+    match = re.search(r"\b(?:as|às)\s*(\d{1,2})\b", texto)
     if match:
-        return f"{int(match.group(1)):02d}:00"
-
-    match = re.search(r"\bas\s*(\d{1,2})\b", texto)
-    if match:
-        return f"{int(match.group(1)):02d}:00"
+        hora = int(match.group(1))
+        if 0 <= hora <= 23:
+            return f"{hora:02d}:00"
 
     return ""
 
@@ -160,14 +214,14 @@ def extrair_dia(texto):
     texto = normalizar_texto(texto)
 
     mapa = {
-        "segunda": "segunda",
-        "terça": "terca",
-        "terca": "terca",
-        "quarta": "quarta",
-        "quinta": "quinta",
-        "sexta": "sexta",
-        "sábado": "sabado",
-        "sabado": "sabado",
+        "segunda": "1",
+        "terça": "2",
+        "terca": "2",
+        "quarta": "3",
+        "quinta": "4",
+        "sexta": "5",
+        "sábado": "6",
+        "sabado": "6",
     }
 
     for chave, valor in mapa.items():
@@ -221,7 +275,8 @@ def extrair_nome(texto):
             "terca", "terça", "quarta", "quinta", "sexta", "sabado", "sábado",
             "dia", "as", "às", "valor", "quanto", "custa", "fluo", "fazer",
             "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax", "aerox",
-            "logista", "atacado", "catalogo", "catálogo", "pecas", "peças"
+            "logista", "atacado", "catalogo", "catálogo", "pecas", "peças",
+            "cancelar", "reagendar", "consultar", "agendamento", "protocolo"
         }
 
         if not any(p.lower() in bloqueadas for p in palavras):
@@ -233,7 +288,7 @@ def extrair_nome(texto):
 def extrair_cpf(texto):
     match = re.search(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", str(texto or ""))
     if match:
-        return match.group(0)
+        return re.sub(r"\D", "", match.group(0))
     return ""
 
 
@@ -242,7 +297,11 @@ def extrair_item_adicional(texto):
 
     itens_comuns = [
         "filtro de ar",
+        "pastilha traseira",
+        "pastilha dianteira",
         "pastilha de freio",
+        "sapata de freio",
+        "kit lubrificante",
         "óleo",
         "oleo",
         "slider",
@@ -280,6 +339,27 @@ def extrair_item_adicional(texto):
 def detectar_intencao_regras(texto_normalizado):
     if any(p in texto_normalizado for p in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]):
         return "menu", 0.99
+
+    if any(p in texto_normalizado for p in [
+        "cancelar revisão", "cancelar revisao", "cancelar agendamento", "desmarcar revisão",
+        "desmarcar revisao", "quero cancelar", "cancelar meu horario", "cancelar meu horário"
+    ]):
+        return "cancelar_agendamento", 0.98
+
+    if any(p in texto_normalizado for p in [
+        "reagendar revisão", "reagendar revisao", "reagendar agendamento",
+        "remarcar revisão", "remarcar revisao", "trocar horário", "trocar horario",
+        "mudar horário", "mudar horario", "quero remarcar", "quero reagendar"
+    ]):
+        return "reagendar_agendamento", 0.98
+
+    if any(p in texto_normalizado for p in [
+        "consultar agendamento", "consultar revisão", "consultar revisao",
+        "ver agendamento", "ver minha revisão", "ver minha revisao",
+        "acompanhar agendamento", "acompanhar revisão", "acompanhar revisao",
+        "qual meu agendamento", "tenho agendamento", "meu protocolo"
+    ]):
+        return "consultar_agendamento", 0.97
 
     if texto_parece_valor_revisao(texto_normalizado):
         return "valor_revisao", 0.98
@@ -337,7 +417,16 @@ def sugerir_proxima_etapa(intencao, dados):
             return "revisao_data"
         if not dados["horario"]:
             return "revisao_horario"
-        return "revisao_confirmar"
+        return "revisao_venda"
+
+    if intencao == "cancelar_agendamento":
+        return "cancelar_agendamento"
+
+    if intencao == "reagendar_agendamento":
+        return "reagendar_agendamento"
+
+    if intencao == "consultar_agendamento":
+        return "consultar_agendamento"
 
     if intencao == "valor_revisao":
         return "consulta_valor_revisao"
@@ -364,28 +453,30 @@ def gerar_resposta(intencao, dados):
     if intencao == "agendar_revisao":
         partes = []
 
-        if dados.get("nome"):
-            partes.append(f"👤 Nome: {dados['nome']}")
         if dados.get("modelo"):
             partes.append(f"🏍️ Modelo: {dados['modelo']}")
         if dados.get("ano"):
             partes.append(f"📅 Ano: {dados['ano']}")
         if dados.get("revisao"):
             partes.append(f"🔧 Revisão: {dados['revisao']}ª")
-        if dados.get("dia"):
-            partes.append(f"📍 Dia: {dados['dia']}")
         if dados.get("data"):
             partes.append(f"📆 Data: {dados['data']}")
         if dados.get("horario"):
             partes.append(f"⏰ Horário: {dados['horario']}")
 
         if partes:
-            return (
-                "Perfeito. Já identifiquei estas informações do seu agendamento:\n\n"
-                + "\n".join(partes)
-            )
+            return "Perfeito. Já identifiquei estas informações:\n\n" + "\n".join(partes)
 
         return "Perfeito. Vou te ajudar com o agendamento da sua revisão."
+
+    if intencao == "cancelar_agendamento":
+        return "Certo. Vou te ajudar a cancelar seu agendamento de revisão."
+
+    if intencao == "reagendar_agendamento":
+        return "Perfeito. Vou te ajudar a reagendar sua revisão."
+
+    if intencao == "consultar_agendamento":
+        return "Certo. Vou consultar seu agendamento de revisão."
 
     if intencao == "valor_revisao":
         return "Perfeito. Vou verificar as informações para consultar o valor da revisão."
@@ -426,7 +517,8 @@ def classificar_com_ia(texto):
                     "content": (
                         "Você é um classificador de intenção para um bot de pós-vendas Yamaha. "
                         "Responda com apenas uma única palavra, sem explicação, escolhendo uma destas opções exatas: "
-                        "agendar_revisao, valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
+                        "agendar_revisao, cancelar_agendamento, reagendar_agendamento, consultar_agendamento, "
+                        "valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
                         "Use valor_revisao quando a pessoa quiser saber preço, valor ou custo de revisão por número, km ou meses. "
                         "Nunca responda fora dessa lista."
                     )
@@ -443,6 +535,9 @@ def classificar_com_ia(texto):
 
         permitidas = {
             "agendar_revisao",
+            "cancelar_agendamento",
+            "reagendar_agendamento",
+            "consultar_agendamento",
             "valor_revisao",
             "pecas",
             "acessorios",
