@@ -279,7 +279,8 @@ def extrair_nome(texto):
             "dia", "as", "às", "valor", "quanto", "custa", "fluo", "fazer",
             "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax", "aerox",
             "logista", "atacado", "catalogo", "catálogo", "pecas", "peças",
-            "cancelar", "reagendar", "consultar", "agendamento", "protocolo"
+            "cancelar", "reagendar", "consultar", "agendamento", "protocolo",
+            "falar", "alguem", "alguém", "consultor"
         }
 
         if not any(p.lower() in bloqueadas for p in palavras):
@@ -337,6 +338,34 @@ def extrair_item_adicional(texto):
                 encontrados.append(item_formatado)
 
     return ", ".join(encontrados)
+
+
+def texto_parece_dado_de_fluxo(texto):
+    texto_limpo = limpar_texto(texto)
+    if not texto_limpo:
+        return False
+
+    if extrair_nome(texto_limpo):
+        return True
+    if extrair_cpf(texto_limpo):
+        return True
+    if extrair_data(texto_limpo):
+        return True
+    if extrair_horario(texto_limpo):
+        return True
+    if extrair_modelo(texto_limpo):
+        return True
+    if extrair_ano(texto_limpo):
+        return True
+    if extrair_revisao(texto_limpo):
+        return True
+    if extrair_dia(texto_limpo):
+        return True
+
+    if texto_limpo in ["1", "2", "3", "4", "5", "6"]:
+        return True
+
+    return False
 
 
 def detectar_intencao_regras(texto_normalizado):
@@ -544,6 +573,9 @@ def gerar_resposta(intencao, dados):
 
 
 def classificar_com_ia(texto):
+    if texto_parece_dado_de_fluxo(texto):
+        return "", 0.0
+
     cliente = obter_cliente()
     if cliente is None:
         return "", 0.0
@@ -562,7 +594,7 @@ def classificar_com_ia(texto):
                         "valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
                         "Use valor_revisao apenas quando a pessoa quiser saber preço, valor ou custo da revisão. "
                         "Se houver intenção de agendar ou marcar horário, sempre responda agendar_revisao. "
-                        "Nunca responda fora dessa lista."
+                        "Se o texto parecer apenas um nome, CPF, data, horário, modelo ou outra resposta curta de cadastro, responda vazio."
                     )
                 },
                 {
