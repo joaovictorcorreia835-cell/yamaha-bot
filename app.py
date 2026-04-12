@@ -460,8 +460,6 @@ def extrair_revisao_km_ou_meses(texto):
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
-
-
 # ==========================================
 # FOLLOW-UP PLANILHA
 # ==========================================
@@ -887,8 +885,6 @@ def enviar_documento_pdf(telefone, arquivo_pdf, nome_exibicao=None, legenda="�
     except Exception as e:
         log_erro("Erro envio PDF:", e)
         return False
-
-
 # ==========================================
 # MENU
 # ==========================================
@@ -992,6 +988,39 @@ def preencher_dados_ia_no_cliente(telefone, dados):
         clientes[telefone]["venda_adicional"] = "Sim"
 
 
+def proxima_etapa_revisao(telefone):
+    dados = clientes.get(telefone, {})
+
+    if not limpar_texto(dados.get("modelo")):
+        return "revisao_modelo"
+
+    if not limpar_texto(dados.get("nome")):
+        return "revisao_nome"
+
+    if not limpar_texto(dados.get("cpf")):
+        return "revisao_cpf"
+
+    if not limpar_texto(dados.get("ano")):
+        return "revisao_ano"
+
+    if not limpar_texto(dados.get("revisao")):
+        return "revisao_tipo"
+
+    if not limpar_texto(dados.get("dia")):
+        return "revisao_dia"
+
+    if not limpar_texto(dados.get("data")):
+        return "revisao_data"
+
+    if not limpar_texto(dados.get("horario")):
+        return "revisao_horario"
+
+    if not limpar_texto(dados.get("venda_adicional")):
+        return "revisao_venda_opcao"
+
+    return "revisao_confirmar"
+
+
 # ==========================================
 # IA INTENÇÃO
 # ==========================================
@@ -1014,17 +1043,37 @@ def tratar_intencao_ia(telefone, texto):
 
     log_info("Intenção:", intencao)
     log_info("Confiança:", confianca)
-    log_info("Próxima etapa:", proxima_etapa)
+    log_info("Próxima etapa IA:", proxima_etapa)
     log_info("Dados extraídos:", dados)
 
     preencher_dados_ia_no_cliente(telefone, dados)
 
     if intencao == "agendar_revisao":
-        if resposta:
-            enviar_mensagem(telefone, resposta)
-
-        etapa_destino = proxima_etapa or "revisao_modelo"
+        etapa_destino = proxima_etapa_revisao(telefone)
         clientes[telefone]["etapa"] = etapa_destino
+
+        resumo = []
+        if clientes[telefone].get("nome"):
+            resumo.append(f"👤 Nome: {clientes[telefone]['nome']}")
+        if clientes[telefone].get("modelo"):
+            resumo.append(f"🏍️ Modelo: {clientes[telefone]['modelo']}")
+        if clientes[telefone].get("ano"):
+            resumo.append(f"📅 Ano: {clientes[telefone]['ano']}")
+        if clientes[telefone].get("revisao"):
+            resumo.append(f"🔧 Revisão: {clientes[telefone]['revisao']}ª")
+        if clientes[telefone].get("dia_texto"):
+            resumo.append(f"📍 Dia: {clientes[telefone]['dia_texto']}")
+        if clientes[telefone].get("horario"):
+            resumo.append(f"⏰ Horário: {clientes[telefone]['horario']}")
+
+        if resposta and not resumo:
+            enviar_mensagem(telefone, resposta)
+        elif resumo:
+            enviar_mensagem(
+                telefone,
+                "Perfeito. Já identifiquei estas informações do seu agendamento:\n\n"
+                + "\n".join(resumo)
+            )
 
         if etapa_destino == "revisao_modelo":
             enviar_mensagem(
@@ -1037,21 +1086,21 @@ def tratar_intencao_ia(telefone, texto):
         if etapa_destino == "revisao_nome":
             enviar_mensagem(
                 telefone,
-                "👤 Informe seu *nome completo*:"
+                "👤 Agora informe seu *nome completo*:"
             )
             return True
 
         if etapa_destino == "revisao_cpf":
             enviar_mensagem(
                 telefone,
-                "📄 Informe o *CPF do proprietário*:"
+                "📄 Agora informe o *CPF do proprietário*:"
             )
             return True
 
         if etapa_destino == "revisao_ano":
             enviar_mensagem(
                 telefone,
-                "📅 Informe o *ano da moto*:"
+                "📅 Agora informe o *ano da moto*:"
             )
             return True
 
@@ -1080,6 +1129,14 @@ def tratar_intencao_ia(telefone, texto):
             )
             return True
 
+        if etapa_destino == "revisao_data":
+            enviar_mensagem(
+                telefone,
+                "📆 Perfeito. Agora informe a *data desejada* do agendamento:\n"
+                "Exemplo: 15/04/2026"
+            )
+            return True
+
         if etapa_destino == "revisao_horario":
             horarios = clientes[telefone].get("horarios_disponiveis", [])
             if horarios:
@@ -1088,7 +1145,7 @@ def tratar_intencao_ia(telefone, texto):
                 clientes[telefone]["etapa"] = "revisao_dia"
                 enviar_mensagem(
                     telefone,
-                    "📅 Já identifiquei sua revisão, mas preciso confirmar o *dia da semana* para mostrar os horários.\n\n"
+                    "📅 Preciso confirmar o *dia da semana* para mostrar os horários.\n\n"
                     "1 - Segunda\n"
                     "2 - Terça\n"
                     "3 - Quarta\n"
@@ -1098,17 +1155,16 @@ def tratar_intencao_ia(telefone, texto):
                 )
             return True
 
-        if etapa_destino == "revisao_confirmar":
-            if not clientes[telefone].get("data"):
-                clientes[telefone]["etapa"] = "revisao_data"
-                enviar_mensagem(
-                    telefone,
-                    "📆 Já adiantei parte do seu agendamento.\n\n"
-                    "Agora informe a *data desejada*:\n"
-                    "Exemplo: 15/04/2026"
-                )
-                return True
+        if etapa_destino == "revisao_venda_opcao":
+            enviar_mensagem(
+                telefone,
+                "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
+                "1 - Sim\n"
+                "2 - Não"
+            )
+            return True
 
+        if etapa_destino == "revisao_confirmar":
             adicionais_exibicao = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
 
             enviar_mensagem(

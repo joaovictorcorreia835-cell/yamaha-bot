@@ -56,8 +56,7 @@ def obter_cliente():
         return None
 
     try:
-        cliente = OpenAI(api_key=OPENAI_API_KEY)
-        return cliente
+        return OpenAI(api_key=OPENAI_API_KEY)
     except Exception as e:
         log_erro("Erro ao criar cliente OpenAI:", e)
         return None
@@ -117,6 +116,10 @@ def extrair_horario(texto):
     if match:
         return f"{int(match.group(1)):02d}:00"
 
+    match = re.search(r"\bàs\s*(\d{1,2})\b", texto)
+    if match:
+        return f"{int(match.group(1)):02d}:00"
+
     return ""
 
 
@@ -142,19 +145,23 @@ def extrair_dia(texto):
 
 
 def extrair_nome(texto):
-    texto = limpar_texto(texto)
+    texto_original = limpar_texto(texto)
+    texto = texto_original.lower()
 
     padroes = [
-        r"meu nome é ([a-zA-ZÀ-ÿ\s]+)",
-        r"meu nome e ([a-zA-ZÀ-ÿ\s]+)",
-        r"nome[:\s]+([a-zA-ZÀ-ÿ\s]+)",
-        r"sou ([a-zA-ZÀ-ÿ\s]+)",
+        r"meu nome é ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+        r"meu nome e ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+        r"nome[:\s]+([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+        r"sou ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
     ]
 
     for padrao in padroes:
         match = re.search(padrao, texto, re.IGNORECASE)
         if match:
-            return match.group(1).strip().upper()
+            nome = match.group(1).strip()
+            nome = re.sub(r"\s+", " ", nome).strip()
+            if len(nome) >= 3:
+                return nome.upper()
 
     return ""
 
@@ -202,7 +209,8 @@ def detectar_intencao_regras(texto_normalizado):
 
     if any(p in texto_normalizado for p in [
         "agendar revisão", "agendar revisao", "revisão", "revisao",
-        "marcar revisão", "marcar revisao", "quero revisar", "agendamento"
+        "marcar revisão", "marcar revisao", "quero revisar", "agendamento",
+        "quero agendar", "agendar", "marcar horario", "marcar horário"
     ]):
         return "agendar_revisao", 0.96
 
@@ -275,6 +283,27 @@ def sugerir_proxima_etapa(intencao, dados):
 
 def gerar_resposta(intencao, dados):
     if intencao == "agendar_revisao":
+        partes = []
+
+        if dados.get("nome"):
+            partes.append(f"👤 Nome: {dados['nome']}")
+        if dados.get("modelo"):
+            partes.append(f"🏍️ Modelo: {dados['modelo']}")
+        if dados.get("ano"):
+            partes.append(f"📅 Ano: {dados['ano']}")
+        if dados.get("revisao"):
+            partes.append(f"🔧 Revisão: {dados['revisao']}ª")
+        if dados.get("dia"):
+            partes.append(f"📍 Dia: {dados['dia']}")
+        if dados.get("horario"):
+            partes.append(f"⏰ Horário: {dados['horario']}")
+
+        if partes:
+            return (
+                "Perfeito. Já identifiquei estas informações do seu agendamento:\n\n"
+                + "\n".join(partes)
+            )
+
         return "Perfeito. Vou te ajudar com o agendamento da sua revisão."
 
     if intencao == "valor_revisao":
