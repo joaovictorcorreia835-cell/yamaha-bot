@@ -38,11 +38,13 @@ class Atendimento(Base):
     telefone = Column(String, index=True)
     nome = Column(String)
     setor = Column(String)
+
     modelo = Column(String)
     ano = Column(String)
     revisao = Column(String)
 
     cpf = Column(String)
+
     dia_semana = Column(String)
     data_agendada = Column(String)
     horario = Column(String)
@@ -108,27 +110,40 @@ class AgendamentoRevisao(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    # Identificação
     protocolo = Column(String, unique=True, index=True)
     telefone = Column(String, index=True)
     nome = Column(String)
     cpf = Column(String, index=True)
 
+    # Moto
     modelo = Column(String)
     ano = Column(String)
     revisao = Column(String)
 
+    # Agendamento
     dia_semana = Column(String)
     data_agendada = Column(String, index=True)
     horario = Column(String, index=True)
 
+    # Venda adicional
     itens = Column(Text)
     venda_adicional = Column(String)
 
+    # Controle
     status = Column(String, default="AGENDADO")
     observacoes = Column(Text)
 
     origem = Column(String, default="BOT")
+
+    # Controle automático
     lembrete_enviado = Column(Boolean, default=False)
+    cancelado = Column(Boolean, default=False)
+    reagendado = Column(Boolean, default=False)
+
+    # Integração futura Sances
+    codigo_sistema = Column(String)
+    sincronizado = Column(Boolean, default=False)
 
     criado_em = Column(DateTime, default=datetime.now)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)

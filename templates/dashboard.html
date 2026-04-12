@@ -37,7 +37,7 @@
 
         .container {
             padding: 28px;
-            max-width: 1400px;
+            max-width: 1450px;
             margin: 0 auto;
         }
 
@@ -72,7 +72,7 @@
 
         .cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
             gap: 18px;
             margin-bottom: 28px;
         }
@@ -92,7 +92,7 @@
         }
 
         .card h3 {
-            font-size: 14px;
+            font-size: 13px;
             color: #6b7280;
             margin-bottom: 10px;
             text-transform: uppercase;
@@ -105,9 +105,23 @@
             color: #111827;
         }
 
+        .card.azul { border-left-color: #163b8c; }
+        .card.verde { border-left-color: #15803d; }
+        .card.vermelho { border-left-color: #dc2626; }
+        .card.amarelo { border-left-color: #d97706; }
+        .card.roxo { border-left-color: #7c3aed; }
+        .card.ciano { border-left-color: #0891b2; }
+
         .grid {
             display: grid;
             grid-template-columns: 1.2fr 1fr;
+            gap: 22px;
+            margin-bottom: 24px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 22px;
             margin-bottom: 24px;
         }
@@ -154,7 +168,7 @@
             border-collapse: collapse;
             overflow: hidden;
             border-radius: 12px;
-            min-width: 700px;
+            min-width: 760px;
         }
 
         thead {
@@ -204,6 +218,24 @@
             color: #1d4ed8;
         }
 
+        .info-lista {
+            display: grid;
+            gap: 12px;
+        }
+
+        .info-item {
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+        }
+
+        .info-item strong {
+            display: block;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
+
         .footer {
             text-align: center;
             padding: 20px;
@@ -212,7 +244,8 @@
         }
 
         @media (max-width: 980px) {
-            .grid {
+            .grid,
+            .grid-2 {
                 grid-template-columns: 1fr;
             }
 
@@ -234,7 +267,7 @@
 
     <div class="topbar">
         <h1>🏍️ Dashboard Pós-Vendas Motoshow Yamaha</h1>
-        <p>Painel gerencial de atendimentos, revisões e vendas adicionais</p>
+        <p>Painel gerencial de atendimentos, revisões, reagendamentos e vendas adicionais</p>
     </div>
 
     <div class="container">
@@ -247,31 +280,52 @@
         </div>
 
         <div class="cards">
-            <div class="card">
+            <div class="card azul">
                 <h3>Total de Atendimentos</h3>
                 <div class="numero">{{ total }}</div>
             </div>
 
-            <div class="card">
+            <div class="card azul">
                 <h3>Total Revisões</h3>
                 <div class="numero">{{ revisao }}</div>
             </div>
 
-            <div class="card">
+            <div class="card verde">
                 <h3>Revisões Agendadas</h3>
                 <div class="numero">{{ agendados }}</div>
             </div>
 
-            <div class="card">
+            <div class="card vermelho">
+                <h3>Cancelados</h3>
+                <div class="numero">{{ cancelados }}</div>
+            </div>
+
+            <div class="card ciano">
+                <h3>Reagendados</h3>
+                <div class="numero">{{ reagendados }}</div>
+            </div>
+
+            <div class="card roxo">
                 <h3>Itens Vendidos</h3>
                 <div class="numero">{{ total_itens_vendidos }}</div>
             </div>
 
-            <div class="card">
+            <div class="card amarelo">
                 <h3>Conversão em Agendamento</h3>
                 <div class="numero">
                     {% if total > 0 %}
                         {{ ((agendados / total) * 100) | round(1) }}%
+                    {% else %}
+                        0%
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card verde">
+                <h3>Taxa de Agenda Ativa</h3>
+                <div class="numero">
+                    {% if total_agendamentos_periodo > 0 %}
+                        {{ ((agendados / total_agendamentos_periodo) * 100) | round(1) }}%
                     {% else %}
                         0%
                     {% endif %}
@@ -291,6 +345,41 @@
                 <h2>🛒 Venda Adicional</h2>
                 <div class="chart-box">
                     <canvas id="graficoAdicionais"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="panel">
+                <h2>📈 Situação dos Agendamentos</h2>
+                <div class="chart-box">
+                    <canvas id="graficoStatus"></canvas>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>📌 Resumo Operacional</h2>
+                <div class="info-lista">
+                    <div class="info-item">
+                        <strong>1ª Revisão</strong>
+                        {{ primeira }}
+                    </div>
+                    <div class="info-item">
+                        <strong>2ª Revisão</strong>
+                        {{ segunda }}
+                    </div>
+                    <div class="info-item">
+                        <strong>3ª Revisão</strong>
+                        {{ terceira }}
+                    </div>
+                    <div class="info-item">
+                        <strong>4ª Revisão</strong>
+                        {{ quarta }}
+                    </div>
+                    <div class="info-item">
+                        <strong>5ª Revisão ou acima</strong>
+                        {{ quinta }}
+                    </div>
                 </div>
             </div>
         </div>
@@ -367,13 +456,11 @@
                 <div class="vazio">Nenhum agendamento encontrado.</div>
             {% endif %}
         </div>
-
     </div>
 
     <div class="footer">
         Dashboard CRM - Pós-Vendas Motoshow Yamaha
     </div>
-
     <script>
         const ctxRevisoes = document.getElementById('graficoRevisoes').getContext('2d');
         new Chart(ctxRevisoes, {
@@ -440,6 +527,30 @@
                         '#65a30d',
                         '#ea580c',
                         '#be123c'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+
+        const ctxStatus = document.getElementById('graficoStatus').getContext('2d');
+        new Chart(ctxStatus, {
+            type: 'pie',
+            data: {
+                labels: ['Agendados', 'Cancelados', 'Reagendados'],
+                datasets: [{
+                    data: [
+                        {{ agendados }},
+                        {{ cancelados }},
+                        {{ reagendados }}
+                    ],
+                    backgroundColor: [
+                        '#16a34a',
+                        '#dc2626',
+                        '#2563eb'
                     ]
                 }]
             },

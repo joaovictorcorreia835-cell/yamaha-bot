@@ -1,6 +1,5 @@
 import os
 import re
-from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -341,35 +340,74 @@ def extrair_item_adicional(texto):
 
 
 def detectar_intencao_regras(texto_normalizado):
-    if any(p in texto_normalizado for p in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]):
+
+    if any(p in texto_normalizado for p in [
+        "menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"
+    ]):
         return "menu", 0.99
 
     if any(p in texto_normalizado for p in [
-        "cancelar revisão", "cancelar revisao", "cancelar agendamento", "desmarcar revisão",
-        "desmarcar revisao", "quero cancelar", "cancelar meu horario", "cancelar meu horário"
+        "agendar revisão",
+        "agendar revisao",
+        "marcar revisão",
+        "marcar revisao",
+        "quero agendar",
+        "agendar",
+        "agendamento",
+        "marcar horario",
+        "marcar horário",
+        "agenda revisão",
+        "agenda revisao"
+    ]):
+        return "agendar_revisao", 0.99
+
+    if any(p in texto_normalizado for p in [
+        "cancelar revisão",
+        "cancelar revisao",
+        "cancelar minha revisão",
+        "cancelar minha revisao",
+        "cancelar agendamento",
+        "desmarcar revisão",
+        "desmarcar revisao",
+        "quero cancelar",
+        "cancelar meu horario",
+        "cancelar meu horário"
     ]):
         return "cancelar_agendamento", 0.98
 
     if any(p in texto_normalizado for p in [
-        "reagendar revisão", "reagendar revisao", "reagendar agendamento",
-        "remarcar revisão", "remarcar revisao", "trocar horário", "trocar horario",
-        "mudar horário", "mudar horario", "quero remarcar", "quero reagendar"
+        "reagendar revisão",
+        "reagendar revisao",
+        "reagendar agendamento",
+        "remarcar revisão",
+        "remarcar revisao",
+        "trocar horário",
+        "trocar horario",
+        "mudar horário",
+        "mudar horario",
+        "quero remarcar",
+        "quero reagendar"
     ]):
         return "reagendar_agendamento", 0.98
 
     if any(p in texto_normalizado for p in [
-        "consultar agendamento", "consultar revisão", "consultar revisao",
-        "ver agendamento", "ver minha revisão", "ver minha revisao",
-        "acompanhar agendamento", "acompanhar revisão", "acompanhar revisao",
-        "qual meu agendamento", "tenho agendamento", "meu protocolo"
+        "consultar agendamento",
+        "consultar revisão",
+        "consultar revisao",
+        "consultar minha revisão",
+        "consultar minha revisao",
+        "ver agendamento",
+        "ver minha revisão",
+        "ver minha revisao",
+        "ver meu protocolo",
+        "acompanhar agendamento",
+        "acompanhar revisão",
+        "acompanhar revisao",
+        "qual meu agendamento",
+        "tenho agendamento",
+        "meu protocolo"
     ]):
         return "consultar_agendamento", 0.97
-
-    if any(p in texto_normalizado for p in [
-        "agendar revisão", "agendar revisao", "marcar revisão", "marcar revisao",
-        "quero agendar", "agendar", "agendamento", "marcar horario", "marcar horário"
-    ]):
-        return "agendar_revisao", 0.99
 
     if texto_parece_valor_revisao(texto_normalizado):
         return "valor_revisao", 0.98
