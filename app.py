@@ -191,6 +191,93 @@ def formatar_valor_brl(valor):
         return f"R$ {valor}"
 
 
+def normalizar_revisao_para_fluxo(valor):
+    texto = limpar_opcao(valor)
+    mapa = {
+        "1": "1",
+        "1a": "1",
+        "1ª": "1",
+        "1o": "1",
+        "2": "2",
+        "2a": "2",
+        "2ª": "2",
+        "2o": "2",
+        "3": "3",
+        "3a": "3",
+        "3ª": "3",
+        "3o": "3",
+        "4": "4",
+        "4a": "4",
+        "4ª": "4",
+        "4o": "4",
+        "5": "5",
+        "5a": "5",
+        "5ª": "5",
+        "5o": "5",
+    }
+    return mapa.get(normalizar_texto(texto), texto if texto in ["1", "2", "3", "4", "5"] else "")
+
+
+def nome_dia(numero):
+    mapa = {
+        "1": "Segunda",
+        "2": "Terça",
+        "3": "Quarta",
+        "4": "Quinta",
+        "5": "Sexta",
+        "6": "Sábado"
+    }
+    return mapa.get(str(numero), "")
+
+
+def atualizar_retorno_na_planilha(telefone, texto):
+    try:
+        if not os.path.exists(ARQUIVO_FOLLOWUP):
+            return
+
+        df = pd.read_excel(ARQUIVO_FOLLOWUP)
+
+        if df.empty:
+            return
+
+        colunas = {str(c).strip().lower(): c for c in df.columns}
+        coluna_telefone = None
+
+        for chave in ["telefone", "fone", "whatsapp", "celular", "numero"]:
+            if chave in colunas:
+                coluna_telefone = colunas[chave]
+                break
+
+        if not coluna_telefone:
+            return
+
+        if "retorno" in colunas:
+            coluna_retorno = colunas["retorno"]
+        else:
+            coluna_retorno = "retorno"
+            df[coluna_retorno] = ""
+
+        if "data_retorno" in colunas:
+            coluna_data_retorno = colunas["data_retorno"]
+        else:
+            coluna_data_retorno = "data_retorno"
+            df[coluna_data_retorno] = ""
+
+        telefone_limpo = limpar_telefone(telefone)
+
+        for idx in df.index:
+            tel_planilha = limpar_telefone(df.at[idx, coluna_telefone])
+            if tel_planilha == telefone_limpo:
+                df.at[idx, coluna_retorno] = limpar_texto(texto)
+                df.at[idx, coluna_data_retorno] = formatar_data_hora()
+                break
+
+        df.to_excel(ARQUIVO_FOLLOWUP, index=False)
+
+    except Exception as e:
+        log_erro("Erro ao atualizar retorno na planilha:", e)
+
+
 # ==========================================
 # ITENS ADICIONAIS
 # ==========================================
@@ -207,13 +294,21 @@ def limpar_item_adicional(item):
         .replace("'", "")
         .strip()
     )
-    item = re.sub(r"\s+", " ", item).strip()
+    item = re.sub(r"\s+", " ", item).strip(" ,.-")
     return item.upper()
 
 
 def extrair_lista_itens_adicionais(valor):
     if valor is None:
         return []
+
+    if isinstance(valor, (list, tuple, set)):
+        itens = []
+        for v in valor:
+            item = limpar_item_adicional(v)
+            if item:
+                itens.append(item)
+        return itens
 
     texto = str(valor).strip()
     if not texto:
@@ -234,8 +329,6 @@ def extrair_lista_itens_adicionais(valor):
 def formatar_itens_adicionais_para_salvar(valor):
     itens = extrair_lista_itens_adicionais(valor)
     return ", ".join(itens)
-
-
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -452,12 +545,13 @@ def evento_eh_do_proprio_bot(payload):
     except Exception as e:
         log_erro("Erro ao validar evento do próprio bot:", e)
         return False
+
+
 # ==========================================
 # ENVIO MENSAGEM
 # ==========================================
 def enviar_mensagem(telefone, mensagem):
     try:
-
         headers = {
             "Client-Token": ZAPI_CLIENT_TOKEN,
             "Content-Type": "application/json"
@@ -476,8 +570,7 @@ def enviar_mensagem(telefone, mensagem):
         )
 
         log_info("Mensagem enviada:", telefone, response.status_code)
-
-        return True
+        return response.status_code in [200, 201]
 
     except Exception as e:
         log_erro("Erro envio mensagem:", e)
@@ -488,9 +581,7 @@ def enviar_mensagem(telefone, mensagem):
 # ENVIAR PDF
 # ==========================================
 def enviar_pdf(telefone, arquivo, legenda=""):
-
     try:
-
         headers = {
             "Client-Token": ZAPI_CLIENT_TOKEN,
             "Content-Type": "application/json"
@@ -508,12 +599,12 @@ def enviar_pdf(telefone, arquivo, legenda=""):
         response = requests.post(
             url_documento,
             json=payload,
-            headers=headers
+            headers=headers,
+            timeout=30
         )
 
         log_info("PDF enviado:", response.status_code)
-
-        return True
+        return response.status_code in [200, 201]
 
     except Exception as e:
         log_erro("Erro enviar PDF:", e)
@@ -521,366 +612,9 @@ def enviar_pdf(telefone, arquivo, legenda=""):
 
 
 # ==========================================
-# CAPACIDADE POR HORÁRIO
-# ==========================================
-def limite_por_revisao(revisao):
-
-    try:
-        revisao = int(revisao)
-    except:
-        revisao = 1
-
-    # 1ª e 2ª revisão
-    if revisao <= 2:
-        return 10
-
-    # 3ª revisão +
-    return 7
-
-
-# ==========================================
-# VERIFICAR CAPACIDADE
-# ==========================================
-def verificar_capacidade(data, horario, revisao):
-
-    db = SessionLocal()
-
-    try:
-
-        limite = limite_por_revisao(revisao)
-
-        quantidade = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.data_agendada == data,
-            AgendamentoRevisao.horario == horario,
-            AgendamentoRevisao.status == "AGENDADO"
-        ).count()
-
-        if quantidade >= limite:
-            return False
-
-        return True
-
-    except Exception as e:
-
-        log_erro("Erro capacidade:", e)
-        return True
-
-    finally:
-
-        db.close()
-
-
-# ==========================================
-# GERAR PROTOCOLO
-# ==========================================
-def gerar_protocolo():
-
-    return str(uuid.uuid4())[:8].upper()
-
-
-# ==========================================
-# SALVAR AGENDAMENTO
-# ==========================================
-def salvar_agendamento(telefone, dados):
-
-    db = SessionLocal()
-
-    try:
-
-        protocolo = gerar_protocolo()
-
-        agendamento = AgendamentoRevisao(
-
-            protocolo=protocolo,
-            telefone=telefone,
-            nome=dados["nome"],
-            cpf=dados["cpf"],
-            modelo=dados["modelo"],
-            ano=dados["ano"],
-            revisao=dados["revisao"],
-            dia_semana=dados["dia"],
-            data_agendada=dados["data"],
-            horario=dados["horario"],
-            itens=dados.get("itens", ""),
-            venda_adicional=dados.get("venda_adicional", ""),
-            status="AGENDADO",
-            origem="BOT"
-
-        )
-
-        db.add(agendamento)
-        db.commit()
-
-        log_info("Agendamento salvo:", protocolo)
-
-        return protocolo
-
-    except Exception as e:
-
-        log_erro("Erro salvar agendamento:", e)
-        return None
-
-    finally:
-
-        db.close()
-
-
-# ==========================================
-# BUSCAR AGENDAMENTO ATIVO
-# ==========================================
-def buscar_agendamento_ativo(cpf):
-
-    db = SessionLocal()
-
-    try:
-
-        agendamento = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.cpf == cpf,
-            AgendamentoRevisao.status == "AGENDADO"
-        ).first()
-
-        return agendamento
-
-    except Exception as e:
-
-        log_erro("Erro buscar agendamento:", e)
-        return None
-
-    finally:
-
-        db.close()
-
-
-# ==========================================
-# CANCELAR AGENDAMENTO
-# ==========================================
-def cancelar_agendamento(cpf):
-
-    db = SessionLocal()
-
-    try:
-
-        agendamento = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.cpf == cpf,
-            AgendamentoRevisao.status == "AGENDADO"
-        ).first()
-
-        if agendamento:
-
-            agendamento.status = "CANCELADO"
-            db.commit()
-
-            return True
-
-        return False
-
-    except Exception as e:
-
-        log_erro("Erro cancelar:", e)
-        return False
-
-    finally:
-
-        db.close()
-
-
-# ==========================================
-# HORÁRIOS DISPONÍVEIS
-# ==========================================
-def horarios_por_revisao(revisao, dia):
-
-    try:
-        revisao = int(revisao)
-    except:
-        revisao = 1
-
-    # SABADO
-    if dia == "6":
-
-        if revisao <= 2:
-            return ["08:00", "09:00", "10:00"]
-
-        return []
-
-    # SEGUNDA A SEXTA
-    if revisao <= 2:
-
-        return [
-            "08:00",
-            "09:00",
-            "10:00",
-            "11:00",
-            "12:00",
-            "13:00",
-            "14:00",
-            "15:00"
-        ]
-
-    # 3ª+
-    return ["08:00"]
-
-
-# ==========================================
-# VALIDAR DATA
-# ==========================================
-def validar_data(data):
-
-    try:
-
-        data_obj = datetime.strptime(data, "%d/%m/%Y")
-
-        # data passada
-        if data_obj.date() < datetime.now().date():
-            return False
-
-        # domingo
-        if data_obj.weekday() == 6:
-            return False
-
-        return True
-
-    except:
-        return False
-# ==========================================
-# FOLLOWUP + LEMBRETES
-# ==========================================
-def processar_lembretes_agendamento():
-
-    db = SessionLocal()
-
-    try:
-
-        hoje = datetime.now().date()
-
-        agendamentos = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.status == "AGENDADO",
-            AgendamentoRevisao.lembrete_enviado == False
-        ).all()
-
-        for ag in agendamentos:
-
-            try:
-
-                data_agendada = datetime.strptime(
-                    ag.data_agendada,
-                    "%d/%m/%Y"
-                ).date()
-
-                diferenca = (data_agendada - hoje).days
-
-                # 1 dia antes
-                if diferenca == 1:
-
-                    mensagem = (
-                        "🔔 *Lembrete de Revisão*\n\n"
-                        f"Olá *{ag.nome}*\n\n"
-                        f"📅 Data: {ag.data_agendada}\n"
-                        f"⏰ Horário: {ag.horario}\n"
-                        f"🏍️ Modelo: {ag.modelo}\n\n"
-                        f"📌 Protocolo: {ag.protocolo}\n\n"
-                        "Equipe Motoshow Yamaha"
-                    )
-
-                    enviar_mensagem(ag.telefone, mensagem)
-
-                    ag.lembrete_enviado = True
-
-            except Exception as e:
-                log_erro("Erro lembrete:", e)
-
-        db.commit()
-
-    except Exception as e:
-
-        log_erro("Erro geral lembrete:", e)
-
-    finally:
-
-        db.close()
-
-
-# ==========================================
-# WORKER
-# ==========================================
-def worker():
-
-    while True:
-
-        try:
-
-            processar_inatividade()
-            processar_lembretes_agendamento()
-
-        except Exception as e:
-
-            log_erro("Worker erro:", e)
-
-        time.sleep(30)
-
-
-def iniciar_worker():
-
-    thread = threading.Thread(
-        target=worker,
-        daemon=True
-    )
-
-    thread.start()
-
-
-# ==========================================
-# EXTRAIR TELEFONE
-# ==========================================
-def extrair_telefone(payload):
-
-    try:
-
-        telefone = (
-            payload.get("phone")
-            or payload.get("chatId")
-            or payload.get("from")
-        )
-
-        if telefone:
-
-            telefone = (
-                str(telefone)
-                .replace("@c.us", "")
-                .replace("@s.whatsapp.net", "")
-            )
-
-        return telefone
-
-    except:
-
-        return ""
-
-
-# ==========================================
-# EXTRAIR TEXTO
-# ==========================================
-def extrair_texto(payload):
-
-    try:
-
-        texto = (
-            payload.get("text", {}).get("message")
-            or payload.get("body")
-            or payload.get("message")
-        )
-
-        return str(texto or "").strip()
-
-    except:
-
-        return ""
-
-
-# ==========================================
 # MENU
 # ==========================================
 def enviar_menu(telefone):
-
     mensagem = (
         "Olá 👋\n\n"
         "🏍️ *Pós-Vendas Motoshow Yamaha*\n\n"
@@ -892,15 +626,10 @@ def enviar_menu(telefone):
         "6️⃣ Atendimento Humano\n\n"
         "Equipe Motoshow Yamaha"
     )
-
     enviar_mensagem(telefone, mensagem)
 
 
-# ==========================================
-# VENDA ADICIONAL
-# ==========================================
 def montar_mensagem_venda_adicional(telefone):
-
     return (
         "🛠️ Deseja adicionar algo?\n\n"
         "Ex:\n"
@@ -911,28 +640,255 @@ def montar_mensagem_venda_adicional(telefone):
     )
 
 
-# ==========================================
-# HORÁRIOS
-# ==========================================
 def montar_mensagem_horarios(lista):
-
     msg = "⏰ Escolha o horário:\n\n"
-
     for i, h in enumerate(lista):
-
         msg += f"{i+1} - {h}\n"
-
     return msg
+
+
+# ==========================================
+# CAPACIDADE POR HORÁRIO
+# ==========================================
+def limite_por_revisao(revisao):
+    try:
+        revisao = int(revisao)
+    except Exception:
+        revisao = 1
+
+    if revisao <= 2:
+        return 10
+
+    return 7
+
+
+def verificar_capacidade(data, horario, revisao):
+    db = SessionLocal()
+
+    try:
+        limite = limite_por_revisao(revisao)
+
+        quantidade = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.data_agendada == data,
+            AgendamentoRevisao.horario == horario,
+            AgendamentoRevisao.status == "AGENDADO"
+        ).count()
+
+        return quantidade < limite
+
+    except Exception as e:
+        log_erro("Erro capacidade:", e)
+        return True
+
+    finally:
+        db.close()
+
+
+def gerar_protocolo():
+    return str(uuid.uuid4())[:8].upper()
+
+
+def salvar_agendamento(telefone, dados):
+    db = SessionLocal()
+
+    try:
+        protocolo = gerar_protocolo()
+
+        agendamento = AgendamentoRevisao(
+            protocolo=protocolo,
+            telefone=telefone,
+            nome=dados["nome"],
+            cpf=dados["cpf"],
+            modelo=dados["modelo"],
+            ano=dados["ano"],
+            revisao=dados["revisao"],
+            dia_semana=nome_dia(dados["dia"]),
+            data_agendada=dados["data"],
+            horario=dados["horario"],
+            itens=formatar_itens_adicionais_para_salvar(dados.get("itens", "")),
+            venda_adicional=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+            status="AGENDADO",
+            origem="BOT"
+        )
+
+        db.add(agendamento)
+        db.commit()
+
+        log_info("Agendamento salvo:", protocolo)
+        return protocolo
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro salvar agendamento:", e)
+        return None
+
+    finally:
+        db.close()
+
+
+def buscar_agendamento_ativo(cpf):
+    db = SessionLocal()
+
+    try:
+        agendamento = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.cpf == cpf,
+            AgendamentoRevisao.status == "AGENDADO"
+        ).first()
+
+        return agendamento
+
+    except Exception as e:
+        log_erro("Erro buscar agendamento:", e)
+        return None
+
+    finally:
+        db.close()
+
+
+def cancelar_agendamento(cpf):
+    db = SessionLocal()
+
+    try:
+        agendamento = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.cpf == cpf,
+            AgendamentoRevisao.status == "AGENDADO"
+        ).first()
+
+        if agendamento:
+            agendamento.status = "CANCELADO"
+            db.commit()
+            return True
+
+        return False
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro cancelar:", e)
+        return False
+
+    finally:
+        db.close()
+
+
+def horarios_por_revisao(revisao, dia):
+    try:
+        revisao = int(revisao)
+    except Exception:
+        revisao = 1
+
+    if dia == "6":
+        if revisao <= 2:
+            return ["08:00", "09:00", "10:00"]
+        return []
+
+    if revisao <= 2:
+        return [
+            "08:00",
+            "09:00",
+            "10:00",
+            "11:00",
+            "12:00",
+            "13:00",
+            "14:00",
+            "15:00"
+        ]
+
+    return ["08:00"]
+
+
+def validar_data(data):
+    try:
+        data_obj = datetime.strptime(data, "%d/%m/%Y")
+
+        if data_obj.date() < datetime.now().date():
+            return False
+
+        if data_obj.weekday() == 6:
+            return False
+
+        return True
+
+    except Exception:
+        return False
+
+
+# ==========================================
+# FOLLOW-UP + LEMBRETES
+# ==========================================
+def processar_lembretes_agendamento():
+    db = SessionLocal()
+
+    try:
+        hoje = datetime.now().date()
+
+        agendamentos = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.status == "AGENDADO",
+            AgendamentoRevisao.lembrete_enviado == False
+        ).all()
+
+        for ag in agendamentos:
+            try:
+                data_agendada = datetime.strptime(
+                    ag.data_agendada,
+                    "%d/%m/%Y"
+                ).date()
+
+                diferenca = (data_agendada - hoje).days
+
+                if diferenca == 1:
+                    mensagem = (
+                        "🔔 *Lembrete de Revisão*\n\n"
+                        f"Olá *{ag.nome}*\n\n"
+                        f"📅 Data: {ag.data_agendada}\n"
+                        f"⏰ Horário: {ag.horario}\n"
+                        f"🏍️ Modelo: {ag.modelo}\n\n"
+                        f"📌 Protocolo: {ag.protocolo}\n\n"
+                        "Equipe Motoshow Yamaha"
+                    )
+
+                    enviar_mensagem(ag.telefone, mensagem)
+                    ag.lembrete_enviado = True
+
+            except Exception as e:
+                log_erro("Erro lembrete:", e)
+
+        db.commit()
+
+    except Exception as e:
+        log_erro("Erro geral lembrete:", e)
+
+    finally:
+        db.close()
+
+
+# ==========================================
+# WORKER
+# ==========================================
+def worker():
+    while True:
+        try:
+            processar_inatividade()
+            processar_lembretes_agendamento()
+        except Exception as e:
+            log_erro("Worker erro:", e)
+
+        time.sleep(30)
+
+
+def iniciar_worker():
+    thread = threading.Thread(
+        target=worker,
+        daemon=True
+    )
+    thread.start()
 # ==========================================
 # DASHBOARD
 # ==========================================
 @app.route("/dashboard")
 def dashboard():
-
     db = SessionLocal()
 
     try:
-
         filtro = request.args.get("filtro", "hoje")
 
         hoje = datetime.now().date()
@@ -945,20 +901,16 @@ def dashboard():
             query = query.filter(
                 Atendimento.data >= datetime.combine(hoje, datetime.min.time())
             )
-
         elif filtro == "semana":
             query = query.filter(
                 Atendimento.data >= datetime.combine(inicio_semana, datetime.min.time())
             )
-
         elif filtro == "mes":
             query = query.filter(
                 Atendimento.data >= datetime.combine(inicio_mes, datetime.min.time())
             )
-
         elif filtro == "total":
             pass
-
         else:
             filtro = "hoje"
             query = query.filter(
@@ -981,18 +933,17 @@ def dashboard():
         for item in registros_itens:
             valor = item[0] if isinstance(item, tuple) else item
 
-            if valor:
-                partes = str(valor).split(",")
+            if not valor:
+                continue
 
-                for parte in partes:
-                    item_limpo = parte.strip().upper()
-                    if item_limpo:
-                        contador_itens[item_limpo] += 1
+            lista_itens = extrair_lista_itens_adicionais(valor)
+
+            for i in lista_itens:
+                contador_itens[i] += 1
 
         ranking_itens = contador_itens.most_common(20)
         total_itens_vendidos = sum(contador_itens.values())
 
-        # LISTA DE AGENDAMENTOS
         agendamentos = db.query(AgendamentoRevisao).order_by(
             AgendamentoRevisao.criado_em.desc()
         ).limit(20).all()
@@ -1014,12 +965,10 @@ def dashboard():
         )
 
     except Exception as e:
-
         log_erro("Dashboard erro:", e)
         return "Erro dashboard", 500
 
     finally:
-
         db.close()
 
 
@@ -1036,6 +985,13 @@ def webhook():
 
     log_info("PAYLOAD RECEBIDO:", payload)
 
+    if evento_eh_do_proprio_bot(payload):
+        return jsonify({"status": "ignorado", "motivo": "proprio_bot"}), 200
+
+    message_id = extrair_message_id(payload)
+    if mensagem_ja_processada(message_id):
+        return jsonify({"status": "ignorado", "motivo": "duplicado"}), 200
+
     telefone = extrair_telefone(payload)
     texto = extrair_texto(payload)
 
@@ -1050,11 +1006,12 @@ def webhook():
     texto_normalizado = normalizar_texto(texto)
     texto_opcao = limpar_opcao(texto)
 
+    registrar_mensagem_processada(message_id)
+
     iniciar_cliente(telefone)
     atualizar_interacao(telefone)
     atualizar_retorno_na_planilha(telefone, texto)
 
-    # MENU
     if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
         resetar_cliente(telefone)
         enviar_menu(telefone)
@@ -1068,6 +1025,7 @@ def webhook():
     if etapa == "menu":
 
         if texto_opcao == "1":
+            limpar_dados_fluxo_revisao(telefone)
             clientes[telefone]["etapa"] = "revisao_modelo"
             enviar_mensagem(
                 telefone,
@@ -1124,6 +1082,7 @@ def webhook():
             intencao = resposta_ia.get("intencao", "")
 
             if intencao == "agendar_revisao":
+                limpar_dados_fluxo_revisao(telefone)
                 clientes[telefone]["etapa"] = "revisao_modelo"
                 enviar_mensagem(
                     telefone,
@@ -1259,12 +1218,21 @@ def webhook():
         dia = clientes[telefone]["dia"]
 
         horarios = horarios_por_revisao(revisao, dia)
+
+        if not horarios:
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não há horários disponíveis para esse tipo de revisão neste dia.\n\n"
+                "Escolha outro dia."
+            )
+            clientes[telefone]["etapa"] = "revisao_dia"
+            return jsonify({"status": "ok"}), 200
+
         clientes[telefone]["horarios_disponiveis"] = horarios
         clientes[telefone]["etapa"] = "revisao_horario"
 
         enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
         return jsonify({"status": "ok"}), 200
-
     if etapa == "revisao_horario":
         horarios = clientes[telefone]["horarios_disponiveis"]
 
@@ -1272,7 +1240,9 @@ def webhook():
             idx = int(texto_opcao) - 1
             horario = horarios[idx]
         except Exception:
-            horario = texto
+            enviar_mensagem(telefone, "⚠️ Opção inválida. Escolha um número da lista.")
+            enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+            return jsonify({"status": "ok"}), 200
 
         data = clientes[telefone]["data"]
         revisao = clientes[telefone]["revisao"]
@@ -1297,8 +1267,9 @@ def webhook():
             clientes[telefone]["venda_adicional"] = ""
             clientes[telefone]["itens"] = ""
         else:
-            clientes[telefone]["venda_adicional"] = texto.upper()
-            clientes[telefone]["itens"] = texto.upper()
+            itens_formatados = formatar_itens_adicionais_para_salvar(texto)
+            clientes[telefone]["venda_adicional"] = itens_formatados
+            clientes[telefone]["itens"] = itens_formatados
 
         dados = clientes[telefone]
 
@@ -1324,7 +1295,7 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        salvar_atendimento = Atendimento(
+        atendimento = Atendimento(
             telefone=telefone,
             nome=dados["nome"],
             setor="Revisão",
@@ -1335,8 +1306,8 @@ def webhook():
             dia_semana=nome_dia(dados["dia"]),
             data_agendada=dados["data"],
             horario=dados["horario"],
-            itens=dados.get("itens", ""),
-            venda_adicional=dados.get("venda_adicional", ""),
+            itens=formatar_itens_adicionais_para_salvar(dados.get("itens", "")),
+            venda_adicional=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
             origem="Bot",
             status="Agendado",
             etapa="revisao_finalizada",
@@ -1347,7 +1318,7 @@ def webhook():
 
         db = SessionLocal()
         try:
-            db.add(salvar_atendimento)
+            db.add(atendimento)
             db.commit()
         except Exception as e:
             db.rollback()
@@ -1355,20 +1326,28 @@ def webhook():
         finally:
             db.close()
 
-        enviar_mensagem(
-            telefone,
+        itens_resumo = formatar_itens_adicionais_para_salvar(dados.get("itens", ""))
+
+        mensagem_confirmacao = (
             "✅ *Agendamento Confirmado*\n\n"
             f"👤 {dados['nome']}\n"
             f"🏍️ {dados['modelo']}\n"
             f"📅 {dados['data']}\n"
             f"⏰ {dados['horario']}\n"
+        )
+
+        if itens_resumo:
+            mensagem_confirmacao += f"🛠️ Itens adicionais: {itens_resumo}\n"
+
+        mensagem_confirmacao += (
             f"📌 Protocolo: {protocolo}\n\n"
             "Equipe Motoshow Yamaha"
         )
 
+        enviar_mensagem(telefone, mensagem_confirmacao)
+
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
-
     # ==========================================
     # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
     # ==========================================
@@ -1401,12 +1380,17 @@ def webhook():
 
     if etapa == "atacado":
         if texto_opcao == "3":
-            enviar_pdf(
+            enviado = enviar_pdf(
                 telefone,
                 "catalogo-atacado.pdf",
                 "📄 Catálogo Atacado Motoshow Yamaha"
             )
-            enviar_mensagem(telefone, "✅ Catálogo enviado com sucesso.")
+
+            if enviado:
+                enviar_mensagem(telefone, "✅ Catálogo enviado com sucesso.")
+            else:
+                enviar_mensagem(telefone, "⚠️ Não consegui enviar o catálogo agora.")
+
             resetar_cliente(telefone)
             return jsonify({"status": "ok"}), 200
 
