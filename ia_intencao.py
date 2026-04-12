@@ -220,7 +220,8 @@ def extrair_nome(texto):
             "acessorio", "acessório", "menu", "atendente", "humano", "segunda",
             "terca", "terça", "quarta", "quinta", "sexta", "sabado", "sábado",
             "dia", "as", "às", "valor", "quanto", "custa", "fluo", "fazer",
-            "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax", "aerox"
+            "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax", "aerox",
+            "logista", "atacado", "catalogo", "catálogo", "pecas", "peças"
         }
 
         if not any(p.lower() in bloqueadas for p in palavras):
@@ -520,14 +521,11 @@ def classificar_intencao(texto):
             intencao = "menu"
             confianca = 0.50
 
-    proxima_etapa = sugerir_proxima_etapa(intencao, dados)
-    resposta = gerar_resposta(intencao, dados)
-
     retorno = {
         "intencao": intencao,
         "confianca": confianca,
-        "resposta": resposta,
-        "proxima_etapa": proxima_etapa,
+        "resposta": gerar_resposta(intencao, dados),
+        "proxima_etapa": sugerir_proxima_etapa(intencao, dados),
         "dados_extraidos": dados
     }
 
