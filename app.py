@@ -286,6 +286,13 @@ def parse_data_hora(valor):
         return None
 
 
+def data_texto_valida(valor):
+    dt = parse_data_hora(valor)
+    if dt is None:
+        return False
+    return True
+
+
 def formatar_valor_brl(valor):
     try:
         if isinstance(valor, (int, float)):
@@ -477,6 +484,8 @@ def extrair_revisao_km_ou_meses(texto):
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
+
+
 # ==========================================
 # FOLLOW-UP PLANILHA
 # ==========================================
@@ -902,6 +911,8 @@ def enviar_documento_pdf(telefone, arquivo_pdf, nome_exibicao=None, legenda="�
     except Exception as e:
         log_erro("Erro envio PDF:", e)
         return False
+
+
 # ==========================================
 # MENU
 # ==========================================
@@ -916,7 +927,7 @@ def enviar_menu(telefone):
         "4️⃣ Garantia\n"
         "5️⃣ Logista / Atacado\n"
         "6️⃣ Falar com Atendente\n\n"
-        "Digite apenas o número da opção desejada.\n\n"
+        "Ou se preferir, pode me escrever em texto livre.\n\n"
         "Equipe Motoshow Yamaha"
     )
     enviar_mensagem(telefone, mensagem)
@@ -960,35 +971,103 @@ def opcao_dia_por_nome(nome):
     return mapa.get(nome, "")
 
 
-def sugerir_itens_por_revisao(revisao):
-    revisao = str(revisao or "").strip()
+def nome_dia(opcao):
+    mapa = {
+        "1": "Segunda",
+        "2": "Terça",
+        "3": "Quarta",
+        "4": "Quinta",
+        "5": "Sexta",
+        "6": "Sábado"
+    }
+    return mapa.get(str(opcao), "")
 
-    if revisao in ["2", "3", "4", "5"]:
-        return ["FILTRO DE AR", "PASTILHA DE FREIO"]
+
+def gerar_horarios_disponiveis(revisao, dia):
+    revisao = str(revisao).strip()
+    dia = str(dia).strip()
+
+    if dia in ["1", "2", "3", "4", "5"]:
+        if revisao in ["1", "2"]:
+            return [
+                "08:00", "09:00", "10:00", "11:00",
+                "12:00", "13:00", "14:00", "15:00"
+            ]
+        return ["08:00"]
+
+    if dia == "6":
+        if revisao in ["1", "2"]:
+            return ["08:00", "09:00", "10:00"]
+        return []
 
     return []
 
 
+def montar_mensagem_horarios(horarios):
+    mensagem = "⏰ *Escolha o horário:*\n\n"
+    for i, horario in enumerate(horarios, start=1):
+        mensagem += f"{i} - {horario}\n"
+    mensagem += "\nSe preferir, você também pode responder com o horário direto. Ex.: 08:00"
+    return mensagem
+
+
+def sugestoes_contextuais_revisao(telefone):
+    dados = clientes.get(telefone, {})
+    revisao = str(dados.get("revisao", "")).strip()
+    modelo = str(dados.get("modelo", "")).upper().strip()
+
+    sugestoes = []
+
+    if revisao == "1":
+        sugestoes.extend(["SLIDER", "SUPORTE CELULAR"])
+
+    if revisao in ["2"]:
+        sugestoes.extend(["FILTRO DE AR", "PASTILHA DE FREIO", "SUPORTE CELULAR"])
+
+    if revisao in ["3", "4", "5"]:
+        sugestoes.extend(["FILTRO DE AR", "PASTILHA DE FREIO", "VELA"])
+
+    if any(x in modelo for x in ["FLUO", "NEO", "NMAX", "AEROX"]):
+        sugestoes.extend(["BAU", "SUPORTE CELULAR"])
+
+    if any(x in modelo for x in ["FAZER 250", "FZ15", "MT03", "MT07", "R15", "R3"]):
+        sugestoes.extend(["SLIDER", "SUPORTE CELULAR"])
+
+    if any(x in modelo for x in ["LANDER", "CROSSER", "TENERE 700"]):
+        sugestoes.extend(["PROTETOR MOTOR", "SUPORTE CELULAR"])
+
+    finais = []
+    for item in sugestoes:
+        item = limpar_item_adicional(item)
+        if item and item not in finais:
+            finais.append(item)
+
+    return finais[:4]
+
+
 def montar_mensagem_venda_adicional(telefone):
-    revisao = str(clientes.get(telefone, {}).get("revisao", "")).strip()
-    sugestoes = sugerir_itens_por_revisao(revisao)
+    sugestoes = sugestoes_contextuais_revisao(telefone)
 
     if sugestoes:
+        texto_sugestoes = "\n".join([f"• {item}" for item in sugestoes])
         return (
-            "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
-            "📌 Recomendados para essa revisão:\n"
-            f"• {sugestoes[0]}\n"
-            f"• {sugestoes[1]}\n\n"
-            "Digite:\n"
+            "🛠️ *Deseja adicionar algum item ao atendimento?*\n\n"
+            "📌 Sugestões para esse perfil de revisão:\n"
+            f"{texto_sugestoes}\n\n"
+            "Você pode responder de 3 formas:\n"
             "1 - Sim\n"
-            "2 - Não"
+            "2 - Não\n"
+            "ou escrever o item direto.\n\n"
+            "Exemplo: *filtro de ar e pastilha de freio*"
         )
 
     return (
         "🛠️ *Deseja adicionar peças ou acessórios?*\n\n"
-        "Digite:\n"
+        "Você pode responder:\n"
         "1 - Sim\n"
-        "2 - Não"
+        "2 - Não\n"
+        "ou escrever o item direto.\n\n"
+        "Exemplo: *slider*"
     )
 
 
@@ -1002,6 +1081,7 @@ def preencher_dados_ia_no_cliente(telefone, dados):
     ano = limpar_texto(dados.get("ano"))
     revisao = normalizar_revisao_para_fluxo(dados.get("revisao"))
     horario = limpar_texto(dados.get("horario"))
+    data_agendamento = limpar_texto(dados.get("data"))
     item_adicional = formatar_itens_adicionais_para_salvar(dados.get("item_adicional"))
     dia_nome = limpar_texto(dados.get("dia"))
     dia_opcao = opcao_dia_por_nome(dia_nome)
@@ -1028,6 +1108,9 @@ def preencher_dados_ia_no_cliente(telefone, dados):
         if clientes[telefone].get("revisao"):
             horarios = gerar_horarios_disponiveis(clientes[telefone]["revisao"], dia_opcao)
             clientes[telefone]["horarios_disponiveis"] = horarios
+
+    if data_agendamento and data_texto_valida(data_agendamento):
+        clientes[telefone]["data"] = data_agendamento
 
     if horario:
         if clientes[telefone].get("horarios_disponiveis"):
@@ -1074,6 +1157,264 @@ def proxima_etapa_revisao(telefone):
     return "revisao_confirmar"
 
 
+def resumo_identificado_revisao(telefone):
+    d = clientes.get(telefone, {})
+    resumo = []
+
+    if d.get("nome"):
+        resumo.append(f"👤 Nome: {d['nome']}")
+    if d.get("modelo"):
+        resumo.append(f"🏍️ Modelo: {d['modelo']}")
+    if d.get("ano"):
+        resumo.append(f"📅 Ano: {d['ano']}")
+    if d.get("revisao"):
+        resumo.append(f"🔧 Revisão: {d['revisao']}ª")
+    if d.get("dia_texto"):
+        resumo.append(f"📍 Dia: {d['dia_texto']}")
+    if d.get("data"):
+        resumo.append(f"📆 Data: {d['data']}")
+    if d.get("horario"):
+        resumo.append(f"⏰ Horário: {d['horario']}")
+
+    return resumo
+
+
+def enviar_pergunta_etapa_revisao(telefone, etapa_destino):
+    if etapa_destino == "revisao_modelo":
+        enviar_mensagem(
+            telefone,
+            "🔧 Perfeito. Para seguir com seu agendamento, me informe o *modelo da moto*."
+        )
+        return True
+
+    if etapa_destino == "revisao_nome":
+        enviar_mensagem(
+            telefone,
+            "👤 Agora me informe seu *nome completo*."
+        )
+        return True
+
+    if etapa_destino == "revisao_cpf":
+        enviar_mensagem(
+            telefone,
+            "📄 Agora me informe o *CPF do proprietário*."
+        )
+        return True
+
+    if etapa_destino == "revisao_ano":
+        enviar_mensagem(
+            telefone,
+            "📅 Agora me informe o *ano da moto*."
+        )
+        return True
+
+    if etapa_destino == "revisao_tipo":
+        enviar_mensagem(
+            telefone,
+            "🔧 Qual revisão deseja agendar?\n\n"
+            "1 - 1ª revisão\n"
+            "2 - 2ª revisão\n"
+            "3 - 3ª revisão\n"
+            "4 - 4ª revisão\n"
+            "5 - 5ª ou acima"
+        )
+        return True
+
+    if etapa_destino == "revisao_dia":
+        enviar_mensagem(
+            telefone,
+            "📅 Qual dia da semana você prefere?\n\n"
+            "1 - Segunda\n"
+            "2 - Terça\n"
+            "3 - Quarta\n"
+            "4 - Quinta\n"
+            "5 - Sexta\n"
+            "6 - Sábado"
+        )
+        return True
+
+    if etapa_destino == "revisao_data":
+        enviar_mensagem(
+            telefone,
+            "📆 Perfeito. Agora me informe a *data desejada*.\n"
+            "Exemplo: 15/04/2026"
+        )
+        return True
+
+    if etapa_destino == "revisao_horario":
+        horarios = clientes[telefone].get("horarios_disponiveis", [])
+        if horarios:
+            enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+        else:
+            clientes[telefone]["etapa"] = "revisao_dia"
+            enviar_mensagem(
+                telefone,
+                "📅 Preciso confirmar o *dia da semana* para te mostrar os horários.\n\n"
+                "1 - Segunda\n"
+                "2 - Terça\n"
+                "3 - Quarta\n"
+                "4 - Quinta\n"
+                "5 - Sexta\n"
+                "6 - Sábado"
+            )
+        return True
+
+    if etapa_destino == "revisao_venda_opcao":
+        enviar_mensagem(telefone, montar_mensagem_venda_adicional(telefone))
+        return True
+
+    if etapa_destino == "revisao_confirmar":
+        adicionais_exibicao = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
+
+        enviar_mensagem(
+            telefone,
+            "✅ *Confira seu agendamento:*\n\n"
+            f"👤 Nome: {clientes[telefone]['nome']}\n"
+            f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
+            f"📄 CPF: {clientes[telefone]['cpf']}\n"
+            f"📅 Data: {clientes[telefone]['data']}\n"
+            f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
+            f"⏰ Horário: {clientes[telefone]['horario']}\n"
+            f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
+            f"🛒 Adicionais: {adicionais_exibicao}\n\n"
+            "Digite:\n"
+            "1 - Confirmar\n"
+            "2 - Cancelar"
+        )
+        return True
+
+    return False
+
+
+def tentar_aproveitar_texto_no_horario(telefone, texto):
+    texto_limpo = limpar_texto(texto)
+    horarios = clientes[telefone].get("horarios_disponiveis", [])
+
+    if not horarios:
+        return False
+
+    if texto_limpo in horarios:
+        clientes[telefone]["horario"] = texto_limpo
+        return True
+
+    try:
+        indice = int(
+            texto_limpo.replace("️⃣", "")
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .strip()
+        ) - 1
+        if 0 <= indice < len(horarios):
+            clientes[telefone]["horario"] = horarios[indice]
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def tratar_desvio_de_intencao_durante_fluxo(telefone, intencao, resposta):
+    if intencao == "menu":
+        resetar_cliente(telefone)
+        enviar_menu(telefone)
+        return True
+
+    if intencao == "humano":
+        ativar_atendimento_humano(telefone)
+        return True
+
+    if intencao == "pecas":
+        resetar_cliente(telefone)
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+        enviar_mensagem(
+            telefone,
+            "🔩 *Peças*\n\n"
+            "Informe a *peça desejada* para seguirmos com o atendimento."
+        )
+        return True
+
+    if intencao == "acessorios":
+        resetar_cliente(telefone)
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+        enviar_mensagem(
+            telefone,
+            "🛵 *Acessórios*\n\n"
+            "Informe o *acessório desejado* para seguirmos com o atendimento."
+        )
+        return True
+
+    if intencao == "garantia":
+        resetar_cliente(telefone)
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+        enviar_mensagem(
+            telefone,
+            "🛡️ *Garantia*\n\n"
+            "Descreva sua solicitação de garantia para seguirmos com o atendimento."
+        )
+        return True
+
+    if intencao == "atacado":
+        resetar_cliente(telefone)
+        clientes[telefone]["etapa"] = "submenu_atacado"
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+        enviar_mensagem(
+            telefone,
+            "📦 *Logista / Atacado*\n\n"
+            "Digite uma opção:\n\n"
+            "1 - Solicitar cotação\n"
+            "2 - Cadastro de logista\n"
+            "3 - Receber catálogo\n"
+            "4 - Falar com consultor"
+        )
+        return True
+
+    return False
+
+
+def tentar_fluxo_revisao_com_ia(telefone, texto):
+    try:
+        resultado = classificar_intencao(texto)
+        log_info("IA durante fluxo:", resultado)
+    except Exception as e:
+        log_erro("Erro IA durante fluxo:", e)
+        return False
+
+    if not resultado or not isinstance(resultado, dict):
+        return False
+
+    intencao = str(resultado.get("intencao", "")).strip().lower()
+    resposta = limpar_texto(resultado.get("resposta", ""))
+    dados = resultado.get("dados_extraidos", {}) or {}
+
+    if intencao in ["menu", "humano", "pecas", "acessorios", "garantia", "atacado"]:
+        return tratar_desvio_de_intencao_durante_fluxo(telefone, intencao, resposta)
+
+    etapa_atual = clientes[telefone]["etapa"]
+
+    if etapa_atual == "revisao_data" and data_texto_valida(texto):
+        clientes[telefone]["data"] = texto
+    elif etapa_atual == "revisao_horario" and tentar_aproveitar_texto_no_horario(telefone, texto):
+        pass
+    else:
+        preencher_dados_ia_no_cliente(telefone, dados)
+
+    etapa_destino = proxima_etapa_revisao(telefone)
+    clientes[telefone]["etapa"] = etapa_destino
+
+    resumo = resumo_identificado_revisao(telefone)
+    if resumo:
+        enviar_mensagem(
+            telefone,
+            "Perfeito. Já aproveitei estas informações da sua mensagem:\n\n" + "\n".join(resumo)
+        )
+
+    return enviar_pergunta_etapa_revisao(telefone, etapa_destino)
+
+
 # ==========================================
 # IA INTENÇÃO
 # ==========================================
@@ -1102,19 +1443,7 @@ def tratar_intencao_ia(telefone, texto):
         etapa_destino = proxima_etapa_revisao(telefone)
         clientes[telefone]["etapa"] = etapa_destino
 
-        resumo = []
-        if clientes[telefone].get("nome"):
-            resumo.append(f"👤 Nome: {clientes[telefone]['nome']}")
-        if clientes[telefone].get("modelo"):
-            resumo.append(f"🏍️ Modelo: {clientes[telefone]['modelo']}")
-        if clientes[telefone].get("ano"):
-            resumo.append(f"📅 Ano: {clientes[telefone]['ano']}")
-        if clientes[telefone].get("revisao"):
-            resumo.append(f"🔧 Revisão: {clientes[telefone]['revisao']}ª")
-        if clientes[telefone].get("dia_texto"):
-            resumo.append(f"📍 Dia: {clientes[telefone]['dia_texto']}")
-        if clientes[telefone].get("horario"):
-            resumo.append(f"⏰ Horário: {clientes[telefone]['horario']}")
+        resumo = resumo_identificado_revisao(telefone)
 
         if resposta and not resumo:
             enviar_mensagem(telefone, resposta)
@@ -1125,117 +1454,7 @@ def tratar_intencao_ia(telefone, texto):
                 + "\n".join(resumo)
             )
 
-        if etapa_destino == "revisao_modelo":
-            enviar_mensagem(
-                telefone,
-                "🔧 *Agendamento de Revisão*\n\n"
-                "Informe o *modelo da moto*:"
-            )
-            return True
-
-        if etapa_destino == "revisao_nome":
-            enviar_mensagem(
-                telefone,
-                "👤 Agora informe seu *nome completo*:"
-            )
-            return True
-
-        if etapa_destino == "revisao_cpf":
-            enviar_mensagem(
-                telefone,
-                "📄 Agora informe o *CPF do proprietário*:"
-            )
-            return True
-
-        if etapa_destino == "revisao_ano":
-            enviar_mensagem(
-                telefone,
-                "📅 Agora informe o *ano da moto*:"
-            )
-            return True
-
-        if etapa_destino == "revisao_tipo":
-            enviar_mensagem(
-                telefone,
-                "🔧 *Qual revisão deseja agendar?*\n\n"
-                "1 - 1ª revisão\n"
-                "2 - 2ª revisão\n"
-                "3 - 3ª revisão\n"
-                "4 - 4ª revisão\n"
-                "5 - 5ª ou acima"
-            )
-            return True
-
-        if etapa_destino == "revisao_dia":
-            enviar_mensagem(
-                telefone,
-                "📅 *Escolha o dia da semana:*\n\n"
-                "1 - Segunda\n"
-                "2 - Terça\n"
-                "3 - Quarta\n"
-                "4 - Quinta\n"
-                "5 - Sexta\n"
-                "6 - Sábado"
-            )
-            return True
-
-        if etapa_destino == "revisao_data":
-            enviar_mensagem(
-                telefone,
-                "📆 Perfeito. Agora informe a *data desejada* do agendamento:\n"
-                "Exemplo: 15/04/2026"
-            )
-            return True
-
-        if etapa_destino == "revisao_horario":
-            horarios = clientes[telefone].get("horarios_disponiveis", [])
-            if horarios:
-                enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
-            else:
-                clientes[telefone]["etapa"] = "revisao_dia"
-                enviar_mensagem(
-                    telefone,
-                    "📅 Preciso confirmar o *dia da semana* para mostrar os horários.\n\n"
-                    "1 - Segunda\n"
-                    "2 - Terça\n"
-                    "3 - Quarta\n"
-                    "4 - Quinta\n"
-                    "5 - Sexta\n"
-                    "6 - Sábado"
-                )
-            return True
-
-        if etapa_destino == "revisao_venda_opcao":
-            enviar_mensagem(telefone, montar_mensagem_venda_adicional(telefone))
-            return True
-
-        if etapa_destino == "revisao_confirmar":
-            adicionais_exibicao = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
-
-            enviar_mensagem(
-                telefone,
-                "✅ *Confira seu agendamento:*\n\n"
-                f"👤 Nome: {clientes[telefone]['nome']}\n"
-                f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
-                f"📄 CPF: {clientes[telefone]['cpf']}\n"
-                f"📅 Data: {clientes[telefone]['data']}\n"
-                f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
-                f"⏰ Horário: {clientes[telefone]['horario']}\n"
-                f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
-                f"🛒 Adicionais: {adicionais_exibicao}\n\n"
-                "Digite:\n"
-                "1 - Confirmar\n"
-                "2 - Cancelar"
-            )
-            return True
-
-        clientes[telefone]["etapa"] = "revisao_modelo"
-        enviar_mensagem(
-            telefone,
-            "🔧 *Agendamento de Revisão*\n\n"
-            "Informe o *modelo da moto*:"
-        )
-        return True
+        return enviar_pergunta_etapa_revisao(telefone, etapa_destino)
 
     if intencao == "valor_revisao":
         modelo = limpar_texto(dados.get("modelo")) or extrair_modelo_do_texto(texto)
@@ -1379,48 +1598,6 @@ def tratar_intencao_ia(telefone, texto):
 
 
 # ==========================================
-# HORÁRIOS
-# ==========================================
-def nome_dia(opcao):
-    mapa = {
-        "1": "Segunda",
-        "2": "Terça",
-        "3": "Quarta",
-        "4": "Quinta",
-        "5": "Sexta",
-        "6": "Sábado"
-    }
-    return mapa.get(str(opcao), "")
-
-
-def gerar_horarios_disponiveis(revisao, dia):
-    revisao = str(revisao).strip()
-    dia = str(dia).strip()
-
-    if dia in ["1", "2", "3", "4", "5"]:
-        if revisao in ["1", "2"]:
-            return [
-                "08:00", "09:00", "10:00", "11:00",
-                "12:00", "13:00", "14:00", "15:00"
-            ]
-        return ["08:00"]
-
-    if dia == "6":
-        if revisao in ["1", "2"]:
-            return ["08:00", "09:00", "10:00"]
-        return []
-
-    return []
-
-
-def montar_mensagem_horarios(horarios):
-    mensagem = "⏰ *Escolha o horário:*\n\n"
-    for i, horario in enumerate(horarios, start=1):
-        mensagem += f"{i} - {horario}\n"
-    return mensagem
-
-
-# ==========================================
 # SALVAR ATENDIMENTO COM SEGURANÇA
 # ==========================================
 def salvar_atendimento_seguro(dados):
@@ -1507,6 +1684,10 @@ def webhook():
     if etapa == "menu" and texto and texto not in ["1", "2", "3", "4", "5", "6"]:
         if tratar_intencao_ia(telefone, texto):
             return jsonify({"status": "ok", "origem": "ia"}), 200
+
+    if etapa.startswith("revisao_") and texto_normalizado not in ["1", "2"] and not texto.isdigit():
+        if tentar_fluxo_revisao_com_ia(telefone, texto):
+            return jsonify({"status": "ok", "origem": "ia_fluxo_revisao"}), 200
 
     if etapa == "menu":
         opcao = (
@@ -1777,6 +1958,15 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_data":
+        if not data_texto_valida(texto):
+            enviar_mensagem(
+                telefone,
+                "📆 Não consegui validar a data.\n\n"
+                "Me envie no formato *dd/mm/aaaa*.\n"
+                "Exemplo: 15/04/2026"
+            )
+            return jsonify({"status": "ok"}), 200
+
         clientes[telefone]["data"] = texto
         clientes[telefone]["etapa"] = "revisao_horario"
 
@@ -1799,22 +1989,13 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-        try:
-            indice = int(
-                texto.replace("️⃣", "")
-                .replace("\u200e", "")
-                .replace("\u200f", "")
-                .strip()
-            ) - 1
-            horario_escolhido = horarios[indice]
-        except Exception:
+        if not tentar_aproveitar_texto_no_horario(telefone, texto):
             enviar_mensagem(
                 telefone,
                 montar_mensagem_horarios(horarios)
             )
             return jsonify({"status": "ok"}), 200
 
-        clientes[telefone]["horario"] = horario_escolhido
         clientes[telefone]["etapa"] = "revisao_venda_opcao"
 
         enviar_mensagem(telefone, montar_mensagem_venda_adicional(telefone))
@@ -1827,6 +2008,8 @@ def webhook():
             .replace("\u200f", "")
             .strip()
         )
+
+        itens_formatados = formatar_itens_adicionais_para_salvar(texto)
 
         if opcao == "1":
             clientes[telefone]["etapa"] = "revisao_venda_adicional"
@@ -1850,30 +2033,26 @@ def webhook():
             clientes[telefone]["venda_adicional"] = "Não"
             clientes[telefone]["etapa"] = "revisao_confirmar"
 
-            enviar_mensagem(
-                telefone,
-                "✅ *Confira seu agendamento:*\n\n"
-                f"👤 Nome: {clientes[telefone]['nome']}\n"
-                f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
-                f"📄 CPF: {clientes[telefone]['cpf']}\n"
-                f"📅 Data: {clientes[telefone]['data']}\n"
-                f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
-                f"⏰ Horário: {clientes[telefone]['horario']}\n"
-                f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
-                f"🛒 Adicionais: Nenhum\n\n"
-                "Digite:\n"
-                "1 - Confirmar\n"
-                "2 - Cancelar"
-            )
+            enviar_pergunta_etapa_revisao(telefone, "revisao_confirmar")
+            return jsonify({"status": "ok"}), 200
+
+        elif itens_formatados:
+            clientes[telefone]["itens"] = itens_formatados
+            clientes[telefone]["venda_adicional"] = "Sim"
+            clientes[telefone]["etapa"] = "revisao_confirmar"
+
+            enviar_pergunta_etapa_revisao(telefone, "revisao_confirmar")
             return jsonify({"status": "ok"}), 200
 
         else:
             enviar_mensagem(
                 telefone,
-                "❌ Opção inválida.\n\n"
-                "Digite:\n"
+                "❌ Não entendi sua resposta.\n\n"
+                "Você pode responder:\n"
                 "1 - Sim\n"
-                "2 - Não"
+                "2 - Não\n"
+                "ou escrever o item direto.\n\n"
+                "Exemplo: *pastilha de freio*"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1884,23 +2063,7 @@ def webhook():
         clientes[telefone]["venda_adicional"] = "Sim" if itens_formatados else "Não"
         clientes[telefone]["etapa"] = "revisao_confirmar"
 
-        adicionais_exibicao = itens_formatados if itens_formatados else "Nenhum"
-
-        enviar_mensagem(
-            telefone,
-            "✅ *Confira seu agendamento:*\n\n"
-            f"👤 Nome: {clientes[telefone]['nome']}\n"
-            f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
-            f"📄 CPF: {clientes[telefone]['cpf']}\n"
-            f"📅 Data: {clientes[telefone]['data']}\n"
-            f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
-            f"⏰ Horário: {clientes[telefone]['horario']}\n"
-            f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
-            f"🛒 Adicionais: {adicionais_exibicao}\n\n"
-            "Digite:\n"
-            "1 - Confirmar\n"
-            "2 - Cancelar"
-        )
+        enviar_pergunta_etapa_revisao(telefone, "revisao_confirmar")
         return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_confirmar":

@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -81,7 +82,7 @@ def texto_parece_valor_revisao(texto_normalizado):
 def extrair_modelo(texto):
     texto_upper = str(texto or "").upper()
 
-    for modelo in MODELOS_YAMAHA:
+    for modelo in sorted(MODELOS_YAMAHA, key=len, reverse=True):
         if modelo in texto_upper:
             return modelo
 
@@ -120,6 +121,10 @@ def extrair_horario(texto):
     if match:
         return f"{int(match.group(1)):02d}:00"
 
+    match = re.search(r"\bas\s*(\d{1,2})\b", texto)
+    if match:
+        return f"{int(match.group(1)):02d}:00"
+
     return ""
 
 
@@ -140,6 +145,21 @@ def extrair_dia(texto):
     for chave, valor in mapa.items():
         if chave in texto:
             return valor
+
+    return ""
+
+
+def extrair_data(texto):
+    texto = limpar_texto(texto)
+
+    match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", texto)
+    if match:
+        return match.group(1)
+
+    match = re.search(r"\b(\d{2}-\d{2}-\d{4})\b", texto)
+    if match:
+        valor = match.group(1)
+        return valor.replace("-", "/")
 
     return ""
 
@@ -187,13 +207,26 @@ def extrair_item_adicional(texto):
         "suporte celular",
         "suporte para celular",
         "protetor motor",
+        "vela",
+        "vela de ignição",
+        "limpeza de bico",
+        "limpeza de injeção",
+        "troca de óleo",
+        "troca de oleo"
     ]
 
     encontrados = []
 
     for item in itens_comuns:
         if item in texto_lower:
-            item_formatado = item.upper().replace("Ó", "O").replace("Ú", "U")
+            item_formatado = (
+                item.upper()
+                .replace("Ó", "O")
+                .replace("Ú", "U")
+                .replace("Ç", "C")
+                .replace("Ã", "A")
+                .replace("Õ", "O")
+            )
             if item_formatado not in encontrados:
                 encontrados.append(item_formatado)
 
@@ -256,6 +289,8 @@ def sugerir_proxima_etapa(intencao, dados):
             return "revisao_tipo"
         if not dados["dia"]:
             return "revisao_dia"
+        if not dados["data"]:
+            return "revisao_data"
         if not dados["horario"]:
             return "revisao_horario"
         return "revisao_confirmar"
@@ -295,6 +330,8 @@ def gerar_resposta(intencao, dados):
             partes.append(f"🔧 Revisão: {dados['revisao']}ª")
         if dados.get("dia"):
             partes.append(f"📍 Dia: {dados['dia']}")
+        if dados.get("data"):
+            partes.append(f"📆 Data: {dados['data']}")
         if dados.get("horario"):
             partes.append(f"⏰ Horário: {dados['horario']}")
 
@@ -390,6 +427,7 @@ def classificar_intencao(texto):
             "ano": "",
             "revisao": "",
             "dia": "",
+            "data": "",
             "horario": "",
             "nome": "",
             "cpf": "",
@@ -419,6 +457,7 @@ def classificar_intencao(texto):
         "ano": extrair_ano(texto),
         "revisao": extrair_revisao(texto),
         "dia": extrair_dia(texto),
+        "data": extrair_data(texto),
         "horario": extrair_horario(texto),
         "nome": extrair_nome(texto),
         "cpf": extrair_cpf(texto),
