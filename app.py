@@ -286,6 +286,25 @@ def parse_data_hora(valor):
         return None
 
 
+def formatar_valor_brl(valor):
+    try:
+        if isinstance(valor, (int, float)):
+            valor_float = float(valor)
+        else:
+            valor_texto = str(valor).replace("R$", "").strip()
+
+            if "," in valor_texto:
+                valor_texto = valor_texto.replace(".", "").replace(",", ".")
+            else:
+                valor_texto = valor_texto.strip()
+
+            valor_float = float(valor_texto)
+
+        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return f"R$ {valor}"
+
+
 def atualizar_interacao(telefone):
     if telefone in clientes:
         clientes[telefone]["ultima_interacao"] = agora()
@@ -441,6 +460,8 @@ def extrair_revisao_km_ou_meses(texto):
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
+
+
 # ==========================================
 # FOLLOW-UP PLANILHA
 # ==========================================
@@ -969,6 +990,8 @@ def preencher_dados_ia_no_cliente(telefone, dados):
     if item_adicional:
         clientes[telefone]["itens"] = item_adicional
         clientes[telefone]["venda_adicional"] = "Sim"
+
+
 # ==========================================
 # IA INTENÇÃO
 # ==========================================
@@ -1172,11 +1195,7 @@ def tratar_intencao_ia(telefone, texto):
         km_encontrado = resultado_busca["km"]
         meses_encontrado = resultado_busca["meses"]
 
-        try:
-            valor_float = float(str(valor).replace("R$", "").replace(".", "").replace(",", ".").strip())
-            valor_formatado = f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except Exception:
-            valor_formatado = f"R$ {valor}"
+        valor_formatado = formatar_valor_brl(valor)
 
         if revisao is not None:
             referencia = f"{revisao_encontrada}ª revisão"
@@ -1374,9 +1393,6 @@ def webhook():
         log_info("Mensagem ignorada: texto vazio")
         return jsonify({"status": "ignorado", "motivo": "texto vazio"}), 200
 
-    # ==========================================
-    # COMANDOS GERAIS
-    # ==========================================
     if texto_normalizado in ["menu", "oi", "ola", "olá", "bom dia", "boa tarde", "boa noite"]:
         resetar_cliente(telefone)
         enviar_menu(telefone)
@@ -1387,16 +1403,10 @@ def webhook():
 
     etapa = clientes[telefone]["etapa"]
 
-    # ==========================================
-    # IA NO MENU
-    # ==========================================
     if etapa == "menu" and texto and texto not in ["1", "2", "3", "4", "5", "6"]:
         if tratar_intencao_ia(telefone, texto):
             return jsonify({"status": "ok", "origem": "ia"}), 200
 
-    # ==========================================
-    # MENU
-    # ==========================================
     if etapa == "menu":
         opcao = (
             texto.replace("️⃣", "")
@@ -1462,9 +1472,6 @@ def webhook():
             enviar_menu(telefone)
             return jsonify({"status": "ok", "fluxo": "menu_reenviado"}), 200
 
-    # ==========================================
-    # SUBMENU ATACADO
-    # ==========================================
     elif etapa == "submenu_atacado":
         opcao = (
             texto.replace("️⃣", "")
@@ -1540,9 +1547,6 @@ def webhook():
             )
             return jsonify({"status": "ok"}), 200
 
-    # ==========================================
-    # FLUXO REVISÃO
-    # ==========================================
     elif etapa == "revisao_modelo":
         clientes[telefone]["modelo"] = texto
         clientes[telefone]["etapa"] = "revisao_nome"
