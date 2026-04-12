@@ -1,6 +1,5 @@
 import os
 import re
-from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -106,6 +105,35 @@ def extrair_revisao(texto):
     return ""
 
 
+def extrair_km(texto):
+    texto = normalizar_texto(texto)
+    match = re.search(r"\b(\d{1,3}(?:[.\s]?\d{3})*|\d+)\s*km\b", texto)
+    if match:
+        return re.sub(r"[^\d]", "", match.group(1))
+    return ""
+
+
+def km_para_revisao(km):
+    try:
+        km_int = int(str(km).strip())
+    except Exception:
+        return ""
+
+    mapa = {
+        1000: "1",
+        3000: "2",
+        6000: "3",
+        9000: "4",
+        12000: "5",
+        15000: "5",
+        18000: "5",
+        21000: "5",
+        24000: "5",
+    }
+
+    return mapa.get(km_int, "")
+
+
 def extrair_horario(texto):
     texto = normalizar_texto(texto)
 
@@ -158,15 +186,14 @@ def extrair_data(texto):
 
     match = re.search(r"\b(\d{2}-\d{2}-\d{4})\b", texto)
     if match:
-        valor = match.group(1)
-        return valor.replace("-", "/")
+        return match.group(1).replace("-", "/")
 
     return ""
 
 
 def extrair_nome(texto):
     texto_original = limpar_texto(texto)
-    texto = texto_original.lower()
+    texto_lower = texto_original.lower()
 
     padroes = [
         r"meu nome é ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
@@ -176,12 +203,28 @@ def extrair_nome(texto):
     ]
 
     for padrao in padroes:
-        match = re.search(padrao, texto, re.IGNORECASE)
+        match = re.search(padrao, texto_lower, re.IGNORECASE)
         if match:
             nome = match.group(1).strip()
             nome = re.sub(r"\s+", " ", nome).strip()
             if len(nome) >= 3:
                 return nome.upper()
+
+    texto_puro = re.sub(r"[^a-zA-ZáàâãéèêíìîóòôõúùûçÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ\s]", " ", texto_original)
+    texto_puro = re.sub(r"\s+", " ", texto_puro).strip()
+
+    palavras = texto_puro.split()
+    if 2 <= len(palavras) <= 6:
+        bloqueadas = {
+            "quero", "agendar", "revisao", "revisão", "garantia", "peca", "peça",
+            "acessorio", "acessório", "menu", "atendente", "humano", "segunda",
+            "terca", "terça", "quarta", "quinta", "sexta", "sabado", "sábado",
+            "dia", "as", "às", "valor", "quanto", "custa", "fluo", "fazer",
+            "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax", "aerox"
+        }
+
+        if not any(p.lower() in bloqueadas for p in palavras):
+            return " ".join(palavras).upper()
 
     return ""
 
@@ -432,6 +475,7 @@ def classificar_intencao(texto):
             "nome": "",
             "cpf": "",
             "item_adicional": "",
+            "km": "",
         }
         return {
             "intencao": "menu",
@@ -448,10 +492,6 @@ def classificar_intencao(texto):
     if not intencao:
         intencao, confianca = classificar_com_ia(texto)
 
-    if not intencao:
-        intencao = "menu"
-        confianca = 0.50
-
     dados = {
         "modelo": extrair_modelo(texto),
         "ano": extrair_ano(texto),
@@ -462,7 +502,23 @@ def classificar_intencao(texto):
         "nome": extrair_nome(texto),
         "cpf": extrair_cpf(texto),
         "item_adicional": extrair_item_adicional(texto),
+        "km": extrair_km(texto),
     }
+
+    if not dados["revisao"] and dados["km"]:
+        dados["revisao"] = km_para_revisao(dados["km"])
+
+    if not intencao:
+        if (
+            dados["modelo"] or dados["nome"] or dados["cpf"] or dados["ano"] or
+            dados["revisao"] or dados["dia"] or dados["data"] or
+            dados["horario"] or dados["item_adicional"]
+        ):
+            intencao = "agendar_revisao"
+            confianca = 0.80
+        else:
+            intencao = "menu"
+            confianca = 0.50
 
     proxima_etapa = sugerir_proxima_etapa(intencao, dados)
     resposta = gerar_resposta(intencao, dados)
