@@ -64,6 +64,15 @@ def obter_cliente():
 
 
 def texto_parece_valor_revisao(texto_normalizado):
+    termos_agendamento = [
+        "agendar", "agendamento", "marcar", "remarcar", "reagendar",
+        "cancelar", "consultar", "acompanhar", "horario", "horário",
+        "segunda", "terça", "terca", "quarta", "quinta", "sexta", "sábado", "sabado"
+    ]
+
+    if any(p in texto_normalizado for p in termos_agendamento):
+        return False
+
     tem_valor = any(p in texto_normalizado for p in [
         "valor", "preço", "preco", "custa", "quanto custa", "quanto é", "quanto e"
     ])
@@ -72,11 +81,10 @@ def texto_parece_valor_revisao(texto_normalizado):
         "revisão", "revisao", "km", "quilometragem", "meses", "mês", "mes"
     ])
 
-    tem_numero_revisao = re.search(r"\b\d+\s*(?:ª|a)?\s*revis", texto_normalizado) is not None
     tem_km = re.search(r"\b\d{1,3}(?:[.\s]?\d{3})*\s*km\b", texto_normalizado) is not None
     tem_meses = re.search(r"\b\d+\s*(?:meses|mês|mes)\b", texto_normalizado) is not None
 
-    return (tem_valor and tem_contexto_revisao) or tem_numero_revisao or tem_km or tem_meses
+    return tem_valor and (tem_contexto_revisao or tem_km or tem_meses)
 
 
 def extrair_modelo(texto):
@@ -118,35 +126,31 @@ def extrair_ano(texto):
 def extrair_revisao(texto):
     texto = normalizar_texto(texto)
 
-    padroes = [
-        r"(\d+)\s*(?:a|ª|o)?\s*revis",
-        r"\bprimeira revisão\b",
-        r"\bsegunda revisão\b",
-        r"\bterceira revisão\b",
-        r"\bquarta revisão\b",
-        r"\bquinta revisão\b",
-        r"\b1 revisão\b",
-        r"\b2 revisão\b",
-        r"\b3 revisão\b",
-        r"\b4 revisão\b",
-        r"\b5 revisão\b",
-    ]
-
-    match = re.search(padroes[0], texto)
+    match = re.search(r"(\d+)\s*(?:a|ª|o)?\s*revis", texto)
     if match:
         return match.group(1)
 
     mapa_texto = {
         "primeira revisão": "1",
+        "primeira revisao": "1",
         "segunda revisão": "2",
+        "segunda revisao": "2",
         "terceira revisão": "3",
+        "terceira revisao": "3",
         "quarta revisão": "4",
+        "quarta revisao": "4",
         "quinta revisão": "5",
+        "quinta revisao": "5",
         "1 revisão": "1",
+        "1 revisao": "1",
         "2 revisão": "2",
+        "2 revisao": "2",
         "3 revisão": "3",
+        "3 revisao": "3",
         "4 revisão": "4",
+        "4 revisao": "4",
         "5 revisão": "5",
+        "5 revisao": "5",
     }
 
     for chave, valor in mapa_texto.items():
@@ -361,15 +365,14 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "consultar_agendamento", 0.97
 
+    if any(p in texto_normalizado for p in [
+        "agendar revisão", "agendar revisao", "marcar revisão", "marcar revisao",
+        "quero agendar", "agendar", "agendamento", "marcar horario", "marcar horário"
+    ]):
+        return "agendar_revisao", 0.99
+
     if texto_parece_valor_revisao(texto_normalizado):
         return "valor_revisao", 0.98
-
-    if any(p in texto_normalizado for p in [
-        "agendar revisão", "agendar revisao", "revisão", "revisao",
-        "marcar revisão", "marcar revisao", "quero revisar", "agendamento",
-        "quero agendar", "agendar", "marcar horario", "marcar horário"
-    ]):
-        return "agendar_revisao", 0.96
 
     if any(p in texto_normalizado for p in [
         "peça", "peca", "peças", "pecas", "orçamento de peça", "orcamento de peca"
@@ -519,7 +522,8 @@ def classificar_com_ia(texto):
                         "Responda com apenas uma única palavra, sem explicação, escolhendo uma destas opções exatas: "
                         "agendar_revisao, cancelar_agendamento, reagendar_agendamento, consultar_agendamento, "
                         "valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
-                        "Use valor_revisao quando a pessoa quiser saber preço, valor ou custo de revisão por número, km ou meses. "
+                        "Use valor_revisao apenas quando a pessoa quiser saber preço, valor ou custo da revisão. "
+                        "Se houver intenção de agendar ou marcar horário, sempre responda agendar_revisao. "
                         "Nunca responda fora dessa lista."
                     )
                 },
