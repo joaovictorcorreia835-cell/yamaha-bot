@@ -80,6 +80,54 @@ def log_erro(*args):
 
 
 # ==========================================
+# UTILITÁRIOS DE ITENS ADICIONAIS
+# ==========================================
+def limpar_item_adicional(item):
+    item = str(item or "").strip()
+
+    item = (
+        item.replace("[", "")
+        .replace("]", "")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("{", "")
+        .replace("}", "")
+        .replace('"', "")
+        .replace("'", "")
+        .strip()
+    )
+
+    item = re.sub(r"\s+", " ", item).strip()
+    return item.upper()
+
+
+def extrair_lista_itens_adicionais(valor):
+    if valor is None:
+        return []
+
+    texto = str(valor).strip()
+    if not texto:
+        return []
+
+    texto = texto.replace("\n", ",").replace(";", ",")
+
+    partes = [parte.strip() for parte in texto.split(",") if parte.strip()]
+    itens_limpos = []
+
+    for parte in partes:
+        item = limpar_item_adicional(parte)
+        if item:
+            itens_limpos.append(item)
+
+    return itens_limpos
+
+
+def formatar_itens_adicionais_para_salvar(valor):
+    itens = extrair_lista_itens_adicionais(valor)
+    return ", ".join(itens)
+
+
+# ==========================================
 # DASHBOARD
 # ==========================================
 @app.route("/dashboard")
@@ -130,20 +178,10 @@ def dashboard():
 
         for item in registros_itens:
             valor = item[0] if isinstance(item, tuple) else item
+            lista_itens = extrair_lista_itens_adicionais(valor)
 
-            if not valor:
-                continue
-
-            texto = str(valor)
-            texto = texto.replace("[", "")
-            texto = texto.replace("]", "")
-            texto = texto.replace("'", "")
-            texto = texto.replace('"', "")
-
-            lista = [i.strip() for i in texto.split(",") if i.strip()]
-
-            for i in lista:
-                contador_itens[i] += 1
+            for item_limpo in lista_itens:
+                contador_itens[item_limpo] += 1
 
         ranking_itens = contador_itens.most_common(20)
         total_itens_vendidos = sum(contador_itens.values())
@@ -240,7 +278,10 @@ def parse_data_hora(valor):
             continue
 
     try:
-        return pd.to_datetime(texto, dayfirst=True, errors="coerce").to_pydatetime()
+        convertido = pd.to_datetime(texto, dayfirst=True, errors="coerce")
+        if pd.isna(convertido):
+            return None
+        return convertido.to_pydatetime()
     except Exception:
         return None
 
@@ -386,22 +427,20 @@ def extrair_modelo_do_texto(texto):
 def extrair_revisao_km_ou_meses(texto):
     texto = str(texto or "").lower().strip()
 
-    padrao_revisao = re.search(r'(\d+)\s*(?:ª|a)?\s*revis', texto)
+    padrao_revisao = re.search(r"(\d+)\s*(?:ª|a)?\s*revis", texto)
     if padrao_revisao:
         return {"revisao": int(padrao_revisao.group(1)), "km": None, "meses": None}
 
-    padrao_km = re.search(r'(\d{1,3}(?:[.\s]?\d{3})+|\d+)\s*km', texto)
+    padrao_km = re.search(r"(\d{1,3}(?:[.\s]?\d{3})+|\d+)\s*km", texto)
     if padrao_km:
         km = re.sub(r"[^\d]", "", padrao_km.group(1))
         return {"revisao": None, "km": int(km), "meses": None}
 
-    padrao_meses = re.search(r'(\d+)\s*(?:meses|mês|mes)', texto)
+    padrao_meses = re.search(r"(\d+)\s*(?:meses|mês|mes)", texto)
     if padrao_meses:
         return {"revisao": None, "km": None, "meses": int(padrao_meses.group(1))}
 
     return {"revisao": None, "km": None, "meses": None}
-
-
 # ==========================================
 # FOLLOW-UP PLANILHA
 # ==========================================
@@ -572,6 +611,8 @@ def processar_followups():
 
         if alterou:
             salvar_planilha_followup(df)
+
+
 def worker_followup():
     log_info("Worker de follow-up iniciado.")
     while True:
@@ -848,6 +889,87 @@ def enviar_menu(telefone):
 
 
 # ==========================================
+# APOIO IA FASE 2
+# ==========================================
+def normalizar_revisao_para_fluxo(valor):
+    valor = str(valor or "").strip()
+    if valor in ["1", "2", "3", "4", "5"]:
+        return valor
+
+    if valor.isdigit():
+        numero = int(valor)
+        if numero <= 1:
+            return "1"
+        if numero == 2:
+            return "2"
+        if numero == 3:
+            return "3"
+        if numero == 4:
+            return "4"
+        return "5"
+
+    return ""
+
+
+def opcao_dia_por_nome(nome):
+    nome = normalizar_texto(nome)
+    mapa = {
+        "segunda": "1",
+        "terca": "2",
+        "terça": "2",
+        "quarta": "3",
+        "quinta": "4",
+        "sexta": "5",
+        "sabado": "6",
+        "sábado": "6",
+    }
+    return mapa.get(nome, "")
+
+
+def preencher_dados_ia_no_cliente(telefone, dados):
+    if telefone not in clientes:
+        iniciar_cliente(telefone)
+
+    modelo = limpar_texto(dados.get("modelo"))
+    nome = limpar_texto(dados.get("nome"))
+    cpf = limpar_texto(dados.get("cpf"))
+    ano = limpar_texto(dados.get("ano"))
+    revisao = normalizar_revisao_para_fluxo(dados.get("revisao"))
+    horario = limpar_texto(dados.get("horario"))
+    item_adicional = formatar_itens_adicionais_para_salvar(dados.get("item_adicional"))
+    dia_nome = limpar_texto(dados.get("dia"))
+    dia_opcao = opcao_dia_por_nome(dia_nome)
+
+    if modelo:
+        clientes[telefone]["modelo"] = modelo
+
+    if nome:
+        clientes[telefone]["nome"] = nome
+
+    if cpf:
+        clientes[telefone]["cpf"] = cpf
+
+    if ano:
+        clientes[telefone]["ano"] = ano
+
+    if revisao:
+        clientes[telefone]["revisao"] = revisao
+
+    if dia_opcao:
+        clientes[telefone]["dia"] = dia_opcao
+        clientes[telefone]["dia_texto"] = nome_dia(dia_opcao)
+
+        if clientes[telefone].get("revisao"):
+            horarios = gerar_horarios_disponiveis(clientes[telefone]["revisao"], dia_opcao)
+            clientes[telefone]["horarios_disponiveis"] = horarios
+
+    if horario:
+        clientes[telefone]["horario"] = horario
+
+    if item_adicional:
+        clientes[telefone]["itens"] = item_adicional
+        clientes[telefone]["venda_adicional"] = "Sim"
+# ==========================================
 # IA INTENÇÃO
 # ==========================================
 def tratar_intencao_ia(telefone, texto):
@@ -858,12 +980,131 @@ def tratar_intencao_ia(telefone, texto):
         log_erro("Erro na IA de intenção:", e)
         return False
 
-    if not resultado:
+    if not resultado or not isinstance(resultado, dict):
         return False
 
-    intent = str(resultado).strip().lower()
+    intencao = str(resultado.get("intencao", "")).strip().lower()
+    confianca = float(resultado.get("confianca", 0) or 0)
+    resposta = limpar_texto(resultado.get("resposta", ""))
+    proxima_etapa = str(resultado.get("proxima_etapa", "menu")).strip()
+    dados = resultado.get("dados_extraidos", {}) or {}
 
-    if intent in ["revisao", "agendar_revisao"]:
+    log_info("Intenção:", intencao)
+    log_info("Confiança:", confianca)
+    log_info("Próxima etapa:", proxima_etapa)
+    log_info("Dados extraídos:", dados)
+
+    preencher_dados_ia_no_cliente(telefone, dados)
+
+    if intencao == "agendar_revisao":
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+
+        etapa_destino = proxima_etapa or "revisao_modelo"
+        clientes[telefone]["etapa"] = etapa_destino
+
+        if etapa_destino == "revisao_modelo":
+            enviar_mensagem(
+                telefone,
+                "🔧 *Agendamento de Revisão*\n\n"
+                "Informe o *modelo da moto*:"
+            )
+            return True
+
+        if etapa_destino == "revisao_nome":
+            enviar_mensagem(
+                telefone,
+                "👤 Informe seu *nome completo*:"
+            )
+            return True
+
+        if etapa_destino == "revisao_cpf":
+            enviar_mensagem(
+                telefone,
+                "📄 Informe o *CPF do proprietário*:"
+            )
+            return True
+
+        if etapa_destino == "revisao_ano":
+            enviar_mensagem(
+                telefone,
+                "📅 Informe o *ano da moto*:"
+            )
+            return True
+
+        if etapa_destino == "revisao_tipo":
+            enviar_mensagem(
+                telefone,
+                "🔧 *Qual revisão deseja agendar?*\n\n"
+                "1 - 1ª revisão\n"
+                "2 - 2ª revisão\n"
+                "3 - 3ª revisão\n"
+                "4 - 4ª revisão\n"
+                "5 - 5ª ou acima"
+            )
+            return True
+
+        if etapa_destino == "revisao_dia":
+            enviar_mensagem(
+                telefone,
+                "📅 *Escolha o dia da semana:*\n\n"
+                "1 - Segunda\n"
+                "2 - Terça\n"
+                "3 - Quarta\n"
+                "4 - Quinta\n"
+                "5 - Sexta\n"
+                "6 - Sábado"
+            )
+            return True
+
+        if etapa_destino == "revisao_horario":
+            horarios = clientes[telefone].get("horarios_disponiveis", [])
+            if horarios:
+                enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+            else:
+                clientes[telefone]["etapa"] = "revisao_dia"
+                enviar_mensagem(
+                    telefone,
+                    "📅 Já identifiquei sua revisão, mas preciso confirmar o *dia da semana* para mostrar os horários.\n\n"
+                    "1 - Segunda\n"
+                    "2 - Terça\n"
+                    "3 - Quarta\n"
+                    "4 - Quinta\n"
+                    "5 - Sexta\n"
+                    "6 - Sábado"
+                )
+            return True
+
+        if etapa_destino == "revisao_confirmar":
+            if not clientes[telefone].get("data"):
+                clientes[telefone]["etapa"] = "revisao_data"
+                enviar_mensagem(
+                    telefone,
+                    "📆 Já adiantei parte do seu agendamento.\n\n"
+                    "Agora informe a *data desejada*:\n"
+                    "Exemplo: 15/04/2026"
+                )
+                return True
+
+            adicionais_exibicao = clientes[telefone]["itens"] if clientes[telefone]["itens"] else "Nenhum"
+
+            enviar_mensagem(
+                telefone,
+                "✅ *Confira seu agendamento:*\n\n"
+                f"👤 Nome: {clientes[telefone]['nome']}\n"
+                f"🏍️ Modelo: {clientes[telefone]['modelo']}\n"
+                f"📄 CPF: {clientes[telefone]['cpf']}\n"
+                f"📅 Data: {clientes[telefone]['data']}\n"
+                f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
+                f"⏰ Horário: {clientes[telefone]['horario']}\n"
+                f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
+                f"🛒 Adicionais: {adicionais_exibicao}\n\n"
+                "Digite:\n"
+                "1 - Confirmar\n"
+                "2 - Cancelar"
+            )
+            return True
+
         clientes[telefone]["etapa"] = "revisao_modelo"
         enviar_mensagem(
             telefone,
@@ -872,13 +1113,19 @@ def tratar_intencao_ia(telefone, texto):
         )
         return True
 
-    if intent == "valor_revisao":
-        modelo = extrair_modelo_do_texto(texto)
+    if intencao == "valor_revisao":
+        modelo = limpar_texto(dados.get("modelo")) or extrair_modelo_do_texto(texto)
+        revisao_extraida = dados.get("revisao")
         dados_consulta = extrair_revisao_km_ou_meses(texto)
 
-        revisao = dados_consulta.get("revisao")
+        revisao = None
         km = dados_consulta.get("km")
         meses = dados_consulta.get("meses")
+
+        if str(revisao_extraida or "").isdigit():
+            revisao = int(str(revisao_extraida).strip())
+        else:
+            revisao = dados_consulta.get("revisao")
 
         if not modelo:
             enviar_mensagem(
@@ -949,16 +1196,19 @@ def tratar_intencao_ia(telefone, texto):
         )
         return True
 
-    if intent == "menu":
+    if intencao == "menu":
         resetar_cliente(telefone)
         enviar_menu(telefone)
         return True
 
-    if intent == "humano":
+    if intencao == "humano":
         ativar_atendimento_humano(telefone)
         return True
 
-    if intent == "pecas":
+    if intencao == "pecas":
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+
         enviar_mensagem(
             telefone,
             "🔩 *Peças*\n\n"
@@ -966,7 +1216,10 @@ def tratar_intencao_ia(telefone, texto):
         )
         return True
 
-    if intent == "acessorios":
+    if intencao == "acessorios":
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+
         enviar_mensagem(
             telefone,
             "🛵 *Acessórios*\n\n"
@@ -974,7 +1227,10 @@ def tratar_intencao_ia(telefone, texto):
         )
         return True
 
-    if intent == "garantia":
+    if intencao == "garantia":
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+
         enviar_mensagem(
             telefone,
             "🛡️ *Garantia*\n\n"
@@ -982,8 +1238,12 @@ def tratar_intencao_ia(telefone, texto):
         )
         return True
 
-    if intent == "atacado":
+    if intencao == "atacado":
         clientes[telefone]["etapa"] = "submenu_atacado"
+
+        if resposta:
+            enviar_mensagem(telefone, resposta)
+
         enviar_mensagem(
             telefone,
             "📦 *Logista / Atacado*\n\n"
@@ -1064,6 +1324,8 @@ def salvar_atendimento_seguro(dados):
 
     finally:
         db.close()
+
+
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1514,9 +1776,13 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
     elif etapa == "revisao_venda_adicional":
-        clientes[telefone]["itens"] = texto
-        clientes[telefone]["venda_adicional"] = "Sim"
+        itens_formatados = formatar_itens_adicionais_para_salvar(texto)
+
+        clientes[telefone]["itens"] = itens_formatados
+        clientes[telefone]["venda_adicional"] = "Sim" if itens_formatados else "Não"
         clientes[telefone]["etapa"] = "revisao_confirmar"
+
+        adicionais_exibicao = itens_formatados if itens_formatados else "Nenhum"
 
         enviar_mensagem(
             telefone,
@@ -1528,7 +1794,7 @@ def webhook():
             f"📍 Dia: {clientes[telefone]['dia_texto']}\n"
             f"⏰ Horário: {clientes[telefone]['horario']}\n"
             f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n"
-            f"🛒 Adicionais: {clientes[telefone]['itens']}\n\n"
+            f"🛒 Adicionais: {adicionais_exibicao}\n\n"
             "Digite:\n"
             "1 - Confirmar\n"
             "2 - Cancelar"

@@ -13,6 +13,22 @@ except Exception:
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
+MODELOS_YAMAHA = [
+    "FAZER 250",
+    "FZ15",
+    "CROSSER",
+    "LANDER",
+    "MT03",
+    "MT07",
+    "R15",
+    "R3",
+    "FLUO",
+    "NEO",
+    "NMAX",
+    "TENERE 700",
+    "AEROX"
+]
+
 
 def log_info(*args):
     print("[IA][INFO]", *args, flush=True)
@@ -20,6 +36,14 @@ def log_info(*args):
 
 def log_erro(*args):
     print("[IA][ERRO]", *args, flush=True)
+
+
+def limpar_texto(texto):
+    return str(texto or "").strip()
+
+
+def normalizar_texto(texto):
+    return limpar_texto(texto).lower()
 
 
 def obter_cliente():
@@ -55,60 +79,232 @@ def texto_parece_valor_revisao(texto_normalizado):
     return (tem_valor and tem_contexto_revisao) or tem_numero_revisao or tem_km or tem_meses
 
 
-def classificar_intencao(texto):
-    texto = str(texto or "").strip()
+def extrair_modelo(texto):
+    texto_upper = str(texto or "").upper()
 
-    if not texto:
-        return "menu"
+    for modelo in MODELOS_YAMAHA:
+        if modelo in texto_upper:
+            return modelo
 
-    texto_normalizado = texto.lower()
+    return ""
 
-    # ==========================================
-    # REGRAS RÁPIDAS SEM IA
-    # ==========================================
+
+def extrair_ano(texto):
+    match = re.search(r"\b(20\d{2})\b", str(texto or ""))
+    if match:
+        return match.group(1)
+    return ""
+
+
+def extrair_revisao(texto):
+    texto = normalizar_texto(texto)
+
+    match = re.search(r"(\d+)\s*(?:a|ª)?\s*revis", texto)
+    if match:
+        return match.group(1)
+
+    return ""
+
+
+def extrair_horario(texto):
+    texto = normalizar_texto(texto)
+
+    match = re.search(r"\b(\d{1,2}):(\d{2})\b", texto)
+    if match:
+        return f"{int(match.group(1)):02d}:{match.group(2)}"
+
+    match = re.search(r"\b(\d{1,2})\s*h\b", texto)
+    if match:
+        return f"{int(match.group(1)):02d}:00"
+
+    return ""
+
+
+def extrair_dia(texto):
+    texto = normalizar_texto(texto)
+
+    mapa = {
+        "segunda": "segunda",
+        "terça": "terca",
+        "terca": "terca",
+        "quarta": "quarta",
+        "quinta": "quinta",
+        "sexta": "sexta",
+        "sábado": "sabado",
+        "sabado": "sabado",
+    }
+
+    for chave, valor in mapa.items():
+        if chave in texto:
+            return valor
+
+    return ""
+
+
+def extrair_nome(texto):
+    texto = limpar_texto(texto)
+
+    padroes = [
+        r"meu nome é ([a-zA-ZÀ-ÿ\s]+)",
+        r"meu nome e ([a-zA-ZÀ-ÿ\s]+)",
+        r"nome[:\s]+([a-zA-ZÀ-ÿ\s]+)",
+        r"sou ([a-zA-ZÀ-ÿ\s]+)",
+    ]
+
+    for padrao in padroes:
+        match = re.search(padrao, texto, re.IGNORECASE)
+        if match:
+            return match.group(1).strip().upper()
+
+    return ""
+
+
+def extrair_cpf(texto):
+    match = re.search(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", str(texto or ""))
+    if match:
+        return match.group(0)
+    return ""
+
+
+def extrair_item_adicional(texto):
+    texto_lower = normalizar_texto(texto)
+
+    itens_comuns = [
+        "filtro de ar",
+        "pastilha de freio",
+        "óleo",
+        "oleo",
+        "slider",
+        "baú",
+        "bau",
+        "suporte celular",
+        "suporte para celular",
+        "protetor motor",
+    ]
+
+    encontrados = []
+
+    for item in itens_comuns:
+        if item in texto_lower:
+            item_formatado = item.upper().replace("Ó", "O").replace("Ú", "U")
+            if item_formatado not in encontrados:
+                encontrados.append(item_formatado)
+
+    return ", ".join(encontrados)
+
+
+def detectar_intencao_regras(texto_normalizado):
     if any(p in texto_normalizado for p in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]):
-        return "menu"
+        return "menu", 0.99
 
     if texto_parece_valor_revisao(texto_normalizado):
-        return "valor_revisao"
+        return "valor_revisao", 0.98
 
     if any(p in texto_normalizado for p in [
         "agendar revisão", "agendar revisao", "revisão", "revisao",
         "marcar revisão", "marcar revisao", "quero revisar", "agendamento"
     ]):
-        return "revisao"
+        return "agendar_revisao", 0.96
 
     if any(p in texto_normalizado for p in [
         "peça", "peca", "peças", "pecas", "orçamento de peça", "orcamento de peca"
     ]):
-        return "pecas"
+        return "pecas", 0.94
 
     if any(p in texto_normalizado for p in [
         "acessório", "acessorio", "acessórios", "acessorios"
     ]):
-        return "acessorios"
+        return "acessorios", 0.94
 
     if any(p in texto_normalizado for p in [
         "garantia", "defeito", "problema em garantia"
     ]):
-        return "garantia"
+        return "garantia", 0.94
 
     if any(p in texto_normalizado for p in [
         "atacado", "logista", "cotação", "cotacao", "catálogo", "catalogo"
     ]):
-        return "atacado"
+        return "atacado", 0.94
 
     if any(p in texto_normalizado for p in [
         "atendente", "humano", "consultor", "falar com alguém", "falar com alguem"
     ]):
-        return "humano"
+        return "humano", 0.97
 
-    # ==========================================
-    # IA
-    # ==========================================
+    return "", 0.0
+
+
+def sugerir_proxima_etapa(intencao, dados):
+    if intencao == "agendar_revisao":
+        if not dados["modelo"]:
+            return "revisao_modelo"
+        if not dados["nome"]:
+            return "revisao_nome"
+        if not dados["cpf"]:
+            return "revisao_cpf"
+        if not dados["ano"]:
+            return "revisao_ano"
+        if not dados["revisao"]:
+            return "revisao_tipo"
+        if not dados["dia"]:
+            return "revisao_dia"
+        if not dados["horario"]:
+            return "revisao_horario"
+        return "revisao_confirmar"
+
+    if intencao == "valor_revisao":
+        return "consulta_valor_revisao"
+
+    if intencao == "pecas":
+        return "pecas"
+
+    if intencao == "acessorios":
+        return "acessorios"
+
+    if intencao == "garantia":
+        return "garantia"
+
+    if intencao == "atacado":
+        return "submenu_atacado"
+
+    if intencao == "humano":
+        return "atendimento_humano"
+
+    return "menu"
+
+
+def gerar_resposta(intencao, dados):
+    if intencao == "agendar_revisao":
+        return "Perfeito. Vou te ajudar com o agendamento da sua revisão."
+
+    if intencao == "valor_revisao":
+        return "Perfeito. Vou verificar as informações para consultar o valor da revisão."
+
+    if intencao == "pecas":
+        return "Certo. Vou seguir com seu atendimento de peças."
+
+    if intencao == "acessorios":
+        return "Perfeito. Vou seguir com seu atendimento de acessórios."
+
+    if intencao == "garantia":
+        return "Certo. Vou seguir com sua solicitação de garantia."
+
+    if intencao == "atacado":
+        return "Perfeito. Vou te direcionar para o atendimento de logista e atacado."
+
+    if intencao == "humano":
+        return "Certo. Vou te encaminhar para atendimento humano."
+
+    if intencao == "menu":
+        return "Perfeito. Vou te enviar o menu principal."
+
+    return "Entendi sua mensagem. Vou te ajudar com isso."
+
+
+def classificar_com_ia(texto):
     cliente = obter_cliente()
     if cliente is None:
-        return "menu"
+        return "", 0.0
 
     try:
         resposta = cliente.chat.completions.create(
@@ -120,7 +316,7 @@ def classificar_intencao(texto):
                     "content": (
                         "Você é um classificador de intenção para um bot de pós-vendas Yamaha. "
                         "Responda com apenas uma única palavra, sem explicação, escolhendo uma destas opções exatas: "
-                        "revisao, valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
+                        "agendar_revisao, valor_revisao, pecas, acessorios, garantia, atacado, humano, menu. "
                         "Use valor_revisao quando a pessoa quiser saber preço, valor ou custo de revisão por número, km ou meses. "
                         "Nunca responda fora dessa lista."
                     )
@@ -136,7 +332,7 @@ def classificar_intencao(texto):
         log_info("Resposta bruta IA:", conteudo)
 
         permitidas = {
-            "revisao",
+            "agendar_revisao",
             "valor_revisao",
             "pecas",
             "acessorios",
@@ -147,10 +343,69 @@ def classificar_intencao(texto):
         }
 
         if conteudo in permitidas:
-            return conteudo
+            return conteudo, 0.85
 
-        return "menu"
+        return "", 0.0
 
     except Exception as e:
         log_erro("Erro ao classificar intenção:", e)
-        return "menu"
+        return "", 0.0
+
+
+def classificar_intencao(texto):
+    texto = limpar_texto(texto)
+
+    if not texto:
+        dados = {
+            "modelo": "",
+            "ano": "",
+            "revisao": "",
+            "dia": "",
+            "horario": "",
+            "nome": "",
+            "cpf": "",
+            "item_adicional": "",
+        }
+        return {
+            "intencao": "menu",
+            "confianca": 1.0,
+            "resposta": gerar_resposta("menu", dados),
+            "proxima_etapa": "menu",
+            "dados_extraidos": dados
+        }
+
+    texto_normalizado = normalizar_texto(texto)
+
+    intencao, confianca = detectar_intencao_regras(texto_normalizado)
+
+    if not intencao:
+        intencao, confianca = classificar_com_ia(texto)
+
+    if not intencao:
+        intencao = "menu"
+        confianca = 0.50
+
+    dados = {
+        "modelo": extrair_modelo(texto),
+        "ano": extrair_ano(texto),
+        "revisao": extrair_revisao(texto),
+        "dia": extrair_dia(texto),
+        "horario": extrair_horario(texto),
+        "nome": extrair_nome(texto),
+        "cpf": extrair_cpf(texto),
+        "item_adicional": extrair_item_adicional(texto),
+    }
+
+    proxima_etapa = sugerir_proxima_etapa(intencao, dados)
+    resposta = gerar_resposta(intencao, dados)
+
+    retorno = {
+        "intencao": intencao,
+        "confianca": confianca,
+        "resposta": resposta,
+        "proxima_etapa": proxima_etapa,
+        "dados_extraidos": dados
+    }
+
+    log_info("Retorno final IA:", retorno)
+    return retorno
