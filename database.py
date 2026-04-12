@@ -6,7 +6,6 @@ import os
 # ==========================================
 # CONFIG
 # ==========================================
-
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
 # Ajuste para Postgres do Render
@@ -99,6 +98,40 @@ class LeadAtacado(Base):
 
     status = Column(String, default="novo")
     data = Column(DateTime, default=datetime.now)
+
+
+# ==========================================
+# TABELA AGENDAMENTOS REVISAO
+# ==========================================
+class AgendamentoRevisao(Base):
+    __tablename__ = "agendamentos_revisao"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    protocolo = Column(String, unique=True, index=True)
+    telefone = Column(String, index=True)
+    nome = Column(String)
+    cpf = Column(String, index=True)
+
+    modelo = Column(String)
+    ano = Column(String)
+    revisao = Column(String)
+
+    dia_semana = Column(String)
+    data_agendada = Column(String, index=True)
+    horario = Column(String, index=True)
+
+    itens = Column(Text)
+    venda_adicional = Column(String)
+
+    status = Column(String, default="AGENDADO")
+    observacoes = Column(Text)
+
+    origem = Column(String, default="BOT")
+    lembrete_enviado = Column(Boolean, default=False)
+
+    criado_em = Column(DateTime, default=datetime.now)
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================
