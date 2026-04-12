@@ -767,21 +767,38 @@ def registrar_mensagem_processada(message_id):
 # ==========================================
 def extrair_telefone(payload):
     try:
-        data = payload.get("data", {}) or {}
-
         telefone = (
-            data.get("phone")
-            or data.get("chatId")
-            or data.get("from")
-            or data.get("sender", {}).get("phone") if isinstance(data.get("sender"), dict) else None
-            or payload.get("phone")
+            payload.get("phone")
             or payload.get("chatId")
             or payload.get("from")
-            or payload.get("sender", {}).get("phone") if isinstance(payload.get("sender"), dict) else None
-            or ""
+            or payload.get("connectedPhone")
         )
 
-        return str(telefone).strip()
+        if not telefone:
+            data = payload.get("data", {}) or {}
+            telefone = (
+                data.get("phone")
+                or data.get("chatId")
+                or data.get("from")
+                or data.get("connectedPhone")
+            )
+
+        if not telefone and isinstance(payload.get("sender"), dict):
+            telefone = (
+                payload.get("sender", {}).get("phone")
+                or payload.get("sender", {}).get("id")
+            )
+
+        if telefone:
+            telefone = (
+                str(telefone)
+                .replace("@c.us", "")
+                .replace("@s.whatsapp.net", "")
+                .strip()
+            )
+
+        return telefone
+
     except Exception as e:
         log_erro("Erro ao extrair telefone:", e)
         return ""
