@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao
-from ia_intencao import classificar_intencao
+from ia_intencao import classificar_intencao, responder_duvida_por_tabela
 
 app = Flask(__name__)
 criar_banco()
@@ -287,6 +287,8 @@ def extrair_lista_itens_adicionais(valor):
 def formatar_itens_adicionais_para_salvar(valor):
     itens = extrair_lista_itens_adicionais(valor)
     return ", ".join(itens)
+
+
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -311,7 +313,10 @@ def estado_padrao_cliente():
         "observacao": "",
         "tipo_atendimento": "",
         "duvidas_ia": 0,
-        "concluido": False
+        "concluido": False,
+        "origem_etapa": "",
+        "categoria_duvida": "",
+        "etapa_retorno_duvida": ""
     }
 
 
@@ -562,6 +567,8 @@ def enviar_pdf(telefone, arquivo, legenda=""):
     except Exception as e:
         log_erro("Erro enviar PDF:", e)
         return False
+
+
 # ==========================================
 # MENU / MENSAGENS
 # ==========================================
@@ -575,10 +582,21 @@ def enviar_menu(telefone):
         "3️⃣ Acessórios\n"
         "4️⃣ Garantia\n"
         "5️⃣ Logista / Atacado\n"
-        "6️⃣ Atendimento Humano\n\n"
+        "6️⃣ Dúvidas\n"
+        "7️⃣ Atendimento Humano\n\n"
         "Equipe Motoshow Yamaha"
     )
     enviar_mensagem(telefone, mensagem)
+
+
+def menu_duvidas():
+    return (
+        "📘 *Central de Dúvidas*\n\n"
+        "Escolha uma opção:\n\n"
+        "1️⃣ Dúvidas sobre Revisões\n"
+        "2️⃣ Dúvidas sobre Garantia\n"
+        "3️⃣ Voltar ao menu principal"
+    )
 
 
 def montar_mensagem_horarios(lista):
@@ -695,8 +713,6 @@ def mensagem_por_etapa_revisao(telefone, etapa):
         return montar_resumo_confirmacao(telefone)
 
     return "Vamos continuar seu agendamento."
-
-
 # ==========================================
 # APOIO IA
 # ==========================================
@@ -741,7 +757,9 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     cpf = limpar_cpf(dados_extraidos.get("cpf"))
     ano = limpar_texto(dados_extraidos.get("ano"))
     revisao = normalizar_revisao_para_fluxo(dados_extraidos.get("revisao"))
-    km_atual = limpar_texto(dados_extraidos.get("km_atual"))
+    km_atual = limpar_texto(
+        dados_extraidos.get("km_atual") or dados_extraidos.get("km") or ""
+    )
     dia_texto = limpar_texto(dados_extraidos.get("dia"))
     horario = limpar_texto(dados_extraidos.get("horario"))
     data = limpar_texto(dados_extraidos.get("data"))
@@ -791,6 +809,79 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
 
     if tipo_atendimento and not dados.get("tipo_atendimento"):
         dados["tipo_atendimento"] = tipo_atendimento
+
+
+def mensagem_duvida_retorno_fluxo(telefone):
+    iniciar_cliente(telefone)
+    etapa_retorno = clientes[telefone].get("etapa_retorno_duvida", "")
+
+    if etapa_retorno and etapa_retorno.startswith("revisao"):
+        return (
+            "Se desejar, você pode:\n\n"
+            "1️⃣ Continuar agendamento\n"
+            "2️⃣ Fazer outra dúvida\n"
+            "3️⃣ Falar com atendente"
+        )
+
+    return (
+        "Se desejar, você pode:\n\n"
+        "1️⃣ Fazer outra dúvida\n"
+        "2️⃣ Voltar ao menu principal\n"
+        "3️⃣ Falar com atendente"
+    )
+
+
+def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
+    iniciar_cliente(telefone)
+    clientes[telefone]["etapa_retorno_duvida"] = etapa_atual or clientes[telefone].get("etapa", "")
+    clientes[telefone]["origem_etapa"] = etapa_atual or clientes[telefone].get("etapa", "")
+    clientes[telefone]["etapa"] = "menu_duvidas"
+
+    enviar_mensagem(
+        telefone,
+        "📘 Percebi que você enviou uma dúvida.\n\n"
+        "Vou te direcionar para a central de dúvidas:"
+    )
+    enviar_mensagem(telefone, menu_duvidas())
+
+
+def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
+    db = SessionLocal()
+
+    try:
+        atendimento = Atendimento(
+            telefone=telefone,
+            nome=clientes.get(telefone, {}).get("nome", "") or "Não informado",
+            setor=f"Dúvidas {categoria.title()}",
+            modelo=clientes.get(telefone, {}).get("modelo", "") or "",
+            ano=clientes.get(telefone, {}).get("ano", "") or "",
+            revisao=clientes.get(telefone, {}).get("revisao", "") or "",
+            cpf=clientes.get(telefone, {}).get("cpf", "") or "",
+            dia_semana="",
+            data_agendada="",
+            horario="",
+            itens=pergunta,
+            venda_adicional="",
+            origem="BOT",
+            status="Dúvida respondida",
+            etapa="duvida_respondida",
+            atendimento_humano=False,
+            concluido=True,
+            ultima_interacao=agora_datetime(),
+            data=agora_datetime()
+        )
+
+        db.add(atendimento)
+        db.commit()
+        return True
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro salvar dúvida dashboard:", repr(e))
+        return False
+
+    finally:
+        db.close()
 
 
 # ==========================================
@@ -862,6 +953,8 @@ def enviar_proxima_etapa_revisao(telefone):
         return
 
     enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa))
+
+
 # ==========================================
 # CAPACIDADE / HORÁRIOS
 # ==========================================
@@ -943,8 +1036,6 @@ def validar_data(data):
 
 def gerar_protocolo():
     return str(uuid.uuid4())[:8].upper()
-
-
 # ==========================================
 # SALVAMENTO
 # ==========================================
@@ -1309,6 +1400,8 @@ def worker():
 def iniciar_worker():
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
+
+
 # ==========================================
 # DASHBOARD
 # ==========================================
@@ -1344,6 +1437,10 @@ def dashboard():
         total = query.count()
         total_revisoes = query.filter(Atendimento.setor == "Revisão").count()
         revisao = total_revisoes
+
+        total_duvidas_revisoes = query.filter(Atendimento.setor == "Dúvidas Revisoes").count()
+        total_duvidas_garantia = query.filter(Atendimento.setor == "Dúvidas Garantia").count()
+        total_duvidas = total_duvidas_revisoes + total_duvidas_garantia
 
         agendados = query.filter(Atendimento.status == "Agendado").count()
         concluidos = query.filter(Atendimento.concluido == True).count()
@@ -1391,6 +1488,9 @@ def dashboard():
             total=total,
             revisao=revisao,
             total_revisoes=total_revisoes,
+            total_duvidas=total_duvidas,
+            total_duvidas_revisoes=total_duvidas_revisoes,
+            total_duvidas_garantia=total_duvidas_garantia,
             agendados=agendados,
             cancelados=cancelados,
             reagendados=reagendados,
@@ -1414,8 +1514,6 @@ def dashboard():
 
     finally:
         db.close()
-
-
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1537,6 +1635,11 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "6":
+            clientes[telefone]["etapa"] = "menu_duvidas"
+            enviar_mensagem(telefone, menu_duvidas())
+            return jsonify({"status": "ok"}), 200
+
+        elif texto_opcao == "7":
             ativar_atendimento_humano(telefone)
             return jsonify({"status": "ok"}), 200
 
@@ -1547,6 +1650,11 @@ def webhook():
                 enviar_proxima_etapa_revisao(telefone)
             else:
                 enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
+            return jsonify({"status": "ok"}), 200
+
+        elif intencao_ia == "duvidas":
+            clientes[telefone]["etapa"] = "menu_duvidas"
+            enviar_mensagem(telefone, menu_duvidas())
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "pecas":
@@ -1580,18 +1688,136 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     # ==========================================
+    # MENU DÚVIDAS
+    # ==========================================
+    if etapa == "menu_duvidas":
+        if texto_opcao == "1":
+            clientes[telefone]["categoria_duvida"] = "revisoes"
+            clientes[telefone]["etapa"] = "duvida_revisoes"
+            enviar_mensagem(
+                telefone,
+                "📘 *Dúvidas sobre Revisões*\n\n"
+                "Envie sua dúvida em texto livre.\n\n"
+                "Exemplos:\n"
+                "• Qual o valor da revisão?\n"
+                "• O que troca na 2ª revisão?\n"
+                "• Quanto tempo demora?\n"
+                "• Com quantos km faz a revisão?"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif texto_opcao == "2":
+            clientes[telefone]["categoria_duvida"] = "garantia"
+            clientes[telefone]["etapa"] = "duvida_garantia"
+            enviar_mensagem(
+                telefone,
+                "📘 *Dúvidas sobre Garantia*\n\n"
+                "Envie sua dúvida em texto livre.\n\n"
+                "Exemplos:\n"
+                "• O que a garantia cobre?\n"
+                "• Preciso levar documentos?\n"
+                "• Posso perder a garantia?\n"
+                "• Como funciona a análise?"
+            )
+            return jsonify({"status": "ok"}), 200
+
+        elif texto_opcao == "3":
+            resetar_cliente(telefone)
+            enviar_menu(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        enviar_mensagem(telefone, menu_duvidas())
+        return jsonify({"status": "ok"}), 200
+
+    # ==========================================
+    # RESPOSTA DÚVIDAS
+    # ==========================================
+    if etapa in ["duvida_revisoes", "duvida_garantia"]:
+        categoria = "revisoes" if etapa == "duvida_revisoes" else "garantia"
+
+        resposta_duvida = responder_duvida_por_tabela(
+            categoria=categoria,
+            pergunta_cliente=texto,
+            modelo=clientes[telefone].get("modelo", ""),
+            revisao=clientes[telefone].get("revisao", "")
+        )
+
+        clientes[telefone]["duvidas_ia"] = int(clientes[telefone].get("duvidas_ia", 0) or 0) + 1
+
+        salvar_duvida_dashboard(
+            telefone=telefone,
+            categoria="Revisoes" if categoria == "revisoes" else "Garantia",
+            pergunta=texto,
+            resposta=resposta_duvida
+        )
+
+        enviar_mensagem(telefone, resposta_duvida)
+
+        clientes[telefone]["etapa"] = "duvida_pos_resposta"
+        enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
+        return jsonify({"status": "ok"}), 200
+
+    if etapa == "duvida_pos_resposta":
+        etapa_retorno = clientes[telefone].get("etapa_retorno_duvida", "")
+
+        if etapa_retorno and etapa_retorno.startswith("revisao"):
+            if texto_opcao == "1":
+                clientes[telefone]["etapa"] = etapa_retorno
+                enviar_mensagem(
+                    telefone,
+                    "Perfeito 👍 Vamos continuar seu agendamento."
+                )
+                if etapa_retorno == "revisao_horario":
+                    revisao = clientes[telefone]["revisao"]
+                    dia = clientes[telefone]["dia"]
+                    horarios = horarios_por_revisao(revisao, dia)
+                    clientes[telefone]["horarios_disponiveis"] = horarios
+                    enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+                else:
+                    enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa_retorno))
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "2":
+                clientes[telefone]["etapa"] = "menu_duvidas"
+                enviar_mensagem(telefone, menu_duvidas())
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "3":
+                ativar_atendimento_humano(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
+            return jsonify({"status": "ok"}), 200
+
+        else:
+            if texto_opcao == "1":
+                clientes[telefone]["etapa"] = "menu_duvidas"
+                enviar_mensagem(telefone, menu_duvidas())
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "2":
+                resetar_cliente(telefone)
+                enviar_menu(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "3":
+                ativar_atendimento_humano(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
+            return jsonify({"status": "ok"}), 200
+    # ==========================================
     # FLUXO REVISÃO
     # ==========================================
     if etapa.startswith("revisao"):
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
 
+        if intencao_ia == "duvidas":
+            encaminhar_para_menu_duvidas(telefone, etapa_atual=etapa)
+            return jsonify({"status": "ok"}), 200
+
         if intencao_ia in ["humano", "falar_humano", "atendimento_humano"]:
-            clientes[telefone]["duvidas_ia"] = int(clientes[telefone].get("duvidas_ia", 0)) + 1
-            enviar_mensagem(
-                telefone,
-                "Posso te ajudar por aqui mesmo 👍\n\n"
-                "Me diga sua dúvida sobre a revisão que eu explico e seguimos com seu agendamento."
-            )
+            ativar_atendimento_humano(telefone)
             return jsonify({"status": "ok"}), 200
 
         if etapa == "revisao_modelo":
@@ -1813,11 +2039,22 @@ def webhook():
 
     if etapa == "atacado":
         if texto == "3":
-            enviar_pdf(
+            enviado = enviar_pdf(
                 telefone,
                 "catalogo-atacado.pdf",
                 "📄 Catálogo Atacado Motoshow Yamaha"
             )
+
+            if enviado:
+                enviar_mensagem(
+                    telefone,
+                    "✅ Catálogo enviado com sucesso."
+                )
+            else:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não consegui enviar o catálogo agora. Nossa equipe dará continuidade."
+                )
         else:
             enviar_mensagem(
                 telefone,
