@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Float
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import os
@@ -144,6 +144,51 @@ class AgendamentoRevisao(Base):
     # Integração futura Sances
     codigo_sistema = Column(String)
     sincronizado = Column(Boolean, default=False)
+
+    criado_em = Column(DateTime, default=datetime.now)
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+# ==========================================
+# TABELA CATÁLOGO DE REVISÕES
+# Base oficial para IA responder dúvidas
+# ==========================================
+class RevisaoCatalogo(Base):
+    __tablename__ = "revisoes_catalogo"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    modelo = Column(String, index=True, nullable=False)
+    revisao_numero = Column(String, index=True, nullable=False)
+
+    valor = Column(Float)
+    tempo_estimado = Column(String)
+
+    itens_trocados = Column(Text)
+    itens_verificados = Column(Text)
+    descricao_servico = Column(Text)
+    observacoes = Column(Text)
+
+    ativo = Column(Boolean, default=True)
+
+    criado_em = Column(DateTime, default=datetime.now)
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+# ==========================================
+# TABELA FAQ REVISÃO
+# Perguntas frequentes prontas para apoio
+# ==========================================
+class FaqRevisao(Base):
+    __tablename__ = "faq_revisao"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    categoria = Column(String, index=True)  # valor / tempo / troca / garantia / geral
+    pergunta_chave = Column(String, index=True)
+    resposta_base = Column(Text)
+
+    ativo = Column(Boolean, default=True)
 
     criado_em = Column(DateTime, default=datetime.now)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)

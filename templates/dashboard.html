@@ -111,6 +111,8 @@
         .card.amarelo { border-left-color: #d97706; }
         .card.roxo { border-left-color: #7c3aed; }
         .card.ciano { border-left-color: #0891b2; }
+        .card.rosa { border-left-color: #be185d; }
+        .card.cinza { border-left-color: #475569; }
 
         .grid {
             display: grid;
@@ -168,7 +170,7 @@
             border-collapse: collapse;
             overflow: hidden;
             border-radius: 12px;
-            min-width: 760px;
+            min-width: 980px;
         }
 
         thead {
@@ -181,6 +183,7 @@
             text-align: left;
             border-bottom: 1px solid #e5e7eb;
             white-space: nowrap;
+            vertical-align: top;
         }
 
         tbody tr:hover {
@@ -218,6 +221,11 @@
             color: #1d4ed8;
         }
 
+        .status-concluido {
+            background: #ede9fe;
+            color: #6d28d9;
+        }
+
         .info-lista {
             display: grid;
             gap: 12px;
@@ -241,6 +249,12 @@
             padding: 20px;
             color: #6b7280;
             font-size: 13px;
+        }
+
+        .itens-coluna {
+            max-width: 280px;
+            white-space: normal;
+            line-height: 1.4;
         }
 
         @media (max-width: 980px) {
@@ -267,7 +281,7 @@
 
     <div class="topbar">
         <h1>🏍️ Dashboard Pós-Vendas Motoshow Yamaha</h1>
-        <p>Painel gerencial de atendimentos, revisões, reagendamentos e vendas adicionais</p>
+        <p>Painel gerencial de atendimentos, revisões, reagendamentos, IA e vendas adicionais</p>
     </div>
 
     <div class="container">
@@ -286,13 +300,18 @@
             </div>
 
             <div class="card azul">
-                <h3>Total Revisões</h3>
-                <div class="numero">{{ revisao }}</div>
+                <h3>Atendimentos de Revisão</h3>
+                <div class="numero">{{ total_revisoes if total_revisoes is defined else revisao }}</div>
             </div>
 
             <div class="card verde">
                 <h3>Revisões Agendadas</h3>
                 <div class="numero">{{ agendados }}</div>
+            </div>
+
+            <div class="card roxo">
+                <h3>Revisões Concluídas</h3>
+                <div class="numero">{{ concluidos if concluidos is defined else 0 }}</div>
             </div>
 
             <div class="card vermelho">
@@ -305,6 +324,16 @@
                 <div class="numero">{{ reagendados }}</div>
             </div>
 
+            <div class="card rosa">
+                <h3>Atendimento Humano</h3>
+                <div class="numero">{{ atendimento_humano if atendimento_humano is defined else 0 }}</div>
+            </div>
+
+            <div class="card cinza">
+                <h3>Dúvidas Respondidas IA</h3>
+                <div class="numero">{{ duvidas_ia if duvidas_ia is defined else 0 }}</div>
+            </div>
+
             <div class="card roxo">
                 <h3>Itens Vendidos</h3>
                 <div class="numero">{{ total_itens_vendidos }}</div>
@@ -313,8 +342,9 @@
             <div class="card amarelo">
                 <h3>Conversão em Agendamento</h3>
                 <div class="numero">
-                    {% if total > 0 %}
-                        {{ ((agendados / total) * 100) | round(1) }}%
+                    {% set base_conversao = total_revisoes if total_revisoes is defined else total %}
+                    {% if base_conversao > 0 %}
+                        {{ ((agendados / base_conversao) * 100) | round(1) }}%
                     {% else %}
                         0%
                     {% endif %}
@@ -343,9 +373,13 @@
 
             <div class="panel">
                 <h2>🛒 Venda Adicional</h2>
-                <div class="chart-box">
-                    <canvas id="graficoAdicionais"></canvas>
-                </div>
+                {% if ranking_itens %}
+                    <div class="chart-box">
+                        <canvas id="graficoAdicionais"></canvas>
+                    </div>
+                {% else %}
+                    <div class="vazio">Nenhuma venda adicional no período selecionado.</div>
+                {% endif %}
             </div>
         </div>
 
@@ -423,10 +457,12 @@
                         <tr>
                             <th>Protocolo</th>
                             <th>Cliente</th>
+                            <th>Telefone</th>
                             <th>Modelo</th>
                             <th>Revisão</th>
                             <th>Data</th>
                             <th>Horário</th>
+                            <th>Itens Adicionais</th>
                             <th>Status</th>
                         </tr>
                     </thead>
@@ -435,15 +471,18 @@
                         <tr>
                             <td>{{ ag.protocolo }}</td>
                             <td>{{ ag.nome }}</td>
+                            <td>{{ ag.telefone }}</td>
                             <td>{{ ag.modelo }}</td>
                             <td>{{ ag.revisao }}ª</td>
                             <td>{{ ag.data_agendada }}</td>
                             <td>{{ ag.horario }}</td>
+                            <td class="itens-coluna">{{ ag.itens if ag.itens else 'Nenhum' }}</td>
                             <td>
                                 <span class="status-badge
                                     {% if ag.status == 'AGENDADO' %}status-agendado{% endif %}
                                     {% if ag.status == 'CANCELADO' %}status-cancelado{% endif %}
-                                    {% if ag.status == 'REAGENDADO' %}status-reagendado{% endif %}">
+                                    {% if ag.status == 'REAGENDADO' %}status-reagendado{% endif %}
+                                    {% if ag.status == 'CONCLUIDO' %}status-concluido{% endif %}">
                                     {{ ag.status }}
                                 </span>
                             </td>
@@ -461,104 +500,114 @@
     <div class="footer">
         Dashboard CRM - Pós-Vendas Motoshow Yamaha
     </div>
+
     <script>
-        const ctxRevisoes = document.getElementById('graficoRevisoes').getContext('2d');
-        new Chart(ctxRevisoes, {
-            type: 'bar',
-            data: {
-                labels: ['1ª', '2ª', '3ª', '4ª', '5ª+'],
-                datasets: [{
-                    label: 'Quantidade',
-                    data: [
-                        {{ primeira }},
-                        {{ segunda }},
-                        {{ terceira }},
-                        {{ quarta }},
-                        {{ quinta }}
-                    ],
-                    backgroundColor: [
-                        '#163b8c',
-                        '#2563eb',
-                        '#0f766e',
-                        '#f59e0b',
-                        '#dc2626'
-                    ],
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
+        const canvasRevisoes = document.getElementById('graficoRevisoes');
+        if (canvasRevisoes) {
+            const ctxRevisoes = canvasRevisoes.getContext('2d');
+            new Chart(ctxRevisoes, {
+                type: 'bar',
+                data: {
+                    labels: ['1ª', '2ª', '3ª', '4ª', '5ª+'],
+                    datasets: [{
+                        label: 'Quantidade',
+                        data: [
+                            {{ primeira }},
+                            {{ segunda }},
+                            {{ terceira }},
+                            {{ quarta }},
+                            {{ quinta }}
+                        ],
+                        backgroundColor: [
+                            '#163b8c',
+                            '#2563eb',
+                            '#0f766e',
+                            '#f59e0b',
+                            '#dc2626'
+                        ],
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
 
-        const labelsAdicionais = [
-            {% for item, qtd in ranking_itens[:10] %}
-                "{{ item|escape }}"{% if not loop.last %},{% endif %}
-            {% endfor %}
-        ];
+        const canvasAdicionais = document.getElementById('graficoAdicionais');
+        if (canvasAdicionais) {
+            const labelsAdicionais = [
+                {% for item, qtd in ranking_itens[:10] %}
+                    "{{ item|escape }}"{% if not loop.last %},{% endif %}
+                {% endfor %}
+            ];
 
-        const dadosAdicionais = [
-            {% for item, qtd in ranking_itens[:10] %}
-                {{ qtd }}{% if not loop.last %},{% endif %}
-            {% endfor %}
-        ];
+            const dadosAdicionais = [
+                {% for item, qtd in ranking_itens[:10] %}
+                    {{ qtd }}{% if not loop.last %},{% endif %}
+                {% endfor %}
+            ];
 
-        const ctxAdicionais = document.getElementById('graficoAdicionais').getContext('2d');
-        new Chart(ctxAdicionais, {
-            type: 'doughnut',
-            data: {
-                labels: labelsAdicionais,
-                datasets: [{
-                    data: dadosAdicionais,
-                    backgroundColor: [
-                        '#163b8c',
-                        '#2563eb',
-                        '#0f766e',
-                        '#f59e0b',
-                        '#dc2626',
-                        '#7c3aed',
-                        '#0891b2',
-                        '#65a30d',
-                        '#ea580c',
-                        '#be123c'
-                    ]
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false
-            }
-        });
+            const ctxAdicionais = canvasAdicionais.getContext('2d');
+            new Chart(ctxAdicionais, {
+                type: 'doughnut',
+                data: {
+                    labels: labelsAdicionais,
+                    datasets: [{
+                        data: dadosAdicionais,
+                        backgroundColor: [
+                            '#163b8c',
+                            '#2563eb',
+                            '#0f766e',
+                            '#f59e0b',
+                            '#dc2626',
+                            '#7c3aed',
+                            '#0891b2',
+                            '#65a30d',
+                            '#ea580c',
+                            '#be123c'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
 
-        const ctxStatus = document.getElementById('graficoStatus').getContext('2d');
-        new Chart(ctxStatus, {
-            type: 'pie',
-            data: {
-                labels: ['Agendados', 'Cancelados', 'Reagendados'],
-                datasets: [{
-                    data: [
-                        {{ agendados }},
-                        {{ cancelados }},
-                        {{ reagendados }}
-                    ],
-                    backgroundColor: [
-                        '#16a34a',
-                        '#dc2626',
-                        '#2563eb'
-                    ]
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false
-            }
-        });
+        const canvasStatus = document.getElementById('graficoStatus');
+        if (canvasStatus) {
+            const ctxStatus = canvasStatus.getContext('2d');
+            new Chart(ctxStatus, {
+                type: 'pie',
+                data: {
+                    labels: ['Agendados', 'Cancelados', 'Reagendados'],
+                    datasets: [{
+                        data: [
+                            {{ agendados }},
+                            {{ cancelados }},
+                            {{ reagendados }}
+                        ],
+                        backgroundColor: [
+                            '#16a34a',
+                            '#dc2626',
+                            '#2563eb'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
     </script>
 
 </body>

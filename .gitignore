@@ -5,7 +5,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyc
 *.so
 *.egg
 *.egg-info/
@@ -16,9 +15,11 @@ build/
 # Ambiente virtual
 # =========================
 venv/
+.venv/
 .env
 .env.*
-.venv/
+.env.local
+.env.production
 
 # =========================
 # VS Code
@@ -71,12 +72,7 @@ clientes_atacado.xlsx
 disparo_log.xlsx
 
 # =========================
-# PDFs locais
-# =========================
-static/pdfs/*.pdf
-
-# =========================
-# Secrets
+# Segredos
 # =========================
 .env
 .env.local

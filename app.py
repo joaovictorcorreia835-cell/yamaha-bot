@@ -33,23 +33,9 @@ INTERVALO_WORKER_FOLLOWUP = int(os.getenv("INTERVALO_WORKER_FOLLOWUP", "300"))
 FOLLOWUP_1_HORAS = int(os.getenv("FOLLOWUP_1_HORAS", "48"))
 FOLLOWUP_2_DIAS = int(os.getenv("FOLLOWUP_2_DIAS", "5"))
 
-MENSAGEM_FOLLOWUP_1 = os.getenv(
-    "MENSAGEM_FOLLOWUP_1",
-    "Olá 👋\n\n"
-    "Passando para saber se conseguiu verificar nossa mensagem.\n\n"
-    "Estamos com agenda aberta para revisões e podemos verificar um horário para você.\n\n"
-    "Se desejar, responda esta mensagem e seguimos com seu atendimento.\n\n"
-    "Equipe Motoshow Yamaha"
-)
-
-MENSAGEM_FOLLOWUP_2 = os.getenv(
-    "MENSAGEM_FOLLOWUP_2",
-    "Olá 👋\n\n"
-    "Estamos finalizando nosso acompanhamento e gostaria de confirmar se ainda deseja atendimento.\n\n"
-    "Se quiser, posso verificar disponibilidade para sua revisão ou seguir com sua solicitação.\n\n"
-    "Equipe Motoshow Yamaha"
-)
-
+# ==========================================
+# URLs Z-API
+# ==========================================
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
 url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
 
@@ -60,35 +46,12 @@ fila_mensagens = deque(maxlen=2000)
 followup_lock = threading.Lock()
 worker_followup_iniciado = False
 
-MAPA_DIA_NUMERO = {
-    "segunda": "1",
-    "terca": "2",
-    "terça": "2",
-    "quarta": "3",
-    "quinta": "4",
-    "sexta": "5",
-    "sabado": "6",
-    "sábado": "6",
-}
-
-INTENCOES_REVISAO = {
-    "agendar_revisao",
-    "cancelar_agendamento",
-    "reagendar_agendamento",
-    "acompanhar_agendamento",
-    "consultar_agendamento",
-    "falar_humano",
-    "humano",
-}
-
 # ==========================================
 # HOME
 # ==========================================
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
-
-
 # ==========================================
 # LOG
 # ==========================================
@@ -157,6 +120,21 @@ def formatar_data_hora(dt=None):
     return dt.strftime("%d/%m/%Y %H:%M")
 
 
+def formatar_valor_brl(valor):
+    try:
+        if isinstance(valor, (int, float)):
+            valor_float = float(valor)
+        else:
+            valor_texto = str(valor).replace("R$", "").strip()
+            if "," in valor_texto:
+                valor_texto = valor_texto.replace(".", "").replace(",", ".")
+            valor_float = float(valor_texto)
+
+        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return f"R$ {valor}"
+
+
 def parse_data_hora(valor):
     if valor is None:
         return None
@@ -196,46 +174,51 @@ def data_texto_valida(valor):
     return parse_data_hora(valor) is not None
 
 
-def formatar_valor_brl(valor):
-    try:
-        if isinstance(valor, (int, float)):
-            valor_float = float(valor)
-        else:
-            valor_texto = str(valor).replace("R$", "").strip()
-            if "," in valor_texto:
-                valor_texto = valor_texto.replace(".", "").replace(",", ".")
-            valor_float = float(valor_texto)
-
-        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return f"R$ {valor}"
-
-
 def normalizar_revisao_para_fluxo(valor):
     texto = limpar_opcao(valor)
+    texto_norm = normalizar_texto(texto)
+
     mapa = {
         "1": "1",
         "1a": "1",
         "1ª": "1",
         "1o": "1",
+        "primeira": "1",
         "2": "2",
         "2a": "2",
         "2ª": "2",
         "2o": "2",
+        "segunda": "2",
         "3": "3",
         "3a": "3",
         "3ª": "3",
         "3o": "3",
+        "terceira": "3",
         "4": "4",
         "4a": "4",
         "4ª": "4",
         "4o": "4",
+        "quarta": "4",
         "5": "5",
         "5a": "5",
         "5ª": "5",
         "5o": "5",
+        "quinta": "5",
     }
-    return mapa.get(normalizar_texto(texto), texto if texto in ["1", "2", "3", "4", "5"] else "")
+
+    return mapa.get(texto_norm, texto if texto in ["1", "2", "3", "4", "5"] else "")
+
+
+MAPA_DIA_NUMERO = {
+    "segunda": "1",
+    "terca": "2",
+    "terça": "2",
+    "quarta": "3",
+    "quinta": "4",
+    "sexta": "5",
+    "sabado": "6",
+    "sábado": "6",
+}
 
 
 def nome_dia(numero):
@@ -254,57 +237,6 @@ def numero_dia_por_texto(texto):
     return MAPA_DIA_NUMERO.get(normalizar_texto(texto), "")
 
 
-def atualizar_retorno_na_planilha(telefone, texto):
-    try:
-        if not os.path.exists(ARQUIVO_FOLLOWUP):
-            return
-
-        df = pd.read_excel(ARQUIVO_FOLLOWUP)
-
-        if df.empty:
-            return
-
-        colunas = {str(c).strip().lower(): c for c in df.columns}
-        coluna_telefone = None
-
-        for chave in ["telefone", "fone", "whatsapp", "celular", "numero"]:
-            if chave in colunas:
-                coluna_telefone = colunas[chave]
-                break
-
-        if not coluna_telefone:
-            return
-
-        if "retorno" in colunas:
-            coluna_retorno = colunas["retorno"]
-        else:
-            coluna_retorno = "retorno"
-            df[coluna_retorno] = ""
-
-        if "data_retorno" in colunas:
-            coluna_data_retorno = colunas["data_retorno"]
-        else:
-            coluna_data_retorno = "data_retorno"
-            df[coluna_data_retorno] = ""
-
-        telefone_limpo = limpar_telefone(telefone)
-
-        for idx in df.index:
-            tel_planilha = limpar_telefone(df.at[idx, coluna_telefone])
-            if tel_planilha == telefone_limpo:
-                df.at[idx, coluna_retorno] = limpar_texto(texto)
-                df.at[idx, coluna_data_retorno] = formatar_data_hora()
-                break
-
-        df.to_excel(ARQUIVO_FOLLOWUP, index=False)
-
-    except Exception as e:
-        log_erro("Erro ao atualizar retorno na planilha:", e)
-
-
-# ==========================================
-# ITENS ADICIONAIS
-# ==========================================
 def limpar_item_adicional(item):
     item = str(item or "").strip()
     item = (
@@ -338,7 +270,7 @@ def extrair_lista_itens_adicionais(valor):
     if not texto:
         return []
 
-    texto = texto.replace("\n", ",").replace(";", ",")
+    texto = texto.replace("\n", ",").replace(";", ",").replace("|", ",")
     partes = [parte.strip() for parte in texto.split(",") if parte.strip()]
 
     itens_limpos = []
@@ -356,170 +288,6 @@ def formatar_itens_adicionais_para_salvar(valor):
 
 
 # ==========================================
-# APOIO IA REVISÃO
-# ==========================================
-def resposta_ia_vazia():
-    return {
-        "intencao": "",
-        "confianca": 0.0,
-        "resposta": "",
-        "proxima_etapa": "",
-        "dados_extraidos": {}
-    }
-
-
-def obter_dados_extraidos_ia(texto):
-    try:
-        resposta = classificar_intencao(texto)
-        if not isinstance(resposta, dict):
-            return resposta_ia_vazia()
-        resposta.setdefault("dados_extraidos", {})
-        resposta.setdefault("intencao", "")
-        resposta.setdefault("confianca", 0.0)
-        resposta.setdefault("resposta", "")
-        resposta.setdefault("proxima_etapa", "")
-        return resposta
-    except Exception as e:
-        log_erro("Erro ao classificar intenção:", e)
-        return resposta_ia_vazia()
-
-
-def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
-    if not dados_extraidos:
-        return
-
-    iniciar_cliente(telefone)
-    dados = clientes[telefone]
-
-    modelo = limpar_texto(dados_extraidos.get("modelo"))
-    nome = limpar_texto(dados_extraidos.get("nome"))
-    cpf = limpar_cpf(dados_extraidos.get("cpf"))
-    ano = limpar_texto(dados_extraidos.get("ano"))
-    revisao = normalizar_revisao_para_fluxo(dados_extraidos.get("revisao"))
-    dia_texto = limpar_texto(dados_extraidos.get("dia"))
-    if dia_texto in ["1", "2", "3", "4", "5", "6"]:
-        dia_numero = dia_texto
-    else:
-        dia_numero = numero_dia_por_texto(dia_texto) if dia_texto else ""
-    data = limpar_texto(dados_extraidos.get("data"))
-    horario = limpar_texto(dados_extraidos.get("horario"))
-    item_adicional = formatar_itens_adicionais_para_salvar(dados_extraidos.get("item_adicional", ""))
-
-    if modelo and not dados.get("modelo"):
-        dados["modelo"] = modelo.upper()
-
-    if nome and not dados.get("nome"):
-        dados["nome"] = nome.upper()
-
-    if cpf and len(cpf) == 11 and not dados.get("cpf"):
-        dados["cpf"] = cpf
-
-    if ano and not dados.get("ano"):
-        dados["ano"] = ano
-
-    if revisao and not dados.get("revisao"):
-        dados["revisao"] = revisao
-
-    if dia_numero and not dados.get("dia"):
-        dados["dia"] = dia_numero
-        dados["dia_texto"] = nome_dia(dia_numero)
-
-    if data and not dados.get("data"):
-        dados["data"] = data
-
-    if horario and not dados.get("horario"):
-        dados["horario"] = horario
-
-    if item_adicional and not dados.get("itens"):
-        dados["itens"] = item_adicional
-        dados["venda_adicional"] = item_adicional
-
-
-def primeira_etapa_pendente_revisao(telefone):
-    iniciar_cliente(telefone)
-    dados = clientes[telefone]
-
-    if not dados.get("modelo"):
-        return "revisao_modelo"
-    if not dados.get("nome"):
-        return "revisao_nome"
-    if not dados.get("cpf"):
-        return "revisao_cpf"
-    if not dados.get("ano"):
-        return "revisao_ano"
-    if not dados.get("revisao"):
-        return "revisao_tipo"
-    if not dados.get("dia"):
-        return "revisao_dia"
-    if not dados.get("data"):
-        return "revisao_data"
-    if not dados.get("horario"):
-        return "revisao_horario"
-    if not dados.get("itens") and clientes[telefone]["etapa"] != "revisao_venda":
-        return "revisao_venda"
-    return "revisao_confirmar"
-
-
-def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
-    limpar_dados_fluxo_revisao(telefone)
-
-    if dados_extraidos:
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
-
-    proxima = primeira_etapa_pendente_revisao(telefone)
-    clientes[telefone]["etapa"] = proxima
-    return proxima
-
-
-def mensagem_por_etapa_revisao(telefone, etapa):
-    iniciar_cliente(telefone)
-    dados = clientes[telefone]
-
-    if etapa == "revisao_modelo":
-        return "🔧 *Agendamento de Revisão*\n\nInforme o *modelo da moto*:"
-
-    if etapa == "revisao_nome":
-        resumo = f"🏍️ Modelo: {dados['modelo']}\n\n" if dados.get("modelo") else ""
-        return f"{resumo}👤 Informe seu *nome completo*:"
-
-    if etapa == "revisao_cpf":
-        return "📄 Informe seu *CPF*:"
-
-    if etapa == "revisao_ano":
-        return "📅 Informe o *ano da moto*:"
-
-    if etapa == "revisao_tipo":
-        return (
-            "🔧 Qual revisão deseja agendar?\n\n"
-            "1 - 1ª Revisão\n"
-            "2 - 2ª Revisão\n"
-            "3 - 3ª Revisão\n"
-            "4 - 4ª Revisão\n"
-            "5 - 5ª Revisão ou acima"
-        )
-
-    if etapa == "revisao_dia":
-        return (
-            "📅 Escolha o dia:\n\n"
-            "1 - Segunda\n"
-            "2 - Terça\n"
-            "3 - Quarta\n"
-            "4 - Quinta\n"
-            "5 - Sexta\n"
-            "6 - Sábado"
-        )
-
-    if etapa == "revisao_data":
-        return (
-            "📆 Informe a data desejada:\n"
-            "Exemplo: 20/04/2026"
-        )
-
-    if etapa == "revisao_venda":
-        return montar_mensagem_venda_adicional(telefone)
-
-    return "Vamos continuar seu agendamento."
-# ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
 def estado_padrao_cliente():
@@ -532,14 +300,18 @@ def estado_padrao_cliente():
         "cpf": "",
         "ano": "",
         "revisao": "",
+        "km_atual": "",
         "dia": "",
         "dia_texto": "",
         "data": "",
         "horario": "",
+        "horarios_disponiveis": [],
         "itens": "",
         "venda_adicional": "",
-        "concluido": False,
-        "horarios_disponiveis": []
+        "observacao": "",
+        "tipo_atendimento": "",
+        "duvidas_ia": 0,
+        "concluido": False
     }
 
 
@@ -564,14 +336,17 @@ def limpar_dados_fluxo_revisao(telefone):
     clientes[telefone]["cpf"] = ""
     clientes[telefone]["ano"] = ""
     clientes[telefone]["revisao"] = ""
+    clientes[telefone]["km_atual"] = ""
     clientes[telefone]["dia"] = ""
     clientes[telefone]["dia_texto"] = ""
     clientes[telefone]["data"] = ""
     clientes[telefone]["horario"] = ""
+    clientes[telefone]["horarios_disponiveis"] = []
     clientes[telefone]["itens"] = ""
     clientes[telefone]["venda_adicional"] = ""
+    clientes[telefone]["observacao"] = ""
+    clientes[telefone]["tipo_atendimento"] = ""
     clientes[telefone]["concluido"] = False
-    clientes[telefone]["horarios_disponiveis"] = []
 
 
 def ativar_atendimento_humano(telefone):
@@ -582,7 +357,7 @@ def ativar_atendimento_humano(telefone):
 
     enviar_mensagem(
         telefone,
-        "👨‍💼 *Atendimento humano acionado.*\n\n"
+        "👨‍💼 *Atendimento humano acionado*\n\n"
         "Nossa equipe seguirá com você por aqui.\n"
         "Quando quiser voltar ao menu automático, envie *menu*."
     )
@@ -676,9 +451,6 @@ def extrair_texto(payload):
         return ""
 
 
-# ==========================================
-# DUPLICIDADE
-# ==========================================
 def extrair_message_id(payload):
     try:
         data = payload.get("data", {}) or {}
@@ -711,9 +483,6 @@ def registrar_mensagem_processada(message_id):
     mensagens_processadas.add(message_id)
 
 
-# ==========================================
-# IGNORAR PRÓPRIO BOT
-# ==========================================
 def evento_eh_do_proprio_bot(payload):
     try:
         data = payload.get("data", {}) or {}
@@ -728,17 +497,14 @@ def evento_eh_do_proprio_bot(payload):
             data.get("isStatusReply"),
         ]
 
-        if any(valor is True for valor in marcadores_true):
-            return True
-
-        return False
+        return any(valor is True for valor in marcadores_true)
     except Exception as e:
         log_erro("Erro ao validar evento do próprio bot:", e)
         return False
 
 
 # ==========================================
-# ENVIO MENSAGEM
+# ENVIO
 # ==========================================
 def enviar_mensagem(telefone, mensagem):
     try:
@@ -767,9 +533,6 @@ def enviar_mensagem(telefone, mensagem):
         return False
 
 
-# ==========================================
-# ENVIAR PDF
-# ==========================================
 def enviar_pdf(telefone, arquivo, legenda=""):
     try:
         headers = {
@@ -802,12 +565,13 @@ def enviar_pdf(telefone, arquivo, legenda=""):
 
 
 # ==========================================
-# MENU
+# MENU / MENSAGENS
 # ==========================================
 def enviar_menu(telefone):
     mensagem = (
         "Olá 👋\n\n"
         "🏍️ *Pós-Vendas Motoshow Yamaha*\n\n"
+        "Escolha uma opção:\n\n"
         "1️⃣ Agendar Revisão\n"
         "2️⃣ Peças\n"
         "3️⃣ Acessórios\n"
@@ -819,26 +583,260 @@ def enviar_menu(telefone):
     enviar_mensagem(telefone, mensagem)
 
 
-def montar_mensagem_venda_adicional(telefone):
-    return (
-        "🛠️ Deseja adicionar algo?\n\n"
-        "Ex:\n"
-        "• Filtro de ar\n"
-        "• Pastilha de freio\n"
-        "• Slider\n\n"
-        "Digite o item ou 2 para não"
-    )
-
-
 def montar_mensagem_horarios(lista):
-    msg = "⏰ Escolha o horário:\n\n"
-    for i, h in enumerate(lista):
-        msg += f"{i+1} - {h}\n"
+    msg = "⏰ *Escolha o horário disponível:*\n\n"
+    for i, h in enumerate(lista, start=1):
+        msg += f"{i} - {h}\n"
     return msg
 
 
+def montar_mensagem_venda_adicional(telefone):
+    return (
+        "🛒 *Deseja adicionar algum item?*\n\n"
+        "Sugestões:\n"
+        "• Filtro de ar\n"
+        "• Pastilha de freio\n"
+        "• Slider\n"
+        "• Protetor de motor\n\n"
+        "Digite o item desejado.\n"
+        "Se não quiser adicionar nada, digite *2*."
+    )
+
+
+def montar_resumo_confirmacao(telefone):
+    dados = clientes.get(telefone, {})
+
+    itens = dados.get("venda_adicional") or "Nenhum"
+    observacao = dados.get("observacao") or "Nenhuma"
+    tipo_atendimento = dados.get("tipo_atendimento") or "Não informado"
+
+    return (
+        "📋 *Confirmação do Agendamento*\n\n"
+        f"👤 *Nome:* {dados.get('nome', '-')}\n"
+        f"📄 *CPF:* {dados.get('cpf', '-')}\n"
+        f"🏍️ *Modelo:* {dados.get('modelo', '-')}\n"
+        f"📅 *Ano:* {dados.get('ano', '-')}\n"
+        f"🛠️ *Revisão:* {dados.get('revisao', '-')}ª\n"
+        f"📍 *Dia:* {dados.get('dia_texto', '-')}\n"
+        f"📆 *Data:* {dados.get('data', '-')}\n"
+        f"⏰ *Horário:* {dados.get('horario', '-')}\n"
+        f"🚶 *Atendimento:* {tipo_atendimento}\n"
+        f"🛒 *Adicionais:* {itens}\n"
+        f"📝 *Observação:* {observacao}\n\n"
+        "Digite:\n"
+        "*1* para confirmar\n"
+        "*2* para corrigir"
+    )
+
+
+def mensagem_por_etapa_revisao(telefone, etapa):
+    iniciar_cliente(telefone)
+    dados = clientes[telefone]
+
+    if etapa == "revisao_modelo":
+        return "🔧 *Agendamento de Revisão*\n\nInforme o *modelo da moto*:"
+
+    if etapa == "revisao_nome":
+        resumo = f"🏍️ Modelo: {dados['modelo']}\n\n" if dados.get("modelo") else ""
+        return f"{resumo}👤 Informe seu *nome completo*:"
+
+    if etapa == "revisao_cpf":
+        return "📄 Informe seu *CPF com 11 números*:"
+
+    if etapa == "revisao_ano":
+        return "📅 Informe o *ano da moto*:"
+
+    if etapa == "revisao_km":
+        return "🔢 Informe a *quilometragem atual* da moto:"
+
+    if etapa == "revisao_tipo":
+        return (
+            "🛠️ *Qual revisão deseja agendar?*\n\n"
+            "1 - 1ª Revisão\n"
+            "2 - 2ª Revisão\n"
+            "3 - 3ª Revisão\n"
+            "4 - 4ª Revisão\n"
+            "5 - 5ª Revisão ou acima"
+        )
+
+    if etapa == "revisao_dia":
+        return (
+            "📅 *Escolha o dia desejado:*\n\n"
+            "1 - Segunda\n"
+            "2 - Terça\n"
+            "3 - Quarta\n"
+            "4 - Quinta\n"
+            "5 - Sexta\n"
+            "6 - Sábado"
+        )
+
+    if etapa == "revisao_data":
+        return "📆 Informe a *data desejada* no formato *dd/mm/aaaa*:"
+
+    if etapa == "revisao_tipo_atendimento":
+        return (
+            "🏢 Como será o atendimento?\n\n"
+            "1 - Vou aguardar na concessionária\n"
+            "2 - Vou deixar a moto e retirar depois"
+        )
+
+    if etapa == "revisao_venda":
+        return montar_mensagem_venda_adicional(telefone)
+
+    if etapa == "revisao_observacao":
+        return (
+            "📝 Deseja adicionar alguma observação?\n\n"
+            "Exemplos:\n"
+            "• moto com barulho\n"
+            "• verificar freio\n"
+            "• cliente vai aguardar\n\n"
+            "Se não quiser adicionar observação, digite *2*."
+        )
+
+    if etapa == "revisao_confirmacao":
+        return montar_resumo_confirmacao(telefone)
+
+    return "Vamos continuar seu agendamento."
+
+
+def primeira_etapa_pendente_revisao(telefone):
+    iniciar_cliente(telefone)
+    dados = clientes[telefone]
+
+    if not dados.get("modelo"):
+        return "revisao_modelo"
+    if not dados.get("nome"):
+        return "revisao_nome"
+    if not dados.get("cpf"):
+        return "revisao_cpf"
+    if not dados.get("ano"):
+        return "revisao_ano"
+    if not dados.get("km_atual"):
+        return "revisao_km"
+    if not dados.get("revisao"):
+        return "revisao_tipo"
+    if not dados.get("dia"):
+        return "revisao_dia"
+    if not dados.get("data"):
+        return "revisao_data"
+    if not dados.get("horario"):
+        return "revisao_horario"
+    if not dados.get("tipo_atendimento"):
+        return "revisao_tipo_atendimento"
+    if dados.get("venda_adicional", None) == "":
+        return "revisao_venda"
+    if dados.get("observacao", None) == "":
+        return "revisao_observacao"
+    return "revisao_confirmacao"
+
+
+def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
+    limpar_dados_fluxo_revisao(telefone)
+
+    if dados_extraidos:
+        aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
+
+    proxima = primeira_etapa_pendente_revisao(telefone)
+    clientes[telefone]["etapa"] = proxima
+    return proxima
 # ==========================================
-# CAPACIDADE POR HORÁRIO
+# APOIO IA REVISÃO
+# ==========================================
+def resposta_ia_vazia():
+    return {
+        "intencao": "",
+        "confianca": 0.0,
+        "resposta": "",
+        "proxima_etapa": "",
+        "dados_extraidos": {}
+    }
+
+
+def obter_dados_extraidos_ia(texto):
+    try:
+        resposta = classificar_intencao(texto)
+
+        if not isinstance(resposta, dict):
+            return resposta_ia_vazia()
+
+        resposta.setdefault("dados_extraidos", {})
+        resposta.setdefault("intencao", "")
+        resposta.setdefault("confianca", 0.0)
+        resposta.setdefault("resposta", "")
+        resposta.setdefault("proxima_etapa", "")
+        return resposta
+
+    except Exception as e:
+        log_erro("Erro ao classificar intenção:", e)
+        return resposta_ia_vazia()
+
+
+def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
+    if not dados_extraidos:
+        return
+
+    iniciar_cliente(telefone)
+    dados = clientes[telefone]
+
+    modelo = limpar_texto(dados_extraidos.get("modelo"))
+    nome = limpar_texto(dados_extraidos.get("nome"))
+    cpf = limpar_cpf(dados_extraidos.get("cpf"))
+    ano = limpar_texto(dados_extraidos.get("ano"))
+    revisao = normalizar_revisao_para_fluxo(dados_extraidos.get("revisao"))
+    km_atual = limpar_texto(dados_extraidos.get("km_atual"))
+    dia_texto = limpar_texto(dados_extraidos.get("dia"))
+    horario = limpar_texto(dados_extraidos.get("horario"))
+    data = limpar_texto(dados_extraidos.get("data"))
+    item_adicional = formatar_itens_adicionais_para_salvar(dados_extraidos.get("item_adicional", ""))
+    observacao = limpar_texto(dados_extraidos.get("observacao"))
+    tipo_atendimento = limpar_texto(dados_extraidos.get("tipo_atendimento"))
+
+    if dia_texto in ["1", "2", "3", "4", "5", "6"]:
+        dia_numero = dia_texto
+    else:
+        dia_numero = numero_dia_por_texto(dia_texto) if dia_texto else ""
+
+    if modelo and not dados.get("modelo"):
+        dados["modelo"] = modelo.upper()
+
+    if nome and not dados.get("nome"):
+        dados["nome"] = nome.upper()
+
+    if cpf and len(cpf) == 11 and not dados.get("cpf"):
+        dados["cpf"] = cpf
+
+    if ano and not dados.get("ano"):
+        dados["ano"] = ano
+
+    if km_atual and not dados.get("km_atual"):
+        dados["km_atual"] = km_atual
+
+    if revisao and not dados.get("revisao"):
+        dados["revisao"] = revisao
+
+    if dia_numero and not dados.get("dia"):
+        dados["dia"] = dia_numero
+        dados["dia_texto"] = nome_dia(dia_numero)
+
+    if data and not dados.get("data"):
+        dados["data"] = data
+
+    if horario and not dados.get("horario"):
+        dados["horario"] = horario
+
+    if item_adicional and not dados.get("venda_adicional"):
+        dados["itens"] = item_adicional
+        dados["venda_adicional"] = item_adicional
+
+    if observacao and not dados.get("observacao"):
+        dados["observacao"] = observacao
+
+    if tipo_atendimento and not dados.get("tipo_atendimento"):
+        dados["tipo_atendimento"] = tipo_atendimento
+
+
+# ==========================================
+# CAPACIDADE / HORÁRIOS
 # ==========================================
 def limite_por_revisao(revisao):
     try:
@@ -874,15 +872,63 @@ def verificar_capacidade(data, horario, revisao):
         db.close()
 
 
+def horarios_por_revisao(revisao, dia):
+    try:
+        revisao = int(revisao)
+    except Exception:
+        revisao = 1
+
+    if dia == "6":
+        if revisao <= 2:
+            return ["08:00", "09:00", "10:00"]
+        return []
+
+    if revisao <= 2:
+        return [
+            "08:00",
+            "09:00",
+            "10:00",
+            "11:00",
+            "12:00",
+            "13:00",
+            "14:00",
+            "15:00"
+        ]
+
+    return ["08:00"]
+
+
+def validar_data(data):
+    try:
+        data_obj = datetime.strptime(data, "%d/%m/%Y")
+
+        if data_obj.date() < datetime.now().date():
+            return False
+
+        if data_obj.weekday() == 6:
+            return False
+
+        return True
+
+    except Exception:
+        return False
+
+
 def gerar_protocolo():
     return str(uuid.uuid4())[:8].upper()
 
 
+# ==========================================
+# SALVAMENTO
+# ==========================================
 def salvar_agendamento(telefone, dados):
     db = SessionLocal()
 
     try:
         protocolo = gerar_protocolo()
+
+        itens_formatados = formatar_itens_adicionais_para_salvar(dados.get("itens", ""))
+        venda_formatada = formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", ""))
 
         agendamento = AgendamentoRevisao(
             protocolo=protocolo,
@@ -892,12 +938,15 @@ def salvar_agendamento(telefone, dados):
             modelo=dados["modelo"],
             ano=dados["ano"],
             revisao=dados["revisao"],
+            km_atual=dados.get("km_atual", ""),
             dia_semana=nome_dia(dados["dia"]),
             data_agendada=dados["data"],
             horario=dados["horario"],
-            itens=formatar_itens_adicionais_para_salvar(dados.get("itens", "")),
-            venda_adicional=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+            tipo_atendimento=dados.get("tipo_atendimento", ""),
+            itens=itens_formatados,
+            venda_adicional=venda_formatada,
             status="AGENDADO",
+            observacoes=dados.get("observacao", ""),
             origem="BOT"
         )
 
@@ -916,6 +965,51 @@ def salvar_agendamento(telefone, dados):
         db.close()
 
 
+def salvar_atendimento_dashboard(telefone, dados):
+    db = SessionLocal()
+
+    try:
+        atendimento = Atendimento(
+            telefone=telefone,
+            nome=dados["nome"],
+            setor="Revisão",
+            modelo=dados["modelo"],
+            ano=dados["ano"],
+            revisao=dados["revisao"],
+            cpf=dados["cpf"],
+            km_atual=dados.get("km_atual", ""),
+            dia_semana=nome_dia(dados["dia"]),
+            data_agendada=dados["data"],
+            horario=dados["horario"],
+            itens=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+            venda_adicional=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+            tipo_atendimento=dados.get("tipo_atendimento", ""),
+            observacoes=dados.get("observacao", ""),
+            origem="BOT",
+            status="Agendado",
+            etapa="revisao_finalizada",
+            atendimento_humano=False,
+            concluido=True,
+            ultima_interacao=agora_datetime(),
+            data=agora_datetime()
+        )
+
+        db.add(atendimento)
+        db.commit()
+        return True
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro salvar atendimento dashboard:", e)
+        return False
+
+    finally:
+        db.close()
+
+
+# ==========================================
+# CONSULTA / CANCELAMENTO / REAGENDAMENTO
+# ==========================================
 def buscar_agendamento_ativo(cpf):
     db = SessionLocal()
 
@@ -964,51 +1058,176 @@ def cancelar_agendamento(cpf, novo_status="CANCELADO"):
         db.close()
 
 
-def horarios_por_revisao(revisao, dia):
-    try:
-        revisao = int(revisao)
-    except Exception:
-        revisao = 1
+def responder_consulta_agendamento(telefone, cpf):
+    cpf_limpo = limpar_cpf(cpf)
 
-    if dia == "6":
-        if revisao <= 2:
-            return ["08:00", "09:00", "10:00"]
-        return []
+    if not cpf_limpo or len(cpf_limpo) != 11:
+        enviar_mensagem(
+            telefone,
+            "📄 Para consultar seu agendamento, informe seu *CPF com 11 números*."
+        )
+        clientes[telefone]["etapa"] = "consulta_agendamento_cpf"
+        return
 
-    if revisao <= 2:
-        return [
-            "08:00",
-            "09:00",
-            "10:00",
-            "11:00",
-            "12:00",
-            "13:00",
-            "14:00",
-            "15:00"
-        ]
+    ag = buscar_agendamento_por_cpf(cpf_limpo)
 
-    return ["08:00"]
+    if not ag:
+        enviar_mensagem(
+            telefone,
+            "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
+            "Se quiser, posso iniciar um novo agendamento. Envie *quero agendar revisão*."
+        )
+        resetar_cliente(telefone)
+        return
+
+    enviar_mensagem(
+        telefone,
+        "📋 *Agendamento localizado*\n\n"
+        f"👤 {ag.nome}\n"
+        f"🏍️ {ag.modelo}\n"
+        f"📅 {ag.data_agendada}\n"
+        f"⏰ {ag.horario}\n"
+        f"📌 Protocolo: {ag.protocolo}\n\n"
+        "Equipe Motoshow Yamaha"
+    )
+
+    resetar_cliente(telefone)
 
 
-def validar_data(data):
-    try:
-        data_obj = datetime.strptime(data, "%d/%m/%Y")
+def responder_cancelamento_agendamento(telefone, cpf):
+    cpf_limpo = limpar_cpf(cpf)
 
-        if data_obj.date() < datetime.now().date():
-            return False
+    if not cpf_limpo or len(cpf_limpo) != 11:
+        enviar_mensagem(
+            telefone,
+            "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*."
+        )
+        clientes[telefone]["etapa"] = "cancelar_agendamento_cpf"
+        return
 
-        if data_obj.weekday() == 6:
-            return False
+    ag_cancelado = cancelar_agendamento(cpf_limpo)
 
-        return True
+    if not ag_cancelado:
+        enviar_mensagem(
+            telefone,
+            "⚠️ Não encontrei agendamento ativo para este CPF."
+        )
+        resetar_cliente(telefone)
+        return
 
-    except Exception:
-        return False
+    enviar_mensagem(
+        telefone,
+        "✅ *Agendamento cancelado com sucesso*\n\n"
+        f"👤 {ag_cancelado.nome}\n"
+        f"🏍️ {ag_cancelado.modelo}\n"
+        f"📅 {ag_cancelado.data_agendada}\n"
+        f"⏰ {ag_cancelado.horario}\n"
+        f"📌 Protocolo: {ag_cancelado.protocolo}\n\n"
+        "Equipe Motoshow Yamaha"
+    )
+
+    resetar_cliente(telefone)
+
+
+def iniciar_reagendamento(telefone, cpf):
+    cpf_limpo = limpar_cpf(cpf)
+
+    if not cpf_limpo or len(cpf_limpo) != 11:
+        enviar_mensagem(
+            telefone,
+            "📄 Para reagendar, informe seu *CPF com 11 números*."
+        )
+        clientes[telefone]["etapa"] = "reagendar_agendamento_cpf"
+        return
+
+    ag = buscar_agendamento_por_cpf(cpf_limpo)
+
+    if not ag:
+        enviar_mensagem(
+            telefone,
+            "⚠️ Não encontrei agendamento ativo para este CPF."
+        )
+        resetar_cliente(telefone)
+        return
+
+    limpar_dados_fluxo_revisao(telefone)
+
+    clientes[telefone]["modelo"] = limpar_texto(ag.modelo).upper()
+    clientes[telefone]["nome"] = limpar_texto(ag.nome).upper()
+    clientes[telefone]["cpf"] = limpar_cpf(ag.cpf)
+    clientes[telefone]["ano"] = limpar_texto(ag.ano)
+    clientes[telefone]["revisao"] = limpar_texto(ag.revisao)
+
+    cancelar_agendamento(clientes[telefone]["cpf"], novo_status="REAGENDADO")
+
+    clientes[telefone]["etapa"] = "revisao_dia"
+
+    enviar_mensagem(
+        telefone,
+        "🔄 *Reagendamento iniciado*\n\n"
+        f"👤 {clientes[telefone]['nome']}\n"
+        f"🏍️ {clientes[telefone]['modelo']}\n"
+        f"🛠️ Revisão: {clientes[telefone]['revisao']}ª\n\n"
+        "Escolha o novo dia:"
+    )
+
+    enviar_mensagem(
+        telefone,
+        mensagem_por_etapa_revisao(telefone, "revisao_dia")
+    )
 
 
 # ==========================================
-# FOLLOW-UP + LEMBRETES
+# FOLLOW-UP / LEMBRETES
 # ==========================================
+def atualizar_retorno_na_planilha(telefone, texto):
+    try:
+        if not os.path.exists(ARQUIVO_FOLLOWUP):
+            return
+
+        df = pd.read_excel(ARQUIVO_FOLLOWUP)
+
+        if df.empty:
+            return
+
+        colunas = {str(c).strip().lower(): c for c in df.columns}
+        coluna_telefone = None
+
+        for chave in ["telefone", "fone", "whatsapp", "celular", "numero"]:
+            if chave in colunas:
+                coluna_telefone = colunas[chave]
+                break
+
+        if not coluna_telefone:
+            return
+
+        if "retorno" in colunas:
+            coluna_retorno = colunas["retorno"]
+        else:
+            coluna_retorno = "retorno"
+            df[coluna_retorno] = ""
+
+        if "data_retorno" in colunas:
+            coluna_data_retorno = colunas["data_retorno"]
+        else:
+            coluna_data_retorno = "data_retorno"
+            df[coluna_data_retorno] = ""
+
+        telefone_limpo = limpar_telefone(telefone)
+
+        for idx in df.index:
+            tel_planilha = limpar_telefone(df.at[idx, coluna_telefone])
+            if tel_planilha == telefone_limpo:
+                df.at[idx, coluna_retorno] = limpar_texto(texto)
+                df.at[idx, coluna_data_retorno] = formatar_data_hora()
+                break
+
+        df.to_excel(ARQUIVO_FOLLOWUP, index=False)
+
+    except Exception as e:
+        log_erro("Erro ao atualizar retorno na planilha:", e)
+
+
 def processar_lembretes_agendamento():
     db = SessionLocal()
 
@@ -1022,11 +1241,7 @@ def processar_lembretes_agendamento():
 
         for ag in agendamentos:
             try:
-                data_agendada = datetime.strptime(
-                    ag.data_agendada,
-                    "%d/%m/%Y"
-                ).date()
-
+                data_agendada = datetime.strptime(ag.data_agendada, "%d/%m/%Y").date()
                 diferenca = (data_agendada - hoje).days
 
                 if diferenca == 1:
@@ -1044,7 +1259,7 @@ def processar_lembretes_agendamento():
                     ag.lembrete_enviado = True
 
             except Exception as e:
-                log_erro("Erro lembrete:", e)
+                log_erro("Erro lembrete individual:", e)
 
         db.commit()
 
@@ -1070,10 +1285,7 @@ def worker():
 
 
 def iniciar_worker():
-    thread = threading.Thread(
-        target=worker,
-        daemon=True
-    )
+    thread = threading.Thread(target=worker, daemon=True)
     thread.start()
 # ==========================================
 # DASHBOARD
@@ -1093,80 +1305,79 @@ def dashboard():
         query_ag = db.query(AgendamentoRevisao)
 
         if filtro == "hoje":
-            query = query.filter(
-                Atendimento.data >= datetime.combine(hoje, datetime.min.time())
-            )
-
-            query_ag = query_ag.filter(
-                AgendamentoRevisao.criado_em >= datetime.combine(hoje, datetime.min.time())
-            )
+            data_base = datetime.combine(hoje, datetime.min.time())
+            query = query.filter(Atendimento.data >= data_base)
+            query_ag = query_ag.filter(AgendamentoRevisao.criado_em >= data_base)
 
         elif filtro == "semana":
-            query = query.filter(
-                Atendimento.data >= datetime.combine(inicio_semana, datetime.min.time())
-            )
-
-            query_ag = query_ag.filter(
-                AgendamentoRevisao.criado_em >= datetime.combine(inicio_semana, datetime.min.time())
-            )
+            data_base = datetime.combine(inicio_semana, datetime.min.time())
+            query = query.filter(Atendimento.data >= data_base)
+            query_ag = query_ag.filter(AgendamentoRevisao.criado_em >= data_base)
 
         elif filtro == "mes":
-            query = query.filter(
-                Atendimento.data >= datetime.combine(inicio_mes, datetime.min.time())
-            )
-
-            query_ag = query_ag.filter(
-                AgendamentoRevisao.criado_em >= datetime.combine(inicio_mes, datetime.min.time())
-            )
+            data_base = datetime.combine(inicio_mes, datetime.min.time())
+            query = query.filter(Atendimento.data >= data_base)
+            query_ag = query_ag.filter(AgendamentoRevisao.criado_em >= data_base)
 
         total = query.count()
-        revisao = query.filter(Atendimento.setor == "Revisão").count()
+        total_revisoes = query.filter(Atendimento.setor == "Revisão").count()
+        revisao = total_revisoes
+
         agendados = query.filter(Atendimento.status == "Agendado").count()
+        concluidos = query.filter(Atendimento.concluido == True).count()
+        atendimento_humano = query.filter(Atendimento.atendimento_humano == True).count()
 
-        cancelados = query_ag.filter(
-            AgendamentoRevisao.status == "CANCELADO"
-        ).count()
-
-        reagendados = query_ag.filter(
-            AgendamentoRevisao.status == "REAGENDADO"
-        ).count()
-
+        cancelados = query_ag.filter(AgendamentoRevisao.status == "CANCELADO").count()
+        reagendados = query_ag.filter(AgendamentoRevisao.status == "REAGENDADO").count()
         total_agendamentos_periodo = query_ag.count()
 
         primeira = query.filter(Atendimento.revisao == "1").count()
         segunda = query.filter(Atendimento.revisao == "2").count()
         terceira = query.filter(Atendimento.revisao == "3").count()
         quarta = query.filter(Atendimento.revisao == "4").count()
-        quinta = query.filter(Atendimento.revisao == "5").count()
+
+        quinta = query.filter(
+            Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"])
+        ).count()
 
         contador_itens = Counter()
         registros_itens = query.with_entities(Atendimento.itens).all()
 
         for item in registros_itens:
             valor = item[0] if isinstance(item, tuple) else item
-
             if not valor:
                 continue
 
             lista_itens = extrair_lista_itens_adicionais(valor)
-
             for i in lista_itens:
                 contador_itens[i] += 1
 
         ranking_itens = contador_itens.most_common(20)
         total_itens_vendidos = sum(contador_itens.values())
 
-        agendamentos = db.query(AgendamentoRevisao).order_by(
+        agendamentos = query_ag.order_by(
             AgendamentoRevisao.criado_em.desc()
         ).limit(20).all()
 
+        duvidas_ia = 0
+        for tel, dados in clientes.items():
+            try:
+                duvidas_ia += int(dados.get("duvidas_ia", 0) or 0)
+            except Exception:
+                continue
+
         return render_template(
             "dashboard.html",
+            filtro_ativo=filtro,
             total=total,
             revisao=revisao,
+            total_revisoes=total_revisoes,
             agendados=agendados,
             cancelados=cancelados,
             reagendados=reagendados,
+            concluidos=concluidos,
+            atendimento_humano=atendimento_humano,
+            duvidas_ia=duvidas_ia,
             total_agendamentos_periodo=total_agendamentos_periodo,
             primeira=primeira,
             segunda=segunda,
@@ -1175,7 +1386,6 @@ def dashboard():
             quinta=quinta,
             total_itens_vendidos=total_itens_vendidos,
             ranking_itens=ranking_itens,
-            filtro_ativo=filtro,
             agendamentos=agendamentos
         )
 
@@ -1195,7 +1405,6 @@ def enviar_proxima_etapa_revisao(telefone):
     clientes[telefone]["etapa"] = etapa
 
     if etapa == "revisao_horario":
-
         revisao = clientes[telefone]["revisao"]
         dia = clientes[telefone]["dia"]
 
@@ -1203,6 +1412,7 @@ def enviar_proxima_etapa_revisao(telefone):
 
         if not horarios:
             clientes[telefone]["etapa"] = "revisao_dia"
+
             enviar_mensagem(
                 telefone,
                 "⚠️ Não há horários disponíveis para esse tipo de revisão neste dia.\n\n"
@@ -1211,251 +1421,27 @@ def enviar_proxima_etapa_revisao(telefone):
 
             enviar_mensagem(
                 telefone,
-                mensagem_por_etapa_revisao(
-                    telefone,
-                    "revisao_dia"
-                )
+                mensagem_por_etapa_revisao(telefone, "revisao_dia")
             )
             return
 
         clientes[telefone]["horarios_disponiveis"] = horarios
-        enviar_mensagem(
-            telefone,
-            montar_mensagem_horarios(
-                horarios
-            )
-        )
-        return
-
-    if etapa == "revisao_confirmar":
-        clientes[telefone]["etapa"] = "revisao_venda"
-
-        enviar_mensagem(
-            telefone,
-            montar_mensagem_venda_adicional(
-                telefone
-            )
-        )
+        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
         return
 
     enviar_mensagem(
         telefone,
-        mensagem_por_etapa_revisao(
-            telefone,
-            etapa
-        )
-    )
-
-
-# ==========================================
-# CONSULTAR AGENDAMENTO
-# ==========================================
-def responder_consulta_agendamento(
-    telefone,
-    cpf
-):
-
-    if not cpf or len(
-        limpar_cpf(cpf)
-    ) != 11:
-
-        enviar_mensagem(
-            telefone,
-            "📄 Para consultar seu agendamento, informe seu *CPF com 11 números*."
-        )
-
-        clientes[
-            telefone
-        ]["etapa"] = "consulta_agendamento_cpf"
-
-        return
-
-    ag = buscar_agendamento_por_cpf(
-        limpar_cpf(cpf)
-    )
-
-    if not ag:
-
-        enviar_mensagem(
-            telefone,
-            "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
-            "Se quiser, posso iniciar um novo agendamento. Envie *quero agendar revisão*."
-        )
-
-        resetar_cliente(
-            telefone
-        )
-
-        return
-
-    enviar_mensagem(
-        telefone,
-        "📋 *Agendamento localizado*\n\n"
-        f"👤 {ag.nome}\n"
-        f"🏍️ {ag.modelo}\n"
-        f"📅 {ag.data_agendada}\n"
-        f"⏰ {ag.horario}\n"
-        f"📌 Protocolo: {ag.protocolo}\n\n"
-        "Equipe Motoshow Yamaha"
-    )
-
-    resetar_cliente(
-        telefone
-    )
-
-
-# ==========================================
-# CANCELAR AGENDAMENTO
-# ==========================================
-def responder_cancelamento_agendamento(
-    telefone,
-    cpf
-):
-
-    if not cpf or len(
-        limpar_cpf(cpf)
-    ) != 11:
-
-        enviar_mensagem(
-            telefone,
-            "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*."
-        )
-
-        clientes[
-            telefone
-        ]["etapa"] = "cancelar_agendamento_cpf"
-
-        return
-
-    ag_cancelado = cancelar_agendamento(
-        limpar_cpf(cpf)
-    )
-
-    if not ag_cancelado:
-
-        enviar_mensagem(
-            telefone,
-            "⚠️ Não encontrei agendamento ativo para este CPF."
-        )
-
-        resetar_cliente(
-            telefone
-        )
-
-        return
-
-    enviar_mensagem(
-        telefone,
-        "✅ *Agendamento cancelado com sucesso.*\n\n"
-        f"👤 {ag_cancelado.nome}\n"
-        f"🏍️ {ag_cancelado.modelo}\n"
-        f"📅 {ag_cancelado.data_agendada}\n"
-        f"⏰ {ag_cancelado.horario}\n"
-        f"📌 Protocolo: {ag_cancelado.protocolo}\n\n"
-        "Equipe Motoshow Yamaha"
-    )
-
-    resetar_cliente(
-        telefone
-    )
-
-
-# ==========================================
-# REAGENDAMENTO
-# ==========================================
-def iniciar_reagendamento(
-    telefone,
-    cpf
-):
-
-    if not cpf or len(
-        limpar_cpf(cpf)
-    ) != 11:
-
-        enviar_mensagem(
-            telefone,
-            "📄 Para reagendar, informe seu *CPF com 11 números*."
-        )
-
-        clientes[
-            telefone
-        ]["etapa"] = "reagendar_agendamento_cpf"
-
-        return
-
-    ag = buscar_agendamento_por_cpf(
-        limpar_cpf(cpf)
-    )
-
-    if not ag:
-
-        enviar_mensagem(
-            telefone,
-            "⚠️ Não encontrei agendamento ativo para este CPF."
-        )
-
-        resetar_cliente(
-            telefone
-        )
-
-        return
-
-    clientes[telefone]["modelo"] = limpar_texto(
-        ag.modelo
-    ).upper()
-
-    clientes[telefone]["nome"] = limpar_texto(
-        ag.nome
-    ).upper()
-
-    clientes[telefone]["cpf"] = limpar_cpf(
-        ag.cpf
-    )
-
-    clientes[telefone]["ano"] = limpar_texto(
-        ag.ano
-    )
-
-    clientes[telefone]["revisao"] = limpar_texto(
-        ag.revisao
-    )
-
-    cancelar_agendamento(
-        clientes[telefone]["cpf"],
-        novo_status="REAGENDADO"
-    )
-
-    clientes[
-        telefone
-    ]["etapa"] = "revisao_dia"
-
-    enviar_mensagem(
-        telefone,
-        "🔄 *Reagendamento iniciado.*\n\n"
-        f"👤 {clientes[telefone]['nome']}\n"
-        f"🏍️ {clientes[telefone]['modelo']}\n"
-        f"🔧 Revisão: {clientes[telefone]['revisao']}ª\n\n"
-        "Escolha o novo dia:"
-    )
-
-    enviar_mensagem(
-        telefone,
-        mensagem_por_etapa_revisao(
-            telefone,
-            "revisao_dia"
-        )
+        mensagem_por_etapa_revisao(telefone, etapa)
     )
 # ==========================================
 # WEBHOOK
 # ==========================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-
     if request.method == "GET":
         return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
 
     payload = request.get_json(silent=True) or {}
-
     log_info("PAYLOAD RECEBIDO:", payload)
 
     if evento_eh_do_proprio_bot(payload):
@@ -1497,13 +1483,13 @@ def webhook():
     etapa = clientes[telefone]["etapa"]
 
     # ==========================================
-    # INTENÇÕES GERAIS DE REVISÃO
+    # INTENÇÕES GERAIS
     # ==========================================
-    if intencao_ia == "humano" or intencao_ia == "falar_humano":
+    if intencao_ia in ["humano", "falar_humano", "atendimento_humano"] and not etapa.startswith("revisao"):
         ativar_atendimento_humano(telefone)
         return jsonify({"status": "ok"}), 200
 
-    if intencao_ia == "consultar_agendamento" or intencao_ia == "acompanhar_agendamento":
+    if intencao_ia in ["consultar_agendamento", "acompanhar_agendamento"]:
         cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
         responder_consulta_agendamento(telefone, cpf)
         return jsonify({"status": "ok"}), 200
@@ -1513,7 +1499,7 @@ def webhook():
         responder_cancelamento_agendamento(telefone, cpf)
         return jsonify({"status": "ok"}), 200
 
-    if intencao_ia == "reagendar_agendamento":
+    if intencao_ia in ["reagendar_agendamento", "reagendar"]:
         cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
         limpar_dados_fluxo_revisao(telefone)
         iniciar_reagendamento(telefone, cpf)
@@ -1535,7 +1521,6 @@ def webhook():
     # MENU PRINCIPAL
     # ==========================================
     if etapa == "menu":
-
         if texto_opcao == "1":
             proxima = iniciar_fluxo_revisao_por_intencao(telefone, {})
             enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
@@ -1545,8 +1530,7 @@ def webhook():
             clientes[telefone]["etapa"] = "pecas"
             enviar_mensagem(
                 telefone,
-                "🔩 *Peças*\n\n"
-                "Informe a peça desejada:"
+                "🔩 *Peças*\n\nInforme a peça desejada:"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1554,8 +1538,7 @@ def webhook():
             clientes[telefone]["etapa"] = "acessorios"
             enviar_mensagem(
                 telefone,
-                "🛵 *Acessórios*\n\n"
-                "Informe o acessório desejado:"
+                "🛵 *Acessórios*\n\nInforme o acessório desejado:"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1563,8 +1546,7 @@ def webhook():
             clientes[telefone]["etapa"] = "garantia"
             enviar_mensagem(
                 telefone,
-                "🛡️ *Garantia*\n\n"
-                "Descreva sua solicitação:"
+                "🛡️ *Garantia*\n\nDescreva sua solicitação:"
             )
             return jsonify({"status": "ok"}), 200
 
@@ -1586,13 +1568,11 @@ def webhook():
 
         elif intencao_ia == "agendar_revisao":
             proxima = iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos_ia)
-            enviar_mensagem(telefone, "Perfeito. Vou seguir com seu agendamento de revisão.")
-
+            enviar_mensagem(telefone, "Perfeito 👍 Vou seguir com seu agendamento de revisão.")
             if proxima == "revisao_horario":
                 enviar_proxima_etapa_revisao(telefone)
             else:
                 enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
-
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "pecas":
@@ -1624,198 +1604,216 @@ def webhook():
 
         enviar_menu(telefone)
         return jsonify({"status": "ok"}), 200
+
     # ==========================================
-    # REVISÃO AUTOMÁTICA POR ETAPA
+    # FLUXO REVISÃO
     # ==========================================
-    if etapa == "revisao_modelo":
+    if etapa.startswith("revisao"):
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
 
-        if not clientes[telefone].get("modelo"):
-            clientes[telefone]["modelo"] = texto.upper()
-
-        enviar_proxima_etapa_revisao(telefone)
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_nome":
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
-
-        if not clientes[telefone].get("nome"):
-            clientes[telefone]["nome"] = texto.upper()
-
-        enviar_proxima_etapa_revisao(telefone)
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_cpf":
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
-
-        cpf = clientes[telefone].get("cpf") or limpar_cpf(texto)
-
-        if len(cpf) != 11:
-            enviar_mensagem(telefone, "⚠️ CPF inválido. Digite novamente com 11 números:")
-            return jsonify({"status": "ok"}), 200
-
-        clientes[telefone]["cpf"] = cpf
-        enviar_proxima_etapa_revisao(telefone)
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_ano":
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
-
-        ano = clientes[telefone].get("ano") or texto
-
-        if not ano:
-            enviar_mensagem(telefone, "⚠️ Informe o ano da moto.")
-            return jsonify({"status": "ok"}), 200
-
-        clientes[telefone]["ano"] = ano
-        enviar_proxima_etapa_revisao(telefone)
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_tipo":
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
-
-        revisao = clientes[telefone].get("revisao") or normalizar_revisao_para_fluxo(texto)
-
-        if revisao not in ["1", "2", "3", "4", "5"]:
-            enviar_mensagem(telefone, "⚠️ Opção inválida. Digite de 1 a 5.")
-            return jsonify({"status": "ok"}), 200
-
-        clientes[telefone]["revisao"] = revisao
-        enviar_proxima_etapa_revisao(telefone)
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_dia":
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
-
-        dia = clientes[telefone].get("dia")
-
-        if not dia:
-            dia = texto
-
-        if dia not in ["1", "2", "3", "4", "5", "6"]:
-            enviar_mensagem(telefone, "⚠️ Dia inválido. Digite 1 a 6.")
-            return jsonify({"status": "ok"}), 200
-
-        clientes[telefone]["dia"] = dia
-        clientes[telefone]["dia_texto"] = nome_dia(dia)
-
-        enviar_proxima_etapa_revisao(telefone)
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_data":
-
-        data_digitada = texto
-
-        if not validar_data(data_digitada):
+        if intencao_ia in ["humano", "falar_humano", "atendimento_humano"]:
+            clientes[telefone]["duvidas_ia"] = int(clientes[telefone].get("duvidas_ia", 0)) + 1
             enviar_mensagem(
                 telefone,
-                "⚠️ Data inválida.\n\nDigite novamente (dd/mm/aaaa)"
+                "Posso te ajudar por aqui mesmo 👍\n\n"
+                "Me diga sua dúvida sobre a revisão que eu explico e seguimos com seu agendamento."
             )
             return jsonify({"status": "ok"}), 200
 
-        clientes[telefone]["data"] = data_digitada
+        if etapa == "revisao_modelo":
+            if not clientes[telefone].get("modelo"):
+                clientes[telefone]["modelo"] = texto.upper()
 
-        revisao = clientes[telefone]["revisao"]
-        dia = clientes[telefone]["dia"]
-
-        horarios = horarios_por_revisao(revisao, dia)
-
-        clientes[telefone]["horarios_disponiveis"] = horarios
-        clientes[telefone]["etapa"] = "revisao_horario"
-
-        enviar_mensagem(
-            telefone,
-            montar_mensagem_horarios(horarios)
-        )
-
-        return jsonify({"status": "ok"}), 200
-
-
-    if etapa == "revisao_horario":
-
-        horarios = clientes[telefone]["horarios_disponiveis"]
-
-        try:
-            idx = int(texto) - 1
-            horario = horarios[idx]
-        except:
-            enviar_mensagem(telefone, "⚠️ Escolha um horário válido.")
+            enviar_proxima_etapa_revisao(telefone)
             return jsonify({"status": "ok"}), 200
 
-        clientes[telefone]["horario"] = horario
-        clientes[telefone]["etapa"] = "revisao_venda"
+        if etapa == "revisao_nome":
+            if not clientes[telefone].get("nome"):
+                clientes[telefone]["nome"] = texto.upper()
 
-        enviar_mensagem(
-            telefone,
-            montar_mensagem_venda_adicional(telefone)
-        )
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
 
-        return jsonify({"status": "ok"}), 200
+        if etapa == "revisao_cpf":
+            cpf = clientes[telefone].get("cpf") or limpar_cpf(texto)
 
+            if len(cpf) != 11:
+                enviar_mensagem(telefone, "⚠️ CPF inválido. Digite novamente com 11 números:")
+                return jsonify({"status": "ok"}), 200
 
-    if etapa == "revisao_venda":
+            clientes[telefone]["cpf"] = cpf
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
 
-        if texto == "2":
-            clientes[telefone]["venda_adicional"] = ""
-        else:
-            clientes[telefone]["venda_adicional"] = texto
+        if etapa == "revisao_ano":
+            ano = clientes[telefone].get("ano") or texto
 
-        dados = clientes[telefone]
+            if not ano:
+                enviar_mensagem(telefone, "⚠️ Informe o ano da moto.")
+                return jsonify({"status": "ok"}), 200
 
-        protocolo = salvar_agendamento(
-            telefone,
-            dados
-        )
+            clientes[telefone]["ano"] = ano
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
 
-        atendimento = Atendimento(
-            telefone=telefone,
-            nome=dados["nome"],
-            setor="Revisão",
-            modelo=dados["modelo"],
-            ano=dados["ano"],
-            revisao=dados["revisao"],
-            cpf=dados["cpf"],
-            dia_semana=nome_dia(dados["dia"]),
-            data_agendada=dados["data"],
-            horario=dados["horario"],
-            itens=dados["venda_adicional"],
-            origem="Bot",
-            status="Agendado",
-            etapa="revisao_finalizada",
-            concluido=True,
-            ultima_interacao=agora_datetime(),
-            data=agora_datetime()
-        )
+        if etapa == "revisao_km":
+            km_atual = clientes[telefone].get("km_atual") or re.sub(r"\D", "", texto)
 
-        db = SessionLocal()
-        db.add(atendimento)
-        db.commit()
-        db.close()
+            if not km_atual:
+                enviar_mensagem(telefone, "⚠️ Informe a quilometragem atual da moto.")
+                return jsonify({"status": "ok"}), 200
 
-        enviar_mensagem(
-            telefone,
-            "✅ *Agendamento Confirmado*\n\n"
-            f"👤 {dados['nome']}\n"
-            f"🏍️ {dados['modelo']}\n"
-            f"📅 {dados['data']}\n"
-            f"⏰ {dados['horario']}\n"
-            f"📌 Protocolo: {protocolo}\n\n"
-            "Equipe Motoshow Yamaha"
-        )
+            clientes[telefone]["km_atual"] = km_atual
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
 
-        resetar_cliente(telefone)
+        if etapa == "revisao_tipo":
+            revisao = clientes[telefone].get("revisao") or normalizar_revisao_para_fluxo(texto)
 
-        return jsonify({"status": "ok"}), 200
+            if revisao not in ["1", "2", "3", "4", "5"]:
+                enviar_mensagem(telefone, "⚠️ Opção inválida. Digite de 1 a 5.")
+                return jsonify({"status": "ok"}), 200
 
+            clientes[telefone]["revisao"] = revisao
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_dia":
+            dia = clientes[telefone].get("dia") or texto
+
+            if dia not in ["1", "2", "3", "4", "5", "6"]:
+                enviar_mensagem(telefone, "⚠️ Dia inválido. Digite de 1 a 6.")
+                return jsonify({"status": "ok"}), 200
+
+            clientes[telefone]["dia"] = dia
+            clientes[telefone]["dia_texto"] = nome_dia(dia)
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_data":
+            data_digitada = texto
+
+            if not validar_data(data_digitada):
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Data inválida.\n\nDigite novamente no formato *dd/mm/aaaa*."
+                )
+                return jsonify({"status": "ok"}), 200
+
+            clientes[telefone]["data"] = data_digitada
+
+            revisao = clientes[telefone]["revisao"]
+            dia = clientes[telefone]["dia"]
+            horarios = horarios_por_revisao(revisao, dia)
+
+            clientes[telefone]["horarios_disponiveis"] = horarios
+            clientes[telefone]["etapa"] = "revisao_horario"
+
+            enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_horario":
+            horarios = clientes[telefone]["horarios_disponiveis"]
+
+            try:
+                idx = int(texto) - 1
+                horario = horarios[idx]
+            except Exception:
+                enviar_mensagem(telefone, "⚠️ Escolha um horário válido.")
+                return jsonify({"status": "ok"}), 200
+
+            if not verificar_capacidade(clientes[telefone]["data"], horario, clientes[telefone]["revisao"]):
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Esse horário acabou de ficar indisponível.\n\nEscolha outro horário:"
+                )
+                enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+                return jsonify({"status": "ok"}), 200
+
+            clientes[telefone]["horario"] = horario
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_tipo_atendimento":
+            if texto == "1":
+                clientes[telefone]["tipo_atendimento"] = "AGUARDAR NA CONCESSIONÁRIA"
+            elif texto == "2":
+                clientes[telefone]["tipo_atendimento"] = "DEIXAR A MOTO E RETIRAR DEPOIS"
+            else:
+                enviar_mensagem(telefone, "⚠️ Escolha 1 ou 2.")
+                return jsonify({"status": "ok"}), 200
+
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_venda":
+            if texto == "2":
+                clientes[telefone]["venda_adicional"] = "Nenhum"
+                clientes[telefone]["itens"] = "Nenhum"
+            else:
+                clientes[telefone]["venda_adicional"] = formatar_itens_adicionais_para_salvar(texto)
+                clientes[telefone]["itens"] = formatar_itens_adicionais_para_salvar(texto)
+
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_observacao":
+            if texto == "2":
+                clientes[telefone]["observacao"] = "Nenhuma"
+            else:
+                clientes[telefone]["observacao"] = texto
+
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "revisao_confirmacao":
+            if texto == "1":
+                dados = clientes[telefone]
+
+                protocolo = salvar_agendamento(telefone, dados)
+                if not protocolo:
+                    enviar_mensagem(
+                        telefone,
+                        "❌ Ocorreu um erro ao salvar seu agendamento.\nTente novamente em instantes."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                salvar_atendimento_dashboard(telefone, dados)
+
+                enviar_mensagem(
+                    telefone,
+                    "✅ *Agendamento Confirmado*\n\n"
+                    f"👤 {dados['nome']}\n"
+                    f"🏍️ {dados['modelo']}\n"
+                    f"📅 {dados['data']}\n"
+                    f"⏰ {dados['horario']}\n"
+                    f"📌 Protocolo: {protocolo}\n\n"
+                    "Obrigado por escolher a Motoshow Yamaha 🏍️\n"
+                    "Equipe Motoshow Yamaha"
+                )
+
+                resetar_cliente(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif texto == "2":
+                limpar_dados_fluxo_revisao(telefone)
+                clientes[telefone]["etapa"] = "revisao_modelo"
+                enviar_mensagem(
+                    telefone,
+                    "Perfeito. Vamos corrigir seu agendamento.\n\n"
+                    "Informe novamente o *modelo da moto*:"
+                )
+                return jsonify({"status": "ok"}), 200
+
+            else:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Digite *1* para confirmar ou *2* para corrigir."
+                )
+                return jsonify({"status": "ok"}), 200
 
     # ==========================================
-    # PEÇAS / ACESSÓRIOS / GARANTIA
+    # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
     # ==========================================
     if etapa == "pecas":
         enviar_mensagem(
@@ -1825,7 +1823,6 @@ def webhook():
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
 
-
     if etapa == "acessorios":
         enviar_mensagem(
             telefone,
@@ -1833,7 +1830,6 @@ def webhook():
         )
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
-
 
     if etapa == "garantia":
         enviar_mensagem(
@@ -1843,22 +1839,24 @@ def webhook():
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
 
-
     if etapa == "atacado":
-        enviar_pdf(
-            telefone,
-            "catalogo-atacado.pdf",
-            "📄 Catálogo Atacado"
-        )
+        if texto == "3":
+            enviar_pdf(
+                telefone,
+                "catalogo-atacado.pdf",
+                "📄 Catálogo Atacado Motoshow Yamaha"
+            )
+        else:
+            enviar_mensagem(
+                telefone,
+                "✅ Solicitação registrada.\nNossa equipe dará continuidade."
+            )
 
         resetar_cliente(telefone)
-
         return jsonify({"status": "ok"}), 200
-
 
     if etapa == "atendimento_humano":
         return jsonify({"status": "ok"}), 200
-
 
     return jsonify({"status": "ok"}), 200
 
