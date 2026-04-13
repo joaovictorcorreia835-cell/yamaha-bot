@@ -52,6 +52,8 @@ worker_followup_iniciado = False
 @app.route("/")
 def home():
     return "BOT YAMAHA ONLINE"
+
+
 # ==========================================
 # LOG
 # ==========================================
@@ -285,8 +287,6 @@ def extrair_lista_itens_adicionais(valor):
 def formatar_itens_adicionais_para_salvar(valor):
     itens = extrair_lista_itens_adicionais(valor)
     return ", ".join(itens)
-
-
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -562,8 +562,6 @@ def enviar_pdf(telefone, arquivo, legenda=""):
     except Exception as e:
         log_erro("Erro enviar PDF:", e)
         return False
-
-
 # ==========================================
 # MENU / MENSAGENS
 # ==========================================
@@ -590,7 +588,7 @@ def montar_mensagem_horarios(lista):
     return msg
 
 
-def montar_mensagem_venda_adicional(telefone):
+def montar_mensagem_venda_adicional():
     return (
         "🛒 *Deseja adicionar algum item?*\n\n"
         "Sugestões:\n"
@@ -616,7 +614,7 @@ def montar_resumo_confirmacao(telefone):
         f"📄 *CPF:* {dados.get('cpf', '-')}\n"
         f"🏍️ *Modelo:* {dados.get('modelo', '-')}\n"
         f"📅 *Ano:* {dados.get('ano', '-')}\n"
-        f"🛠️ *Revisão:* {dados.get('revisao', '-')}ª\n"
+        f"🔧 *Revisão:* {dados.get('revisao', '-')}ª\n"
         f"📍 *Dia:* {dados.get('dia_texto', '-')}\n"
         f"📆 *Data:* {dados.get('data', '-')}\n"
         f"⏰ *Horário:* {dados.get('horario', '-')}\n"
@@ -681,7 +679,7 @@ def mensagem_por_etapa_revisao(telefone, etapa):
         )
 
     if etapa == "revisao_venda":
-        return montar_mensagem_venda_adicional(telefone)
+        return montar_mensagem_venda_adicional()
 
     if etapa == "revisao_observacao":
         return (
@@ -699,48 +697,8 @@ def mensagem_por_etapa_revisao(telefone, etapa):
     return "Vamos continuar seu agendamento."
 
 
-def primeira_etapa_pendente_revisao(telefone):
-    iniciar_cliente(telefone)
-    dados = clientes[telefone]
-
-    if not dados.get("modelo"):
-        return "revisao_modelo"
-    if not dados.get("nome"):
-        return "revisao_nome"
-    if not dados.get("cpf"):
-        return "revisao_cpf"
-    if not dados.get("ano"):
-        return "revisao_ano"
-    if not dados.get("km_atual"):
-        return "revisao_km"
-    if not dados.get("revisao"):
-        return "revisao_tipo"
-    if not dados.get("dia"):
-        return "revisao_dia"
-    if not dados.get("data"):
-        return "revisao_data"
-    if not dados.get("horario"):
-        return "revisao_horario"
-    if not dados.get("tipo_atendimento"):
-        return "revisao_tipo_atendimento"
-    if dados.get("venda_adicional", None) == "":
-        return "revisao_venda"
-    if dados.get("observacao", None) == "":
-        return "revisao_observacao"
-    return "revisao_confirmacao"
-
-
-def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
-    limpar_dados_fluxo_revisao(telefone)
-
-    if dados_extraidos:
-        aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
-
-    proxima = primeira_etapa_pendente_revisao(telefone)
-    clientes[telefone]["etapa"] = proxima
-    return proxima
 # ==========================================
-# APOIO IA REVISÃO
+# APOIO IA
 # ==========================================
 def resposta_ia_vazia():
     return {
@@ -835,6 +793,75 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         dados["tipo_atendimento"] = tipo_atendimento
 
 
+# ==========================================
+# FLUXO REVISÃO
+# ==========================================
+def primeira_etapa_pendente_revisao(telefone):
+    iniciar_cliente(telefone)
+    dados = clientes[telefone]
+
+    if not dados.get("modelo"):
+        return "revisao_modelo"
+    if not dados.get("nome"):
+        return "revisao_nome"
+    if not dados.get("cpf"):
+        return "revisao_cpf"
+    if not dados.get("ano"):
+        return "revisao_ano"
+    if not dados.get("km_atual"):
+        return "revisao_km"
+    if not dados.get("revisao"):
+        return "revisao_tipo"
+    if not dados.get("dia"):
+        return "revisao_dia"
+    if not dados.get("data"):
+        return "revisao_data"
+    if not dados.get("horario"):
+        return "revisao_horario"
+    if not dados.get("tipo_atendimento"):
+        return "revisao_tipo_atendimento"
+    if dados.get("venda_adicional", "") == "":
+        return "revisao_venda"
+    if dados.get("observacao", "") == "":
+        return "revisao_observacao"
+    return "revisao_confirmacao"
+
+
+def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
+    limpar_dados_fluxo_revisao(telefone)
+
+    if dados_extraidos:
+        aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
+
+    proxima = primeira_etapa_pendente_revisao(telefone)
+    clientes[telefone]["etapa"] = proxima
+    return proxima
+
+
+def enviar_proxima_etapa_revisao(telefone):
+    etapa = primeira_etapa_pendente_revisao(telefone)
+    clientes[telefone]["etapa"] = etapa
+
+    if etapa == "revisao_horario":
+        revisao = clientes[telefone]["revisao"]
+        dia = clientes[telefone]["dia"]
+
+        horarios = horarios_por_revisao(revisao, dia)
+
+        if not horarios:
+            clientes[telefone]["etapa"] = "revisao_dia"
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não há horários disponíveis para esse tipo de revisão neste dia.\n\nEscolha outro dia."
+            )
+            enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, "revisao_dia"))
+            return
+
+        clientes[telefone]["horarios_disponiveis"] = horarios
+        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+        return
+
+    enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa))
 # ==========================================
 # CAPACIDADE / HORÁRIOS
 # ==========================================
@@ -938,11 +965,9 @@ def salvar_agendamento(telefone, dados):
             modelo=dados["modelo"],
             ano=dados["ano"],
             revisao=dados["revisao"],
-            km_atual=dados.get("km_atual", ""),
             dia_semana=nome_dia(dados["dia"]),
             data_agendada=dados["data"],
             horario=dados["horario"],
-            tipo_atendimento=dados.get("tipo_atendimento", ""),
             itens=itens_formatados,
             venda_adicional=venda_formatada,
             status="AGENDADO",
@@ -977,14 +1002,11 @@ def salvar_atendimento_dashboard(telefone, dados):
             ano=dados["ano"],
             revisao=dados["revisao"],
             cpf=dados["cpf"],
-            km_atual=dados.get("km_atual", ""),
             dia_semana=nome_dia(dados["dia"]),
             data_agendada=dados["data"],
             horario=dados["horario"],
             itens=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
             venda_adicional=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
-            tipo_atendimento=dados.get("tipo_atendimento", ""),
-            observacoes=dados.get("observacao", ""),
             origem="BOT",
             status="Agendado",
             etapa="revisao_finalizada",
@@ -1000,7 +1022,7 @@ def salvar_atendimento_dashboard(telefone, dados):
 
     except Exception as e:
         db.rollback()
-        log_erro("Erro salvar atendimento dashboard:", e)
+        log_erro("Erro salvar atendimento dashboard:", repr(e))
         return False
 
     finally:
@@ -1335,10 +1357,7 @@ def dashboard():
         segunda = query.filter(Atendimento.revisao == "2").count()
         terceira = query.filter(Atendimento.revisao == "3").count()
         quarta = query.filter(Atendimento.revisao == "4").count()
-
-        quinta = query.filter(
-            Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"])
-        ).count()
+        quinta = query.filter(Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"])).count()
 
         contador_itens = Counter()
         registros_itens = query.with_entities(Atendimento.itens).all()
@@ -1360,7 +1379,7 @@ def dashboard():
         ).limit(20).all()
 
         duvidas_ia = 0
-        for tel, dados in clientes.items():
+        for _, dados in clientes.items():
             try:
                 duvidas_ia += int(dados.get("duvidas_ia", 0) or 0)
             except Exception:
@@ -1397,42 +1416,6 @@ def dashboard():
         db.close()
 
 
-# ==========================================
-# AUXILIARES DO FLUXO DE REVISÃO
-# ==========================================
-def enviar_proxima_etapa_revisao(telefone):
-    etapa = primeira_etapa_pendente_revisao(telefone)
-    clientes[telefone]["etapa"] = etapa
-
-    if etapa == "revisao_horario":
-        revisao = clientes[telefone]["revisao"]
-        dia = clientes[telefone]["dia"]
-
-        horarios = horarios_por_revisao(revisao, dia)
-
-        if not horarios:
-            clientes[telefone]["etapa"] = "revisao_dia"
-
-            enviar_mensagem(
-                telefone,
-                "⚠️ Não há horários disponíveis para esse tipo de revisão neste dia.\n\n"
-                "Escolha outro dia."
-            )
-
-            enviar_mensagem(
-                telefone,
-                mensagem_por_etapa_revisao(telefone, "revisao_dia")
-            )
-            return
-
-        clientes[telefone]["horarios_disponiveis"] = horarios
-        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
-        return
-
-    enviar_mensagem(
-        telefone,
-        mensagem_por_etapa_revisao(telefone, etapa)
-    )
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1528,26 +1511,17 @@ def webhook():
 
         elif texto_opcao == "2":
             clientes[telefone]["etapa"] = "pecas"
-            enviar_mensagem(
-                telefone,
-                "🔩 *Peças*\n\nInforme a peça desejada:"
-            )
+            enviar_mensagem(telefone, "🔩 *Peças*\n\nInforme a peça desejada:")
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "3":
             clientes[telefone]["etapa"] = "acessorios"
-            enviar_mensagem(
-                telefone,
-                "🛵 *Acessórios*\n\nInforme o acessório desejado:"
-            )
+            enviar_mensagem(telefone, "🛵 *Acessórios*\n\nInforme o acessório desejado:")
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "4":
             clientes[telefone]["etapa"] = "garantia"
-            enviar_mensagem(
-                telefone,
-                "🛡️ *Garantia*\n\nDescreva sua solicitação:"
-            )
+            enviar_mensagem(telefone, "🛡️ *Garantia*\n\nDescreva sua solicitação:")
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "5":
@@ -1623,14 +1597,12 @@ def webhook():
         if etapa == "revisao_modelo":
             if not clientes[telefone].get("modelo"):
                 clientes[telefone]["modelo"] = texto.upper()
-
             enviar_proxima_etapa_revisao(telefone)
             return jsonify({"status": "ok"}), 200
 
         if etapa == "revisao_nome":
             if not clientes[telefone].get("nome"):
                 clientes[telefone]["nome"] = texto.upper()
-
             enviar_proxima_etapa_revisao(telefone)
             return jsonify({"status": "ok"}), 200
 
@@ -1866,105 +1838,7 @@ def webhook():
 # ==========================================
 iniciar_worker()
 
-from sqlalchemy import text
 
-from sqlalchemy import text
-
-@app.route("/debug-banco")
-def debug_banco():
-    try:
-        db = SessionLocal()
-        engine_name = db.bind.dialect.name
-
-        resultado = {
-            "engine": engine_name,
-            "tabelas": []
-        }
-
-        if engine_name == "sqlite":
-            tabelas = db.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table';")
-            ).fetchall()
-
-            for t in tabelas:
-                nome = t[0]
-                colunas = db.execute(
-                    text(f"PRAGMA table_info({nome});")
-                ).fetchall()
-
-                resultado["tabelas"].append({
-                    "tabela": nome,
-                    "colunas": [c[1] for c in colunas]
-                })
-
-        else:
-            tabelas = db.execute(
-                text("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                    ORDER BY table_name;
-                """)
-            ).fetchall()
-
-            for t in tabelas:
-                nome = t[0]
-
-                colunas = db.execute(
-                    text("""
-                        SELECT column_name
-                        FROM information_schema.columns
-                        WHERE table_schema = 'public'
-                        AND table_name = :table_name
-                        ORDER BY ordinal_position;
-                    """),
-                    {"table_name": nome}
-                ).fetchall()
-
-                resultado["tabelas"].append({
-                    "tabela": nome,
-                    "colunas": [c[0] for c in colunas]
-                })
-
-        db.close()
-        return resultado
-
-    except Exception as e:
-        return {"erro": str(e)}
-from sqlalchemy import text
-
-@app.route("/update-banco-render")
-def update_banco_render():
-    db = SessionLocal()
-
-    comandos = [
-        "ALTER TABLE agendamentos_revisao ADD COLUMN km_atual TEXT",
-        "ALTER TABLE agendamentos_revisao ADD COLUMN tipo_atendimento TEXT",
-        "ALTER TABLE agendamentos_revisao ADD COLUMN cancelado BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE agendamentos_revisao ADD COLUMN reagendado BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE agendamentos_revisao ADD COLUMN codigo_sistema TEXT",
-        "ALTER TABLE agendamentos_revisao ADD COLUMN sincronizado BOOLEAN DEFAULT FALSE"
-    ]
-
-    resultado = []
-
-    try:
-        for comando in comandos:
-            try:
-                db.execute(text(comando))
-                resultado.append(f"OK: {comando}")
-            except Exception as e:
-                resultado.append(f"Já existe ou erro: {comando} -> {str(e)}")
-
-        db.commit()
-        return {"status": "ok", "resultado": resultado}
-
-    except Exception as e:
-        db.rollback()
-        return {"status": "erro", "mensagem": str(e)}
-
-    finally:
-        db.close()
 # ==========================================
 # START
 # ==========================================
