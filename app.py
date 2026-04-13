@@ -1866,14 +1866,15 @@ def webhook():
 # ==========================================
 iniciar_worker()
 
+from sqlalchemy import text
+
 @app.route("/debug-banco")
 def debug_banco():
     try:
         db = SessionLocal()
 
-        # Verificar tabelas
         tabelas = db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table';"
+            text("SELECT name FROM sqlite_master WHERE type='table';")
         ).fetchall()
 
         resultado = []
@@ -1882,7 +1883,7 @@ def debug_banco():
             nome = t[0]
 
             colunas = db.execute(
-                f"PRAGMA table_info({nome});"
+                text(f"PRAGMA table_info({nome});")
             ).fetchall()
 
             resultado.append({
