@@ -1931,6 +1931,40 @@ def debug_banco():
 
     except Exception as e:
         return {"erro": str(e)}
+from sqlalchemy import text
+
+@app.route("/update-banco-render")
+def update_banco_render():
+    db = SessionLocal()
+
+    comandos = [
+        "ALTER TABLE agendamentos_revisao ADD COLUMN km_atual TEXT",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN tipo_atendimento TEXT",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN cancelado BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN reagendado BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN codigo_sistema TEXT",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN sincronizado BOOLEAN DEFAULT FALSE"
+    ]
+
+    resultado = []
+
+    try:
+        for comando in comandos:
+            try:
+                db.execute(text(comando))
+                resultado.append(f"OK: {comando}")
+            except Exception as e:
+                resultado.append(f"Já existe ou erro: {comando} -> {str(e)}")
+
+        db.commit()
+        return {"status": "ok", "resultado": resultado}
+
+    except Exception as e:
+        db.rollback()
+        return {"status": "erro", "mensagem": str(e)}
+
+    finally:
+        db.close()
 # ==========================================
 # START
 # ==========================================
