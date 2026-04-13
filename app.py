@@ -1868,35 +1868,66 @@ iniciar_worker()
 
 from sqlalchemy import text
 
+from sqlalchemy import text
+
 @app.route("/debug-banco")
 def debug_banco():
     try:
         db = SessionLocal()
+        engine_name = db.bind.dialect.name
 
-        tabelas = db.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table';")
-        ).fetchall()
+        resultado = {
+            "engine": engine_name,
+            "tabelas": []
+        }
 
-        resultado = []
-
-        for t in tabelas:
-            nome = t[0]
-
-            colunas = db.execute(
-                text(f"PRAGMA table_info({nome});")
+        if engine_name == "sqlite":
+            tabelas = db.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table';")
             ).fetchall()
 
-            resultado.append({
-                "tabela": nome,
-                "colunas": [c[1] for c in colunas]
-            })
+            for t in tabelas:
+                nome = t[0]
+                colunas = db.execute(
+                    text(f"PRAGMA table_info({nome});")
+                ).fetchall()
+
+                resultado["tabelas"].append({
+                    "tabela": nome,
+                    "colunas": [c[1] for c in colunas]
+                })
+
+        else:
+            tabelas = db.execute(
+                text("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    ORDER BY table_name;
+                """)
+            ).fetchall()
+
+            for t in tabelas:
+                nome = t[0]
+
+                colunas = db.execute(
+                    text("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                        AND table_name = :table_name
+                        ORDER BY ordinal_position;
+                    """),
+                    {"table_name": nome}
+                ).fetchall()
+
+                resultado["tabelas"].append({
+                    "tabela": nome,
+                    "colunas": [c[0] for c in colunas]
+                })
 
         db.close()
-
-        return {
-            "status": "ok",
-            "tabelas": resultado
-        }
+        return resultado
 
     except Exception as e:
         return {"erro": str(e)}
