@@ -958,7 +958,7 @@ def salvar_agendamento(telefone, dados):
 
     except Exception as e:
         db.rollback()
-        log_erro("Erro salvar agendamento:", e)
+        log_erro("Erro salvar agendamento:", repr(e))
         return None
 
     finally:
@@ -1866,7 +1866,39 @@ def webhook():
 # ==========================================
 iniciar_worker()
 
+@app.route("/debug-banco")
+def debug_banco():
+    try:
+        db = SessionLocal()
 
+        # Verificar tabelas
+        tabelas = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table';"
+        ).fetchall()
+
+        resultado = []
+
+        for t in tabelas:
+            nome = t[0]
+
+            colunas = db.execute(
+                f"PRAGMA table_info({nome});"
+            ).fetchall()
+
+            resultado.append({
+                "tabela": nome,
+                "colunas": [c[1] for c in colunas]
+            })
+
+        db.close()
+
+        return {
+            "status": "ok",
+            "tabelas": resultado
+        }
+
+    except Exception as e:
+        return {"erro": str(e)}
 # ==========================================
 # START
 # ==========================================
