@@ -289,6 +289,21 @@ def formatar_itens_adicionais_para_salvar(valor):
     return ", ".join(itens)
 
 
+def item_adicional_valido(item):
+    item_limpo = limpar_item_adicional(item)
+
+    if not item_limpo:
+        return False
+
+    if item_limpo in ["NENHUM", "NAO", "NÃO", "SEM ITEM", "SEM ITENS"]:
+        return False
+
+    return True
+
+
+def extrair_itens_venda_real(valor):
+    itens = extrair_lista_itens_adicionais(valor)
+    return [item for item in itens if item_adicional_valido(item)]
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -643,8 +658,6 @@ def montar_resumo_confirmacao(telefone):
         "*1* para confirmar\n"
         "*2* para corrigir"
     )
-
-
 def mensagem_por_etapa_revisao(telefone, etapa):
     iniciar_cliente(telefone)
     dados = clientes[telefone]
@@ -713,6 +726,8 @@ def mensagem_por_etapa_revisao(telefone, etapa):
         return montar_resumo_confirmacao(telefone)
 
     return "Vamos continuar seu agendamento."
+
+
 # ==========================================
 # APOIO IA
 # ==========================================
@@ -860,13 +875,13 @@ def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
             dia_semana="",
             data_agendada="",
             horario="",
-            itens=pergunta,
+            itens="",
             venda_adicional="",
             origem="BOT",
             status="Dúvida respondida",
             etapa="duvida_respondida",
             atendimento_humano=False,
-            concluido=True,
+            concluido=False,
             ultima_interacao=agora_datetime(),
             data=agora_datetime()
         )
@@ -953,8 +968,6 @@ def enviar_proxima_etapa_revisao(telefone):
         return
 
     enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa))
-
-
 # ==========================================
 # CAPACIDADE / HORÁRIOS
 # ==========================================
@@ -1036,6 +1049,8 @@ def validar_data(data):
 
 def gerar_protocolo():
     return str(uuid.uuid4())[:8].upper()
+
+
 # ==========================================
 # SALVAMENTO
 # ==========================================
@@ -1085,6 +1100,10 @@ def salvar_atendimento_dashboard(telefone, dados):
     db = SessionLocal()
 
     try:
+        venda_real = formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", ""))
+        if venda_real.strip().upper() == "NENHUM":
+            venda_real = ""
+
         atendimento = Atendimento(
             telefone=telefone,
             nome=dados["nome"],
@@ -1096,8 +1115,8 @@ def salvar_atendimento_dashboard(telefone, dados):
             dia_semana=nome_dia(dados["dia"]),
             data_agendada=dados["data"],
             horario=dados["horario"],
-            itens=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
-            venda_adicional=formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+            itens=venda_real,
+            venda_adicional=venda_real,
             origem="BOT",
             status="Agendado",
             etapa="revisao_finalizada",
@@ -1288,8 +1307,6 @@ def iniciar_reagendamento(telefone, cpf):
         telefone,
         mensagem_por_etapa_revisao(telefone, "revisao_dia")
     )
-
-
 # ==========================================
 # FOLLOW-UP / LEMBRETES
 # ==========================================
@@ -1442,29 +1459,48 @@ def dashboard():
         total_duvidas_garantia = query.filter(Atendimento.setor == "Dúvidas Garantia").count()
         total_duvidas = total_duvidas_revisoes + total_duvidas_garantia
 
-        agendados = query.filter(Atendimento.status == "Agendado").count()
-        concluidos = query.filter(Atendimento.concluido == True).count()
+        agendados = query_ag.filter(AgendamentoRevisao.status == "AGENDADO").count()
+        concluidos = query_ag.filter(
+            AgendamentoRevisao.status.in_(["CONCLUIDO", "CONCLUÍDO", "Concluído"])
+        ).count()
         atendimento_humano = query.filter(Atendimento.atendimento_humano == True).count()
 
         cancelados = query_ag.filter(AgendamentoRevisao.status == "CANCELADO").count()
         reagendados = query_ag.filter(AgendamentoRevisao.status == "REAGENDADO").count()
         total_agendamentos_periodo = query_ag.count()
 
-        primeira = query.filter(Atendimento.revisao == "1").count()
-        segunda = query.filter(Atendimento.revisao == "2").count()
-        terceira = query.filter(Atendimento.revisao == "3").count()
-        quarta = query.filter(Atendimento.revisao == "4").count()
-        quinta = query.filter(Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"])).count()
+        primeira = query.filter(
+            Atendimento.setor == "Revisão",
+            Atendimento.revisao == "1"
+        ).count()
+        segunda = query.filter(
+            Atendimento.setor == "Revisão",
+            Atendimento.revisao == "2"
+        ).count()
+        terceira = query.filter(
+            Atendimento.setor == "Revisão",
+            Atendimento.revisao == "3"
+        ).count()
+        quarta = query.filter(
+            Atendimento.setor == "Revisão",
+            Atendimento.revisao == "4"
+        ).count()
+        quinta = query.filter(
+            Atendimento.setor == "Revisão",
+            Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"])
+        ).count()
 
         contador_itens = Counter()
-        registros_itens = query.with_entities(Atendimento.itens).all()
+        registros_itens = query.filter(
+            Atendimento.setor == "Revisão"
+        ).with_entities(Atendimento.venda_adicional).all()
 
         for item in registros_itens:
             valor = item[0] if isinstance(item, tuple) else item
             if not valor:
                 continue
 
-            lista_itens = extrair_lista_itens_adicionais(valor)
+            lista_itens = extrair_itens_venda_real(valor)
             for i in lista_itens:
                 contador_itens[i] += 1
 
@@ -1475,12 +1511,7 @@ def dashboard():
             AgendamentoRevisao.criado_em.desc()
         ).limit(20).all()
 
-        duvidas_ia = 0
-        for _, dados in clientes.items():
-            try:
-                duvidas_ia += int(dados.get("duvidas_ia", 0) or 0)
-            except Exception:
-                continue
+        duvidas_ia = total_duvidas
 
         return render_template(
             "dashboard.html",
@@ -1514,6 +1545,8 @@ def dashboard():
 
     finally:
         db.close()
+
+
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -1806,6 +1839,7 @@ def webhook():
 
             enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
             return jsonify({"status": "ok"}), 200
+
     # ==========================================
     # FLUXO REVISÃO
     # ==========================================
@@ -1949,8 +1983,9 @@ def webhook():
                 clientes[telefone]["venda_adicional"] = "Nenhum"
                 clientes[telefone]["itens"] = "Nenhum"
             else:
-                clientes[telefone]["venda_adicional"] = formatar_itens_adicionais_para_salvar(texto)
-                clientes[telefone]["itens"] = formatar_itens_adicionais_para_salvar(texto)
+                venda_formatada = formatar_itens_adicionais_para_salvar(texto)
+                clientes[telefone]["venda_adicional"] = venda_formatada
+                clientes[telefone]["itens"] = venda_formatada
 
             enviar_proxima_etapa_revisao(telefone)
             return jsonify({"status": "ok"}), 200
