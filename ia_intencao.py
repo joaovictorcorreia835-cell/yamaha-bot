@@ -108,6 +108,21 @@ def normalizar_texto(texto):
     return texto
 
 
+def formatar_valor_brl(valor):
+    try:
+        if isinstance(valor, (int, float)):
+            valor_float = float(valor)
+        else:
+            valor_texto = str(valor).replace("R$", "").strip()
+            if "," in valor_texto:
+                valor_texto = valor_texto.replace(".", "").replace(",", ".")
+            valor_float = float(valor_texto)
+
+        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return f"R$ {valor}"
+
+
 def obter_cliente():
     if not OPENAI_API_KEY:
         log_erro("OPENAI_API_KEY não configurada.")
@@ -135,7 +150,7 @@ def texto_parece_valor_revisao(texto_normalizado):
         return False
 
     tem_valor = any(p in texto_normalizado for p in [
-        "valor", "preco", "custa", "quanto custa", "quanto e"
+        "valor", "preco", "preço", "custa", "quanto custa", "quanto e", "quanto é"
     ])
 
     tem_contexto_revisao = any(p in texto_normalizado for p in [
@@ -679,8 +694,133 @@ def pontuar_correspondencia_duvida(pergunta_normalizada, palavras_chave):
     return pontos
 
 
-def responder_duvida_por_tabela(categoria, pergunta_cliente):
+def responder_duvida_revisao_excel(pergunta, modelo="", revisao=""):
+    try:
+        df = pd.read_excel(CAMINHO_PLANILHA_REVISOES)
+    except Exception as e:
+        log_erro("Erro ao carregar planilha revisões:", e)
+        return "Não consegui consultar as informações de revisão no momento."
+
+    if df.empty:
+        return "A planilha de revisões está vazia no momento."
+
+    colunas_necessarias = [
+        "modelo", "revisao_numero", "KM", "MESES",
+        "valor", "tempo_estimado", "itens_trocados", "itens_verificados"
+    ]
+
+    for coluna in colunas_necessarias:
+        if coluna not in df.columns:
+            return f"A coluna '{coluna}' não foi encontrada na planilha de revisões."
+
+    pergunta_normalizada = normalizar_texto(pergunta)
+
+    df["modelo"] = df["modelo"].astype(str).str.upper().str.strip()
+
+    modelo_filtrado = str(modelo or "").upper().strip()
+    revisao_filtrada = str(revisao or "").strip()
+
+    if not modelo_filtrado:
+        modelo_extraido = extrair_modelo(pergunta)
+        if modelo_extraido:
+            modelo_filtrado = modelo_extraido.upper().strip()
+
+    if not revisao_filtrada:
+        revisao_extraida = extrair_revisao(pergunta)
+        if revisao_extraida:
+            revisao_filtrada = str(revisao_extraida).strip()
+
+    if not revisao_filtrada:
+        km_extraido = extrair_km(pergunta)
+        if km_extraido:
+            revisao_por_km = km_para_revisao(km_extraido)
+            if revisao_por_km:
+                revisao_filtrada = str(revisao_por_km).strip()
+
+    if modelo_filtrado:
+        df = df[df["modelo"] == modelo_filtrado]
+
+    if revisao_filtrada:
+        try:
+            revisao_int = int(revisao_filtrada)
+            df = df[df["revisao_numero"] == revisao_int]
+        except Exception:
+            pass
+
+    if df.empty:
+        return (
+            "Não encontrei essa revisão na base de dados.\n\n"
+            "Tente informar o modelo da moto e o número da revisão.\n\n"
+            "Se preferir, nossa equipe pode verificar para você."
+        )
+
+    linha = df.iloc[0]
+
+    valor = linha["valor"]
+    tempo_estimado = linha["tempo_estimado"]
+    itens_trocados = str(linha["itens_trocados"]).strip()
+    itens_verificados = str(linha["itens_verificados"]).strip()
+    km = linha["KM"]
+    meses = linha["MESES"]
+    modelo_linha = str(linha["modelo"]).strip()
+    revisao_linha = str(linha["revisao_numero"]).strip()
+
+    if any(p in pergunta_normalizada for p in ["valor", "preco", "preço", "quanto custa", "custo"]):
+        return (
+            f"O valor estimado da {revisao_linha}ª revisão da {modelo_linha} é "
+            f"{formatar_valor_brl(valor)}."
+        )
+
+    if any(p in pergunta_normalizada for p in ["tempo", "demora", "duracao", "duração", "quanto tempo"]):
+        return (
+            f"O tempo estimado da {revisao_linha}ª revisão da {modelo_linha} é "
+            f"{tempo_estimado}."
+        )
+
+    if any(p in pergunta_normalizada for p in ["troca", "trocado", "trocados", "o que troca", "itens trocados"]):
+        return (
+            f"Na {revisao_linha}ª revisão da {modelo_linha}, os principais itens trocados são:\n\n"
+            f"{itens_trocados}"
+        )
+
+    if any(p in pergunta_normalizada for p in ["verifica", "verificado", "verificados", "checagem", "confere"]):
+        return (
+            f"Na {revisao_linha}ª revisão da {modelo_linha}, os principais itens verificados são:\n\n"
+            f"{itens_verificados}"
+        )
+
+    if any(p in pergunta_normalizada for p in ["km", "quilometragem"]):
+        return (
+            f"A {revisao_linha}ª revisão da {modelo_linha} é prevista para aproximadamente "
+            f"{km} km."
+        )
+
+    if any(p in pergunta_normalizada for p in ["mes", "meses", "prazo"]):
+        return (
+            f"A {revisao_linha}ª revisão da {modelo_linha} é prevista para "
+            f"{meses} meses."
+        )
+
+    return (
+        f"📋 {revisao_linha}ª revisão da {modelo_linha}\n\n"
+        f"🔢 KM: {km}\n"
+        f"📅 Meses: {meses}\n"
+        f"💰 Valor: {formatar_valor_brl(valor)}\n"
+        f"⏱️ Tempo estimado: {tempo_estimado}\n\n"
+        f"Se quiser, posso te explicar também o que troca ou o que é verificado nessa revisão."
+    )
+
+
+def responder_duvida_por_tabela(categoria, pergunta_cliente, modelo="", revisao=""):
     categoria_normalizada = normalizar_texto(categoria)
+
+    if categoria_normalizada == "revisoes":
+        return responder_duvida_revisao_excel(
+            pergunta=pergunta_cliente,
+            modelo=modelo,
+            revisao=revisao
+        )
+
     pergunta_normalizada = normalizar_texto(pergunta_cliente)
 
     if categoria_normalizada not in BASE_DUVIDAS:
@@ -706,18 +846,12 @@ def responder_duvida_por_tabela(categoria, pergunta_cliente):
     if melhor_item and melhor_pontuacao > 0:
         return melhor_item["resposta"]
 
-    if categoria_normalizada == "revisoes":
-        return (
-            "Entendi sua dúvida sobre revisões.\n\n"
-            "No momento, não encontrei uma resposta exata na base de conhecimento.\n\n"
-            "Nossa equipe pode te orientar com mais precisão. Se desejar, posso te encaminhar para atendimento."
-        )
-
     if categoria_normalizada == "garantia":
         return (
             "Entendi sua dúvida sobre garantia.\n\n"
             "No momento, não encontrei uma resposta exata na base de conhecimento.\n\n"
-            "Para te orientar corretamente, o ideal é que nossa equipe analise o seu caso. Se desejar, posso te encaminhar para atendimento."
+            "Para te orientar corretamente, o ideal é que nossa equipe analise o seu caso. "
+            "Se desejar, posso te encaminhar para atendimento."
         )
 
     return (
