@@ -1986,6 +1986,7 @@ def webhook():
                     f"📅 {dados['data']}\n"
                     f"⏰ {dados['horario']}\n"
                     f"📌 Protocolo: {protocolo}\n\n"
+                    "Lembrando de trazer o manual no momento da revisão para facilitar o atendimento.\n\n"
                     "Obrigado por escolher a Motoshow Yamaha 🏍️\n"
                     "Equipe Motoshow Yamaha"
                 )
