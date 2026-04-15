@@ -49,6 +49,14 @@ STATUS_POS_VENDA_ENVIADO = "POS_VENDA_ENVIADO"
 STATUS_ATENDIMENTO_HUMANO = "ATENDIMENTO_HUMANO"
 
 # ==========================================
+# STATUS INTEGRACAO SANCES
+# ==========================================
+SANCES_STATUS_PENDENTE = "PENDENTE"
+SANCES_STATUS_ENVIADO = "ENVIADO"
+SANCES_STATUS_ERRO = "ERRO"
+SANCES_STATUS_NAO_CONFIGURADO = "NAO_CONFIGURADO"
+
+# ==========================================
 # URLs Z-API
 # ==========================================
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
@@ -378,6 +386,67 @@ def obter_status_cliente(telefone):
     return normalizar_status(clientes[telefone].get("status"))
 
 
+def log_integracao_sances(telefone, acao, payload=None, retorno=None):
+    try:
+        log_info(
+            "[SANCES]",
+            f"telefone={telefone}",
+            f"acao={acao}",
+            f"payload={payload}",
+            f"retorno={retorno}"
+        )
+    except Exception as e:
+        log_erro("Erro no log da integração Sances:", repr(e))
+
+
+def montar_payload_sances(dados):
+    return {
+        "nome": limpar_texto(dados.get("nome", "")),
+        "telefone": limpar_telefone(dados.get("telefone", "")),
+        "cpf": limpar_cpf(dados.get("cpf", "")),
+        "modelo": limpar_texto(dados.get("modelo", "")),
+        "ano": limpar_texto(dados.get("ano", "")),
+        "revisao": limpar_texto(dados.get("revisao", "")),
+        "km_atual": limpar_texto(dados.get("km_atual", "")),
+        "data_agendada": limpar_texto(dados.get("data", "")),
+        "horario": limpar_texto(dados.get("horario", "")),
+        "observacao": limpar_texto(dados.get("observacao", "")),
+        "itens": formatar_itens_adicionais_para_salvar(dados.get("itens", "")),
+        "venda_adicional": formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+        "tipo_atendimento": limpar_texto(dados.get("tipo_atendimento", "")),
+        "origem": "BOT_WHATSAPP"
+    }
+
+
+def enviar_agendamento_para_sances(dados_agendamento):
+    try:
+        payload = montar_payload_sances(dados_agendamento)
+        log_integracao_sances(
+            telefone=payload.get("telefone", ""),
+            acao="mock_envio_agendamento",
+            payload=payload,
+            retorno="Integração ainda não configurada"
+        )
+
+        return {
+            "sucesso": False,
+            "status": SANCES_STATUS_NAO_CONFIGURADO,
+            "protocolo_sances": "",
+            "mensagem": "Integração com Sances ainda não configurada.",
+            "erro": "Sances não configurado"
+        }
+
+    except Exception as e:
+        log_erro("Erro ao montar envio mock para Sances:", repr(e))
+        return {
+            "sucesso": False,
+            "status": SANCES_STATUS_ERRO,
+            "protocolo_sances": "",
+            "mensagem": "Erro ao preparar integração com Sances.",
+            "erro": repr(e)
+        }
+
+
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -406,7 +475,12 @@ def estado_padrao_cliente():
         "concluido": False,
         "origem_etapa": "",
         "categoria_duvida": "",
-        "etapa_retorno_duvida": ""
+        "etapa_retorno_duvida": "",
+        "sances_enviado": False,
+        "sances_status": SANCES_STATUS_PENDENTE,
+        "sances_protocolo": "",
+        "sances_erro": "",
+        "sances_data_envio": ""
     }
 
 
@@ -442,6 +516,11 @@ def limpar_dados_fluxo_revisao(telefone):
     clientes[telefone]["observacao"] = ""
     clientes[telefone]["tipo_atendimento"] = ""
     clientes[telefone]["concluido"] = False
+    clientes[telefone]["sances_enviado"] = False
+    clientes[telefone]["sances_status"] = SANCES_STATUS_PENDENTE
+    clientes[telefone]["sances_protocolo"] = ""
+    clientes[telefone]["sances_erro"] = ""
+    clientes[telefone]["sances_data_envio"] = ""
     definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
 
 
@@ -2310,6 +2389,7 @@ def webhook():
         if etapa == "revisao_confirmacao":
             if texto == "1":
                 dados = clientes[telefone]
+                dados["telefone"] = telefone
 
                 protocolo = salvar_agendamento(telefone, dados)
                 if not protocolo:
@@ -2319,8 +2399,39 @@ def webhook():
                     )
                     return jsonify({"status": "ok"}), 200
 
+                retorno_sances = enviar_agendamento_para_sances(dados)
+
+                clientes[telefone]["sances_status"] = retorno_sances.get("status", SANCES_STATUS_ERRO)
+                clientes[telefone]["sances_protocolo"] = retorno_sances.get("protocolo_sances", "")
+                clientes[telefone]["sances_erro"] = retorno_sances.get("erro", "")
+                clientes[telefone]["sances_data_envio"] = formatar_data_hora()
+
+                if retorno_sances.get("sucesso"):
+                    clientes[telefone]["sances_enviado"] = True
+                else:
+                    clientes[telefone]["sances_enviado"] = False
+
                 definir_status_cliente(telefone, STATUS_AGENDADO)
                 salvar_atendimento_dashboard(telefone, dados)
+
+                mensagem_sances = ""
+                if retorno_sances.get("status") == SANCES_STATUS_ENVIADO:
+                    mensagem_sances = (
+                        f"\n🔗 *Integração Sances:* enviada com sucesso"
+                        f"\n🧾 *Protocolo Sances:* {retorno_sances.get('protocolo_sances', '-')}"
+                    )
+                elif retorno_sances.get("status") == SANCES_STATUS_NAO_CONFIGURADO:
+                    mensagem_sances = (
+                        "\n🔗 *Integração Sances:* pendente de configuração"
+                    )
+                elif retorno_sances.get("status") == SANCES_STATUS_ERRO:
+                    mensagem_sances = (
+                        "\n⚠️ *Integração Sances:* erro no envio"
+                    )
+                else:
+                    mensagem_sances = (
+                        f"\n🔗 *Integração Sances:* {retorno_sances.get('status', SANCES_STATUS_PENDENTE)}"
+                    )
 
                 enviar_mensagem(
                     telefone,
@@ -2329,7 +2440,8 @@ def webhook():
                     f"🏍️ {dados['modelo']}\n"
                     f"📅 {dados['data']}\n"
                     f"⏰ {dados['horario']}\n"
-                    f"📌 Protocolo: {protocolo}\n\n"
+                    f"📌 Protocolo: {protocolo}"
+                    f"{mensagem_sances}\n\n"
                     "Lembrando de trazer o manual no momento da revisão para facilitar o atendimento.\n\n"
                     "Obrigado por escolher a Motoshow Yamaha 🏍️\n"
                     "Equipe Motoshow Yamaha"
