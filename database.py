@@ -105,6 +105,7 @@ class LeadAtacado(Base):
 # ==========================================
 # TABELA AGENDAMENTOS REVISAO
 # Alinhada ao banco atual do Render
+# + PREPARADA PARA INTEGRAÇÃO SANCES
 # ==========================================
 class AgendamentoRevisao(Base):
     __tablename__ = "agendamentos_revisao"
@@ -132,6 +133,15 @@ class AgendamentoRevisao(Base):
 
     origem = Column(String, default="BOT")
     lembrete_enviado = Column(Boolean, default=False)
+
+    # ==========================================
+    # CAMPOS DE INTEGRAÇÃO SANCES
+    # ==========================================
+    sances_status = Column(String, default="PENDENTE", index=True)
+    sances_enviado = Column(Boolean, default=False)
+    sances_protocolo = Column(String, default="")
+    sances_erro = Column(Text, default="")
+    sances_data_envio = Column(DateTime, nullable=True)
 
     criado_em = Column(DateTime, default=datetime.now)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
