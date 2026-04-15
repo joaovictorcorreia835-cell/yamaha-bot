@@ -34,6 +34,21 @@ FOLLOWUP_1_HORAS = int(os.getenv("FOLLOWUP_1_HORAS", "48"))
 FOLLOWUP_2_DIAS = int(os.getenv("FOLLOWUP_2_DIAS", "5"))
 
 # ==========================================
+# STATUS OFICIAIS DO CRM POS-VENDA
+# ==========================================
+STATUS_NOVO_ATENDIMENTO = "NOVO_ATENDIMENTO"
+STATUS_AGENDAMENTO_INICIADO = "AGENDAMENTO_INICIADO"
+STATUS_AGENDADO = "AGENDADO"
+STATUS_CONFIRMADO = "CONFIRMADO"
+STATUS_REAGENDADO = "REAGENDADO"
+STATUS_CANCELADO = "CANCELADO"
+STATUS_NAO_COMPARECEU = "NAO_COMPARECEU"
+STATUS_EM_EXECUCAO = "EM_EXECUCAO"
+STATUS_FINALIZADO = "FINALIZADO"
+STATUS_POS_VENDA_ENVIADO = "POS_VENDA_ENVIADO"
+STATUS_ATENDIMENTO_HUMANO = "ATENDIMENTO_HUMANO"
+
+# ==========================================
 # URLs Z-API
 # ==========================================
 url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
@@ -304,12 +319,72 @@ def item_adicional_valido(item):
 def extrair_itens_venda_real(valor):
     itens = extrair_lista_itens_adicionais(valor)
     return [item for item in itens if item_adicional_valido(item)]
+
+
+def normalizar_status(status):
+    status = str(status or "").strip().upper()
+
+    mapa = {
+        "NOVO": STATUS_NOVO_ATENDIMENTO,
+        "NOVO_ATENDIMENTO": STATUS_NOVO_ATENDIMENTO,
+
+        "INICIADO": STATUS_AGENDAMENTO_INICIADO,
+        "AGENDAMENTO_INICIADO": STATUS_AGENDAMENTO_INICIADO,
+
+        "AGENDADO": STATUS_AGENDADO,
+        "AGENDADA": STATUS_AGENDADO,
+
+        "CONFIRMADO": STATUS_CONFIRMADO,
+        "CONFIRMADA": STATUS_CONFIRMADO,
+
+        "REAGENDADO": STATUS_REAGENDADO,
+        "REAGENDADA": STATUS_REAGENDADO,
+
+        "CANCELADO": STATUS_CANCELADO,
+        "CANCELADA": STATUS_CANCELADO,
+
+        "NAO_COMPARECEU": STATUS_NAO_COMPARECEU,
+        "NÃO_COMPARECEU": STATUS_NAO_COMPARECEU,
+
+        "EM_EXECUCAO": STATUS_EM_EXECUCAO,
+        "EM EXECUCAO": STATUS_EM_EXECUCAO,
+        "EM EXECUÇÃO": STATUS_EM_EXECUCAO,
+
+        "FINALIZADO": STATUS_FINALIZADO,
+        "FINALIZADA": STATUS_FINALIZADO,
+
+        "POS_VENDA_ENVIADO": STATUS_POS_VENDA_ENVIADO,
+
+        "ATENDIMENTO_HUMANO": STATUS_ATENDIMENTO_HUMANO,
+        "HUMANO": STATUS_ATENDIMENTO_HUMANO,
+        "ATENDIMENTO HUMANO": STATUS_ATENDIMENTO_HUMANO,
+
+        "EM ATENDIMENTO": STATUS_NOVO_ATENDIMENTO,
+    }
+
+    return mapa.get(status, STATUS_NOVO_ATENDIMENTO)
+
+
+def definir_status_cliente(telefone, status):
+    if telefone not in clientes:
+        clientes[telefone] = {}
+
+    clientes[telefone]["status"] = normalizar_status(status)
+
+
+def obter_status_cliente(telefone):
+    if telefone not in clientes:
+        return STATUS_NOVO_ATENDIMENTO
+    return normalizar_status(clientes[telefone].get("status"))
+
+
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
 def estado_padrao_cliente():
     return {
         "etapa": "menu",
+        "status": STATUS_NOVO_ATENDIMENTO,
         "ultima_interacao": agora(),
         "atendimento_humano": False,
         "modelo": "",
@@ -367,6 +442,7 @@ def limpar_dados_fluxo_revisao(telefone):
     clientes[telefone]["observacao"] = ""
     clientes[telefone]["tipo_atendimento"] = ""
     clientes[telefone]["concluido"] = False
+    definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
 
 
 def ativar_atendimento_humano(telefone):
@@ -374,6 +450,16 @@ def ativar_atendimento_humano(telefone):
     clientes[telefone]["atendimento_humano"] = True
     clientes[telefone]["etapa"] = "atendimento_humano"
     clientes[telefone]["ultima_interacao"] = agora()
+    definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Atendimento Humano",
+        status=STATUS_ATENDIMENTO_HUMANO,
+        etapa="atendimento_humano",
+        atendimento_humano=True,
+        concluido=False
+    )
 
     enviar_mensagem(
         telefone,
@@ -585,6 +671,76 @@ def enviar_pdf(telefone, arquivo, legenda=""):
 
 
 # ==========================================
+# SALVAMENTO DE EVENTOS / DASHBOARD
+# ==========================================
+def salvar_evento_atendimento(
+    telefone,
+    setor,
+    status,
+    etapa,
+    dados=None,
+    atendimento_humano=False,
+    concluido=False,
+    origem="BOT"
+):
+    db = SessionLocal()
+
+    try:
+        iniciar_cliente(telefone)
+        base = dados or clientes.get(telefone, {}) or {}
+
+        nome = limpar_texto(base.get("nome", ""))
+        modelo = limpar_texto(base.get("modelo", ""))
+        ano = limpar_texto(base.get("ano", ""))
+        revisao = limpar_texto(base.get("revisao", ""))
+        cpf = limpar_cpf(base.get("cpf", ""))
+        dia = limpar_texto(base.get("dia", ""))
+        data_agendada = limpar_texto(base.get("data", ""))
+        horario = limpar_texto(base.get("horario", ""))
+        venda_adicional = formatar_itens_adicionais_para_salvar(base.get("venda_adicional", ""))
+        itens = formatar_itens_adicionais_para_salvar(base.get("itens", venda_adicional))
+
+        if venda_adicional.strip().upper() == "NENHUM":
+            venda_adicional = ""
+        if itens.strip().upper() == "NENHUM":
+            itens = ""
+
+        atendimento = Atendimento(
+            telefone=telefone,
+            nome=nome,
+            setor=setor,
+            modelo=modelo,
+            ano=ano,
+            revisao=revisao,
+            cpf=cpf,
+            dia_semana=nome_dia(dia) if dia else "",
+            data_agendada=data_agendada,
+            horario=horario,
+            itens=itens,
+            venda_adicional=venda_adicional,
+            origem=origem,
+            status=normalizar_status(status),
+            etapa=etapa,
+            atendimento_humano=atendimento_humano,
+            concluido=concluido,
+            ultima_interacao=agora_datetime(),
+            data=agora_datetime()
+        )
+
+        db.add(atendimento)
+        db.commit()
+        return True
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro salvar evento atendimento:", repr(e))
+        return False
+
+    finally:
+        db.close()
+
+
+# ==========================================
 # MENU / MENSAGENS
 # ==========================================
 def enviar_menu(telefone):
@@ -658,6 +814,8 @@ def montar_resumo_confirmacao(telefone):
         "*1* para confirmar\n"
         "*2* para corrigir"
     )
+
+
 def mensagem_por_etapa_revisao(telefone, etapa):
     iniciar_cliente(telefone)
     dados = clientes[telefone]
@@ -861,42 +1019,16 @@ def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
 
 
 def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
-    db = SessionLocal()
+    setor = f"Dúvidas {categoria.title()}"
 
-    try:
-        atendimento = Atendimento(
-            telefone=telefone,
-            nome=clientes.get(telefone, {}).get("nome", "") or "Não informado",
-            setor=f"Dúvidas {categoria.title()}",
-            modelo=clientes.get(telefone, {}).get("modelo", "") or "",
-            ano=clientes.get(telefone, {}).get("ano", "") or "",
-            revisao=clientes.get(telefone, {}).get("revisao", "") or "",
-            cpf=clientes.get(telefone, {}).get("cpf", "") or "",
-            dia_semana="",
-            data_agendada="",
-            horario="",
-            itens="",
-            venda_adicional="",
-            origem="BOT",
-            status="Dúvida respondida",
-            etapa="duvida_respondida",
-            atendimento_humano=False,
-            concluido=False,
-            ultima_interacao=agora_datetime(),
-            data=agora_datetime()
-        )
-
-        db.add(atendimento)
-        db.commit()
-        return True
-
-    except Exception as e:
-        db.rollback()
-        log_erro("Erro salvar dúvida dashboard:", repr(e))
-        return False
-
-    finally:
-        db.close()
+    return salvar_evento_atendimento(
+        telefone=telefone,
+        setor=setor,
+        status=STATUS_NOVO_ATENDIMENTO,
+        etapa="duvida_respondida",
+        atendimento_humano=False,
+        concluido=False
+    )
 
 
 # ==========================================
@@ -939,6 +1071,17 @@ def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
     if dados_extraidos:
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
 
+    definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Revisão",
+        status=STATUS_AGENDAMENTO_INICIADO,
+        etapa="revisao_iniciada",
+        atendimento_humano=False,
+        concluido=False
+    )
+
     proxima = primeira_etapa_pendente_revisao(telefone)
     clientes[telefone]["etapa"] = proxima
     return proxima
@@ -968,6 +1111,8 @@ def enviar_proxima_etapa_revisao(telefone):
         return
 
     enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa))
+
+
 # ==========================================
 # CAPACIDADE / HORÁRIOS
 # ==========================================
@@ -992,7 +1137,7 @@ def verificar_capacidade(data, horario, revisao):
         quantidade = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.data_agendada == data,
             AgendamentoRevisao.horario == horario,
-            AgendamentoRevisao.status == "AGENDADO"
+            AgendamentoRevisao.status == STATUS_AGENDADO
         ).count()
 
         return quantidade < limite
@@ -1076,7 +1221,7 @@ def salvar_agendamento(telefone, dados):
             horario=dados["horario"],
             itens=itens_formatados,
             venda_adicional=venda_formatada,
-            status="AGENDADO",
+            status=STATUS_AGENDADO,
             observacoes=dados.get("observacao", ""),
             origem="BOT"
         )
@@ -1097,46 +1242,15 @@ def salvar_agendamento(telefone, dados):
 
 
 def salvar_atendimento_dashboard(telefone, dados):
-    db = SessionLocal()
-
-    try:
-        venda_real = formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", ""))
-        if venda_real.strip().upper() == "NENHUM":
-            venda_real = ""
-
-        atendimento = Atendimento(
-            telefone=telefone,
-            nome=dados["nome"],
-            setor="Revisão",
-            modelo=dados["modelo"],
-            ano=dados["ano"],
-            revisao=dados["revisao"],
-            cpf=dados["cpf"],
-            dia_semana=nome_dia(dados["dia"]),
-            data_agendada=dados["data"],
-            horario=dados["horario"],
-            itens=venda_real,
-            venda_adicional=venda_real,
-            origem="BOT",
-            status="Agendado",
-            etapa="revisao_finalizada",
-            atendimento_humano=False,
-            concluido=True,
-            ultima_interacao=agora_datetime(),
-            data=agora_datetime()
-        )
-
-        db.add(atendimento)
-        db.commit()
-        return True
-
-    except Exception as e:
-        db.rollback()
-        log_erro("Erro salvar atendimento dashboard:", repr(e))
-        return False
-
-    finally:
-        db.close()
+    return salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Revisão",
+        status=STATUS_AGENDADO,
+        etapa="revisao_finalizada",
+        dados=dados,
+        atendimento_humano=False,
+        concluido=True
+    )
 
 
 # ==========================================
@@ -1148,7 +1262,7 @@ def buscar_agendamento_ativo(cpf):
     try:
         agendamento = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.cpf == cpf,
-            AgendamentoRevisao.status == "AGENDADO"
+            AgendamentoRevisao.status == STATUS_AGENDADO
         ).first()
 
         return agendamento
@@ -1165,25 +1279,42 @@ def buscar_agendamento_por_cpf(cpf):
     return buscar_agendamento_ativo(cpf)
 
 
-def cancelar_agendamento(cpf, novo_status="CANCELADO"):
+def cancelar_agendamento(cpf, novo_status=STATUS_CANCELADO):
     db = SessionLocal()
 
     try:
         agendamento = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.cpf == cpf,
-            AgendamentoRevisao.status == "AGENDADO"
+            AgendamentoRevisao.status == STATUS_AGENDADO
         ).first()
 
-        if agendamento:
-            agendamento.status = novo_status
-            db.commit()
-            return agendamento
+        if not agendamento:
+            return None
 
-        return None
+        agendamento.status = normalizar_status(novo_status)
+
+        dados = {
+            "protocolo": str(agendamento.protocolo or ""),
+            "telefone": str(agendamento.telefone or ""),
+            "nome": str(agendamento.nome or ""),
+            "cpf": str(agendamento.cpf or ""),
+            "modelo": str(agendamento.modelo or ""),
+            "ano": str(agendamento.ano or ""),
+            "revisao": str(agendamento.revisao or ""),
+            "data_agendada": str(agendamento.data_agendada or ""),
+            "horario": str(agendamento.horario or ""),
+            "itens": str(agendamento.itens or ""),
+            "venda_adicional": str(agendamento.venda_adicional or ""),
+            "status": str(agendamento.status or ""),
+        }
+
+        db.commit()
+        log_info("Agendamento cancelado:", dados)
+        return dados
 
     except Exception as e:
         db.rollback()
-        log_erro("Erro cancelar:", e)
+        log_erro("Erro cancelar:", repr(e))
         return None
 
     finally:
@@ -1204,6 +1335,16 @@ def responder_consulta_agendamento(telefone, cpf):
     ag = buscar_agendamento_por_cpf(cpf_limpo)
 
     if not ag:
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Consulta Agendamento",
+            status=STATUS_NOVO_ATENDIMENTO,
+            etapa="consulta_agendamento_nao_localizado",
+            dados={"cpf": cpf_limpo},
+            atendimento_humano=False,
+            concluido=False
+        )
+
         enviar_mensagem(
             telefone,
             "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
@@ -1211,6 +1352,26 @@ def responder_consulta_agendamento(telefone, cpf):
         )
         resetar_cliente(telefone)
         return
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Consulta Agendamento",
+        status=STATUS_AGENDADO,
+        etapa="consulta_agendamento_localizado",
+        dados={
+            "nome": ag.nome,
+            "modelo": ag.modelo,
+            "ano": ag.ano,
+            "revisao": ag.revisao,
+            "cpf": ag.cpf,
+            "data": ag.data_agendada,
+            "horario": ag.horario,
+            "itens": ag.itens,
+            "venda_adicional": ag.venda_adicional
+        },
+        atendimento_humano=False,
+        concluido=False
+    )
 
     enviar_mensagem(
         telefone,
@@ -1227,38 +1388,83 @@ def responder_consulta_agendamento(telefone, cpf):
 
 
 def responder_cancelamento_agendamento(telefone, cpf):
-    cpf_limpo = limpar_cpf(cpf)
+    try:
+        cpf_limpo = limpar_cpf(cpf)
 
-    if not cpf_limpo or len(cpf_limpo) != 11:
-        enviar_mensagem(
-            telefone,
-            "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*."
+        if not cpf_limpo or len(cpf_limpo) != 11:
+            enviar_mensagem(
+                telefone,
+                "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*."
+            )
+            clientes[telefone]["etapa"] = "cancelar_agendamento_cpf"
+            return
+
+        ag_cancelado = cancelar_agendamento(cpf_limpo)
+
+        if not ag_cancelado:
+            try:
+                salvar_evento_atendimento(
+                    telefone=telefone,
+                    setor="Cancelamento",
+                    status=STATUS_NOVO_ATENDIMENTO,
+                    etapa="cancelamento_nao_localizado",
+                    dados={"cpf": cpf_limpo},
+                    atendimento_humano=False,
+                    concluido=False
+                )
+            except Exception as e:
+                log_erro("Erro ao salvar evento de cancelamento não localizado:", repr(e))
+
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não encontrei agendamento ativo para este CPF."
+            )
+            resetar_cliente(telefone)
+            return
+
+        try:
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Cancelamento",
+                status=STATUS_CANCELADO,
+                etapa="agendamento_cancelado",
+                dados={
+                    "nome": ag_cancelado.get("nome", ""),
+                    "modelo": ag_cancelado.get("modelo", ""),
+                    "ano": ag_cancelado.get("ano", ""),
+                    "revisao": ag_cancelado.get("revisao", ""),
+                    "cpf": ag_cancelado.get("cpf", ""),
+                    "data": ag_cancelado.get("data_agendada", ""),
+                    "horario": ag_cancelado.get("horario", ""),
+                    "itens": ag_cancelado.get("itens", ""),
+                    "venda_adicional": ag_cancelado.get("venda_adicional", "")
+                },
+                atendimento_humano=False,
+                concluido=True
+            )
+        except Exception as e:
+            log_erro("Erro ao salvar evento de cancelamento:", repr(e))
+
+        mensagem = (
+            "✅ *Agendamento cancelado com sucesso*\n\n"
+            f"👤 {ag_cancelado.get('nome', '')}\n"
+            f"🏍️ {ag_cancelado.get('modelo', '')}\n"
+            f"📅 {ag_cancelado.get('data_agendada', '')}\n"
+            f"⏰ {ag_cancelado.get('horario', '')}\n"
+            f"📌 Protocolo: {ag_cancelado.get('protocolo', '')}\n\n"
+            "Equipe Motoshow Yamaha"
         )
-        clientes[telefone]["etapa"] = "cancelar_agendamento_cpf"
-        return
 
-    ag_cancelado = cancelar_agendamento(cpf_limpo)
+        enviar_mensagem(telefone, mensagem)
+        resetar_cliente(telefone)
 
-    if not ag_cancelado:
+    except Exception as e:
+        log_erro("Erro responder_cancelamento_agendamento:", repr(e))
         enviar_mensagem(
             telefone,
-            "⚠️ Não encontrei agendamento ativo para este CPF."
+            "⚠️ O cancelamento foi processado, mas ocorreu uma falha ao finalizar a resposta. Envie *menu* para continuar."
         )
         resetar_cliente(telefone)
-        return
-
-    enviar_mensagem(
-        telefone,
-        "✅ *Agendamento cancelado com sucesso*\n\n"
-        f"👤 {ag_cancelado.nome}\n"
-        f"🏍️ {ag_cancelado.modelo}\n"
-        f"📅 {ag_cancelado.data_agendada}\n"
-        f"⏰ {ag_cancelado.horario}\n"
-        f"📌 Protocolo: {ag_cancelado.protocolo}\n\n"
-        "Equipe Motoshow Yamaha"
-    )
-
-    resetar_cliente(telefone)
 
 
 def iniciar_reagendamento(telefone, cpf):
@@ -1275,12 +1481,42 @@ def iniciar_reagendamento(telefone, cpf):
     ag = buscar_agendamento_por_cpf(cpf_limpo)
 
     if not ag:
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Reagendamento",
+            status=STATUS_NOVO_ATENDIMENTO,
+            etapa="reagendamento_nao_localizado",
+            dados={"cpf": cpf_limpo},
+            atendimento_humano=False,
+            concluido=False
+        )
+
         enviar_mensagem(
             telefone,
             "⚠️ Não encontrei agendamento ativo para este CPF."
         )
         resetar_cliente(telefone)
         return
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Reagendamento",
+        status=STATUS_REAGENDADO,
+        etapa="reagendamento_iniciado",
+        dados={
+            "nome": ag.nome,
+            "modelo": ag.modelo,
+            "ano": ag.ano,
+            "revisao": ag.revisao,
+            "cpf": ag.cpf,
+            "data": ag.data_agendada,
+            "horario": ag.horario,
+            "itens": ag.itens,
+            "venda_adicional": ag.venda_adicional
+        },
+        atendimento_humano=False,
+        concluido=False
+    )
 
     limpar_dados_fluxo_revisao(telefone)
 
@@ -1290,7 +1526,8 @@ def iniciar_reagendamento(telefone, cpf):
     clientes[telefone]["ano"] = limpar_texto(ag.ano)
     clientes[telefone]["revisao"] = limpar_texto(ag.revisao)
 
-    cancelar_agendamento(clientes[telefone]["cpf"], novo_status="REAGENDADO")
+    cancelar_agendamento(clientes[telefone]["cpf"], novo_status=STATUS_REAGENDADO)
+    definir_status_cliente(telefone, STATUS_REAGENDADO)
 
     clientes[telefone]["etapa"] = "revisao_dia"
 
@@ -1307,6 +1544,8 @@ def iniciar_reagendamento(telefone, cpf):
         telefone,
         mensagem_por_etapa_revisao(telefone, "revisao_dia")
     )
+
+
 # ==========================================
 # FOLLOW-UP / LEMBRETES
 # ==========================================
@@ -1365,7 +1604,7 @@ def processar_lembretes_agendamento():
         hoje = datetime.now().date()
 
         agendamentos = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.status == "AGENDADO",
+            AgendamentoRevisao.status == STATUS_AGENDADO,
             AgendamentoRevisao.lembrete_enviado == False
         ).all()
 
@@ -1459,14 +1698,16 @@ def dashboard():
         total_duvidas_garantia = query.filter(Atendimento.setor == "Dúvidas Garantia").count()
         total_duvidas = total_duvidas_revisoes + total_duvidas_garantia
 
-        agendados = query_ag.filter(AgendamentoRevisao.status == "AGENDADO").count()
+        agendados = query_ag.filter(AgendamentoRevisao.status == STATUS_AGENDADO).count()
         concluidos = query_ag.filter(
-            AgendamentoRevisao.status.in_(["CONCLUIDO", "CONCLUÍDO", "Concluído"])
+            AgendamentoRevisao.status.in_(["CONCLUIDO", "CONCLUÍDO", "Concluído", STATUS_FINALIZADO])
         ).count()
-        atendimento_humano = query.filter(Atendimento.atendimento_humano == True).count()
+        atendimento_humano = query.filter(
+            Atendimento.atendimento_humano == True
+        ).count()
 
-        cancelados = query_ag.filter(AgendamentoRevisao.status == "CANCELADO").count()
-        reagendados = query_ag.filter(AgendamentoRevisao.status == "REAGENDADO").count()
+        cancelados = query_ag.filter(AgendamentoRevisao.status == STATUS_CANCELADO).count()
+        reagendados = query_ag.filter(AgendamentoRevisao.status == STATUS_REAGENDADO).count()
         total_agendamentos_periodo = query_ag.count()
 
         primeira = query.filter(
@@ -1636,27 +1877,60 @@ def webhook():
     # ==========================================
     if etapa == "menu":
         if texto_opcao == "1":
+            definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
             proxima = iniciar_fluxo_revisao_por_intencao(telefone, {})
             enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "2":
             clientes[telefone]["etapa"] = "pecas"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Peças",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="pecas_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(telefone, "🔩 *Peças*\n\nInforme a peça desejada:")
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "3":
             clientes[telefone]["etapa"] = "acessorios"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Acessórios",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="acessorios_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(telefone, "🛵 *Acessórios*\n\nInforme o acessório desejado:")
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "4":
             clientes[telefone]["etapa"] = "garantia"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Garantia",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="garantia_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(telefone, "🛡️ *Garantia*\n\nDescreva sua solicitação:")
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "5":
             clientes[telefone]["etapa"] = "atacado"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Logista / Atacado",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="atacado_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(
                 telefone,
                 "📦 *Logista / Atacado*\n\n"
@@ -1677,6 +1951,7 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "agendar_revisao":
+            definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
             proxima = iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos_ia)
             enviar_mensagem(telefone, "Perfeito 👍 Vou seguir com seu agendamento de revisão.")
             if proxima == "revisao_horario":
@@ -1692,21 +1967,53 @@ def webhook():
 
         elif intencao_ia == "pecas":
             clientes[telefone]["etapa"] = "pecas"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Peças",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="pecas_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(telefone, "🔩 Informe a peça desejada:")
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "acessorios":
             clientes[telefone]["etapa"] = "acessorios"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Acessórios",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="acessorios_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(telefone, "🛵 Informe o acessório desejado:")
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "garantia":
             clientes[telefone]["etapa"] = "garantia"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Garantia",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="garantia_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(telefone, "🛡️ Descreva sua solicitação de garantia:")
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "atacado":
             clientes[telefone]["etapa"] = "atacado"
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Logista / Atacado",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="atacado_iniciado",
+                atendimento_humano=False,
+                concluido=False
+            )
             enviar_mensagem(
                 telefone,
                 "📦 *Logista / Atacado*\n\n"
@@ -1844,6 +2151,7 @@ def webhook():
     # FLUXO REVISÃO
     # ==========================================
     if etapa.startswith("revisao"):
+        definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
 
         if intencao_ia == "duvidas":
@@ -2011,6 +2319,7 @@ def webhook():
                     )
                     return jsonify({"status": "ok"}), 200
 
+                definir_status_cliente(telefone, STATUS_AGENDADO)
                 salvar_atendimento_dashboard(telefone, dados)
 
                 enviar_mensagem(
@@ -2050,6 +2359,15 @@ def webhook():
     # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
     # ==========================================
     if etapa == "pecas":
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Peças",
+            status=STATUS_NOVO_ATENDIMENTO,
+            etapa="pecas_solicitada",
+            dados={"observacao": texto},
+            atendimento_humano=False,
+            concluido=True
+        )
         enviar_mensagem(
             telefone,
             "✅ Solicitação de peças registrada.\nNossa equipe dará continuidade."
@@ -2058,6 +2376,15 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     if etapa == "acessorios":
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Acessórios",
+            status=STATUS_NOVO_ATENDIMENTO,
+            etapa="acessorio_solicitado",
+            dados={"observacao": texto},
+            atendimento_humano=False,
+            concluido=True
+        )
         enviar_mensagem(
             telefone,
             "✅ Solicitação registrada.\nNossa equipe dará continuidade."
@@ -2066,6 +2393,15 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     if etapa == "garantia":
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Garantia",
+            status=STATUS_NOVO_ATENDIMENTO,
+            etapa="garantia_solicitada",
+            dados={"observacao": texto},
+            atendimento_humano=False,
+            concluido=True
+        )
         enviar_mensagem(
             telefone,
             "✅ Solicitação registrada.\nNossa equipe dará continuidade."
@@ -2081,6 +2417,15 @@ def webhook():
                 "📄 Catálogo Atacado Motoshow Yamaha"
             )
 
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Logista / Atacado",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="catalogo_atacado_enviado" if enviado else "catalogo_atacado_falha",
+                atendimento_humano=False,
+                concluido=True
+            )
+
             if enviado:
                 enviar_mensagem(
                     telefone,
@@ -2092,6 +2437,15 @@ def webhook():
                     "⚠️ Não consegui enviar o catálogo agora. Nossa equipe dará continuidade."
                 )
         else:
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Logista / Atacado",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="atacado_solicitado",
+                dados={"observacao": texto},
+                atendimento_humano=False,
+                concluido=True
+            )
             enviar_mensagem(
                 telefone,
                 "✅ Solicitação registrada.\nNossa equipe dará continuidade."

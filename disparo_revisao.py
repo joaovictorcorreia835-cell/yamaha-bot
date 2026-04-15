@@ -15,7 +15,7 @@ ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.getenv("ZAPI_TOKEN")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN")
 
-ARQUIVO_PLANILHA = "clientes.xlsx"
+ARQUIVO_PLANILHA = "templates/data/clientes.xlsx"
 INTERVALO_ENTRE_ENVIOS = 90  # segundos
 
 URL_ENVIO = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
