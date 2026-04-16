@@ -1534,6 +1534,7 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     if data and not dados.get("data") and data_texto_valida(data):
         dados["data"] = data
 
+    # aceita horário direto em texto livre, ex: 08:00
     if horario and not dados.get("horario"):
         dados["horario"] = horario
 
@@ -1545,7 +1546,56 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         dados["observacao"] = observacao
 
     if tipo_atendimento and not dados.get("tipo_atendimento"):
-        dados["tipo_atendimento"] = tipo_atendimento
+        tipo_norm = normalizar_texto(tipo_atendimento)
+        if "aguardar" in tipo_norm:
+            dados["tipo_atendimento"] = "AGUARDAR NA CONCESSIONÁRIA"
+        elif "deixar" in tipo_norm or "retirar depois" in tipo_norm:
+            dados["tipo_atendimento"] = "DEIXAR A MOTO E RETIRAR DEPOIS"
+        else:
+            dados["tipo_atendimento"] = tipo_atendimento
+
+def enviar_proxima_etapa_com_contexto_ia(telefone):
+    etapa = primeira_etapa_pendente_revisao(telefone)
+    clientes[telefone]["etapa"] = etapa
+
+    resumo = montar_resumo_dados_ia_revisao(telefone)
+
+    if etapa == "revisao_horario":
+        revisao = limpar_texto(clientes[telefone].get("revisao", ""))
+        dia = limpar_texto(clientes[telefone].get("dia", ""))
+
+        horarios = horarios_por_revisao(revisao, dia)
+
+        if not horarios:
+            clientes[telefone]["etapa"] = "revisao_dia"
+            clientes[telefone]["horarios_disponiveis"] = []
+            mensagem = "⚠️ Não encontrei horários disponíveis para esse tipo de revisão nesse dia.\n\nVamos escolher outro dia."
+            if resumo:
+                mensagem = f"{resumo}\n\n{mensagem}"
+            enviar_mensagem(telefone, mensagem)
+            enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, "revisao_dia"))
+            return
+
+        clientes[telefone]["horarios_disponiveis"] = horarios
+
+        if resumo:
+            enviar_mensagem(
+                telefone,
+                f"{resumo}\n\nPerfeito 👍 Agora só falta você escolher um horário."
+            )
+
+        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+        return
+
+    mensagem_etapa = mensagem_por_etapa_revisao(telefone, etapa)
+
+    if resumo:
+        enviar_mensagem(
+            telefone,
+            f"{resumo}\n\nPerfeito 👍 Agora só preciso de mais uma informação para continuar."
+        )
+
+    enviar_mensagem(telefone, mensagem_etapa)
 
 
 def mensagem_duvida_retorno_fluxo(telefone):
@@ -2703,12 +2753,21 @@ def webhook():
         elif intencao_ia == "agendar_revisao":
             clientes[telefone]["atendimento_humano"] = False
             definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
-            proxima = iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos_ia)
-            enviar_mensagem(telefone, "Perfeito 👍 Vou seguir com seu agendamento de revisão.")
-            if proxima == "revisao_horario":
-                enviar_proxima_etapa_revisao(telefone)
+            iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos_ia)
+
+            resumo = montar_resumo_dados_ia_revisao(telefone)
+            if resumo:
+                enviar_mensagem(
+                    telefone,
+                    "Perfeito 👍 Entendi seu pedido de agendamento e já adiantei algumas informações."
+                )
             else:
-                enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
+                enviar_mensagem(
+                    telefone,
+                    "Perfeito 👍 Vou seguir com seu agendamento de revisão."
+                )
+
+            enviar_proxima_etapa_com_contexto_ia(telefone)
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "pecas":
@@ -2914,6 +2973,18 @@ def webhook():
     if etapa.startswith("revisao"):
         definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
+
+        etapa_atualizada = primeira_etapa_pendente_revisao(telefone)
+
+        # se a IA conseguiu preencher a etapa atual automaticamente, avança
+        if etapa_atualizada != etapa and etapa != "revisao_confirmacao":
+            clientes[telefone]["etapa"] = etapa_atualizada
+
+            if etapa_atualizada == "revisao_horario":
+                enviar_proxima_etapa_com_contexto_ia(telefone)
+            else:
+                enviar_proxima_etapa_com_contexto_ia(telefone)
+            return jsonify({"status": "ok"}), 200
 
         if intencao_ia == "duvidas" and etapa_revisao_permite_ir_para_duvidas(etapa):
             encaminhar_para_menu_duvidas(telefone, etapa_atual=etapa)
