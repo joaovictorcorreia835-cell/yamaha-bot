@@ -34,6 +34,19 @@ FOLLOWUP_1_HORAS = int(os.getenv("FOLLOWUP_1_HORAS", "48"))
 FOLLOWUP_2_DIAS = int(os.getenv("FOLLOWUP_2_DIAS", "5"))
 
 # ==========================================
+# CONFIG FUTURA SANCES
+# mock | real
+# ==========================================
+SANCES_MODO = os.getenv("SANCES_MODO", "mock").strip().lower()
+
+# Para simular comportamento futuro sem integração real:
+# nao_configurado | enviado | erro
+SANCES_SIMULAR_RESULTADO = os.getenv("SANCES_SIMULAR_RESULTADO", "nao_configurado").strip().lower()
+
+SANCES_TIMEOUT = int(os.getenv("SANCES_TIMEOUT", "15"))
+SANCES_RETRY_MAX = int(os.getenv("SANCES_RETRY_MAX", "1"))
+
+# ==========================================
 # STATUS OFICIAIS DO CRM POS-VENDA
 # ==========================================
 STATUS_NOVO_ATENDIMENTO = "NOVO_ATENDIMENTO"
@@ -406,26 +419,96 @@ def montar_payload_sances(dados):
     }
 
 
+def retorno_padrao_sances():
+    return {
+        "sucesso": False,
+        "status": SANCES_STATUS_PENDENTE,
+        "protocolo_sances": "",
+        "mensagem": "",
+        "erro": ""
+    }
+
+
+def simular_envio_sances(payload):
+    resultado = SANCES_SIMULAR_RESULTADO
+
+    if resultado == "enviado":
+        protocolo_mock = f"SCS-{uuid.uuid4().hex[:8].upper()}"
+        retorno = {
+            "sucesso": True,
+            "status": SANCES_STATUS_ENVIADO,
+            "protocolo_sances": protocolo_mock,
+            "mensagem": "Agendamento enviado com sucesso ao Sances (modo mock).",
+            "erro": ""
+        }
+        log_integracao_sances(
+            telefone=payload.get("telefone", ""),
+            acao="mock_envio_agendamento_sucesso",
+            payload=payload,
+            retorno=retorno
+        )
+        return retorno
+
+    if resultado == "erro":
+        retorno = {
+            "sucesso": False,
+            "status": SANCES_STATUS_ERRO,
+            "protocolo_sances": "",
+            "mensagem": "Falha simulada no envio ao Sances.",
+            "erro": "Erro simulado de integração Sances"
+        }
+        log_integracao_sances(
+            telefone=payload.get("telefone", ""),
+            acao="mock_envio_agendamento_erro",
+            payload=payload,
+            retorno=retorno
+        )
+        return retorno
+
+    retorno = {
+        "sucesso": False,
+        "status": SANCES_STATUS_NAO_CONFIGURADO,
+        "protocolo_sances": "",
+        "mensagem": "Integração com Sances ainda não configurada.",
+        "erro": "Sances não configurado"
+    }
+    log_integracao_sances(
+        telefone=payload.get("telefone", ""),
+        acao="mock_envio_agendamento_nao_configurado",
+        payload=payload,
+        retorno=retorno
+    )
+    return retorno
+
+
 def enviar_agendamento_para_sances(dados_agendamento):
     try:
         payload = montar_payload_sances(dados_agendamento)
+
+        if SANCES_MODO != "real":
+            return simular_envio_sances(payload)
+
+        # ==========================================
+        # FUTURA INTEGRAÇÃO REAL
+        # Aqui você vai plugar API, RPA ou outro método
+        # ==========================================
         log_integracao_sances(
             telefone=payload.get("telefone", ""),
-            acao="mock_envio_agendamento",
+            acao="envio_real_nao_implementado",
             payload=payload,
-            retorno="Integração ainda não configurada"
+            retorno="Modo real selecionado, mas integração ainda não implementada."
         )
 
         return {
             "sucesso": False,
             "status": SANCES_STATUS_NAO_CONFIGURADO,
             "protocolo_sances": "",
-            "mensagem": "Integração com Sances ainda não configurada.",
-            "erro": "Sances não configurado"
+            "mensagem": "Modo real do Sances ainda não implementado.",
+            "erro": "Integração real ainda não implementada"
         }
 
     except Exception as e:
-        log_erro("Erro ao montar envio mock para Sances:", repr(e))
+        log_erro("Erro ao preparar envio para Sances:", repr(e))
         return {
             "sucesso": False,
             "status": SANCES_STATUS_ERRO,
@@ -435,22 +518,52 @@ def enviar_agendamento_para_sances(dados_agendamento):
         }
 
 
-def etapa_revisao_permite_ir_para_duvidas(etapa):
-    etapas_bloqueadas = [
-        "revisao_modelo",
-        "revisao_nome",
-        "revisao_cpf",
-        "revisao_ano",
-        "revisao_km",
-        "revisao_tipo",
-        "revisao_dia",
-        "revisao_data",
-        "revisao_horario",
-        "revisao_tipo_atendimento",
-        "revisao_venda",
-        "revisao_observacao",
-    ]
-    return etapa not in etapas_bloqueadas
+def atualizar_status_sances_agendamento(protocolo, retorno_sances):
+    db = SessionLocal()
+
+    try:
+        agendamento = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.protocolo == protocolo
+        ).first()
+
+        if not agendamento:
+            log_erro("Agendamento não encontrado para atualizar status Sances:", protocolo)
+            return False
+
+        agendamento.sances_status = retorno_sances.get("status", SANCES_STATUS_ERRO)
+        agendamento.sances_enviado = bool(retorno_sances.get("sucesso", False))
+        agendamento.sances_protocolo = retorno_sances.get("protocolo_sances", "") or ""
+        agendamento.sances_erro = retorno_sances.get("erro", "") or ""
+        agendamento.sances_data_envio = datetime.now()
+
+        db.commit()
+        return True
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro ao atualizar status Sances do agendamento:", repr(e))
+        return False
+
+    finally:
+        db.close()
+
+
+def montar_mensagem_status_sances(retorno_sances):
+    status = retorno_sances.get("status", SANCES_STATUS_PENDENTE)
+
+    if status == SANCES_STATUS_ENVIADO:
+        return (
+            f"\n🔗 *Integração Sances:* enviada com sucesso"
+            f"\n🧾 *Protocolo Sances:* {retorno_sances.get('protocolo_sances', '-')}"
+        )
+
+    if status == SANCES_STATUS_NAO_CONFIGURADO:
+        return "\n🔗 *Integração Sances:* pendente de configuração"
+
+    if status == SANCES_STATUS_ERRO:
+        return "\n⚠️ *Integração Sances:* erro no envio"
+
+    return f"\n🔗 *Integração Sances:* {status}"
 
 
 # ==========================================
@@ -1361,7 +1474,12 @@ def salvar_agendamento(telefone, dados):
             venda_adicional=venda_formatada,
             status=STATUS_AGENDADO,
             observacoes=dados.get("observacao", ""),
-            origem="BOT"
+            origem="BOT",
+            sances_status=SANCES_STATUS_PENDENTE,
+            sances_enviado=False,
+            sances_protocolo="",
+            sances_erro="",
+            sances_data_envio=None
         )
 
         db.add(agendamento)
@@ -1847,6 +1965,10 @@ def dashboard():
         cancelados = query_ag.filter(AgendamentoRevisao.status == STATUS_CANCELADO).count()
         reagendados = query_ag.filter(AgendamentoRevisao.status == STATUS_REAGENDADO).count()
         total_agendamentos_periodo = query_ag.count()
+        sances_pendentes = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_PENDENTE).count()
+        sances_enviados = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_ENVIADO).count()
+        sances_erros = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_ERRO).count()
+        sances_nao_configurado = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_NAO_CONFIGURADO).count()    
 
         primeira = query.filter(
             Atendimento.setor == "Revisão",
@@ -1916,6 +2038,10 @@ def dashboard():
             total_itens_vendidos=total_itens_vendidos,
             ranking_itens=ranking_itens,
             agendamentos=agendamentos
+            sances_pendentes=sances_pendentes,
+            sances_enviados=sances_enviados,
+            sances_erros=sances_erros,
+            sances_nao_configurado=sances_nao_configurado,
         )
 
     except Exception as e:
@@ -2460,24 +2586,14 @@ def webhook():
                 clientes[telefone]["sances_protocolo"] = retorno_sances.get("protocolo_sances", "")
                 clientes[telefone]["sances_erro"] = retorno_sances.get("erro", "")
                 clientes[telefone]["sances_data_envio"] = formatar_data_hora()
-
                 clientes[telefone]["sances_enviado"] = bool(retorno_sances.get("sucesso"))
+
+                atualizar_status_sances_agendamento(protocolo, retorno_sances)
 
                 definir_status_cliente(telefone, STATUS_AGENDADO)
                 salvar_atendimento_dashboard(telefone, dados)
 
-                mensagem_sances = ""
-                if retorno_sances.get("status") == SANCES_STATUS_ENVIADO:
-                    mensagem_sances = (
-                        f"\n🔗 *Integração Sances:* enviada com sucesso"
-                        f"\n🧾 *Protocolo Sances:* {retorno_sances.get('protocolo_sances', '-')}"
-                    )
-                elif retorno_sances.get("status") == SANCES_STATUS_NAO_CONFIGURADO:
-                    mensagem_sances = "\n🔗 *Integração Sances:* pendente de configuração"
-                elif retorno_sances.get("status") == SANCES_STATUS_ERRO:
-                    mensagem_sances = "\n⚠️ *Integração Sances:* erro no envio"
-                else:
-                    mensagem_sances = f"\n🔗 *Integração Sances:* {retorno_sances.get('status', SANCES_STATUS_PENDENTE)}"
+                mensagem_sances = montar_mensagem_status_sances(retorno_sances)
 
                 enviar_mensagem(
                     telefone,
@@ -2511,7 +2627,7 @@ def webhook():
                     telefone,
                     "⚠️ Digite *1* para confirmar ou *2* para corrigir."
                 )
-                return jsonify({"status": "ok"}), 200
+                 return jsonify({"status": "ok"}), 200
 
     # ==========================================
     # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
