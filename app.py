@@ -49,20 +49,6 @@ SANCES_SIMULAR_RESULTADO = (os.getenv("SANCES_SIMULAR_RESULTADO", "nao_configura
 SANCES_TIMEOUT = int(os.getenv("SANCES_TIMEOUT", "15") or 15)
 SANCES_RETRY_MAX = int(os.getenv("SANCES_RETRY_MAX", "1") or 1)
 
-# ==========================================
-# STATUS OFICIAIS DO CRM POS-VENDA
-# ==========================================
-STATUS_NOVO_ATENDIMENTO = "NOVO_ATENDIMENTO"
-STATUS_AGENDAMENTO_INICIADO = "AGENDAMENTO_INICIADO"
-STATUS_AGENDADO = "AGENDADO"
-STATUS_CONFIRMADO = "CONFIRMADO"
-STATUS_REAGENDADO = "REAGENDADO"
-STATUS_CANCELADO = "CANCELADO"
-STATUS_NAO_COMPARECEU = "NAO_COMPARECEU"
-STATUS_EM_EXECUCAO = "EM_EXECUCAO"
-STATUS_FINALIZADO = "FINALIZADO"
-STATUS_POS_VENDA_ENVIADO = "POS_VENDA_ENVIADO"
-STATUS_ATENDIMENTO_HUMANO = "ATENDIMENTO_HUMANO"
 
 # ==========================================# ==========================================
 # STATUS OFICIAIS DO CRM POS-VENDA
@@ -566,236 +552,7 @@ def enviar_agendamento_para_sances(dados_agendamento):
         })
         return retorno
 
-                # ==========================================
-        # FUTURA INTEGRAÇÃO REAL
-        # Aqui você vai plugar API, RPA ou outro método
-        # ==========================================
-        log_integracao_sances(
-            telefone=payload.get("telefone", ""),
-            acao="envio_real_nao_implementado",
-            payload=payload,
-            retorno="Modo real selecionado, mas integração ainda não implementada."
-        )
 
-        return {
-            "sucesso": False,
-            "status": SANCES_STATUS_NAO_CONFIGURADO,
-            "protocolo_sances": "",
-            "mensagem": "Modo real do Sances ainda não implementado.",
-            "erro": "Integração real ainda não implementada"
-        }
-
-    except Exception as e:
-        log_erro("Erro ao preparar envio para Sances:", repr(e))
-        return {
-            "sucesso": False,
-            "status": SANCES_STATUS_ERRO,
-            "protocolo_sances": "",
-            "mensagem": "Erro ao preparar integração com Sances.",
-            "erro": repr(e)
-        }
-
-
-def processar_fila_sances():
-    db = SessionLocal()
-
-    try:
-        agendamentos = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.sances_status.in_([
-                SANCES_STATUS_PENDENTE,
-                SANCES_STATUS_ERRO
-            ])
-        ).all()
-
-        for ag in agendamentos:
-            try:
-                if (ag.sances_tentativas or 0) >= SANCES_RETRY_MAX:
-                    continue
-
-                dados = montar_dados_agendamento_para_reenvio(ag)
-                retorno = enviar_agendamento_para_sances(dados)
-
-                ag.sances_status = retorno.get("status", SANCES_STATUS_ERRO)
-                ag.sances_enviado = bool(retorno.get("sucesso", False))
-                ag.sances_protocolo = retorno.get("protocolo_sances", "") or ""
-                ag.sances_erro = retorno.get("erro", "") or ""
-                ag.sances_data_envio = datetime.now()
-
-                ag.sances_tentativas = (ag.sances_tentativas or 0) + 1
-                ag.sances_ultima_tentativa = datetime.now()
-                ag.sances_ultimo_retorno = str(retorno)
-
-                db.commit()
-
-                log_info(
-                    "[SANCES WORKER] Reenvio feito:",
-                    ag.protocolo,
-                    retorno.get("status")
-                )
-
-            except Exception as e:
-                db.rollback()
-                log_erro("Erro no retry Sances:", repr(e))
-
-    except Exception as e:
-        log_erro("Erro geral fila Sances:", repr(e))
-
-    finally:
-        db.close()
-
-
-def atualizar_status_sances_agendamento(protocolo, retorno_sances):
-    db = SessionLocal()
-
-    try:
-        agendamento = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.protocolo == protocolo
-        ).first()
-
-        if not agendamento:
-            log_erro("Agendamento não encontrado para atualizar status Sances:", protocolo)
-            return False
-
-        agendamento.sances_status = retorno_sances.get("status", SANCES_STATUS_ERRO)
-        agendamento.sances_enviado = bool(retorno_sances.get("sucesso", False))
-        agendamento.sances_protocolo = retorno_sances.get("protocolo_sances", "") or ""
-        agendamento.sances_erro = retorno_sances.get("erro", "") or ""
-        agendamento.sances_data_envio = datetime.now()
-
-        db.commit()
-        return True
-
-    except Exception as e:
-        db.rollback()
-        log_erro("Erro ao atualizar status Sances do agendamento:", repr(e))
-        return False
-
-    finally:
-        db.close()
-
-
-def buscar_agendamento_por_protocolo(protocolo):
-    db = SessionLocal()
-
-    try:
-        return db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.protocolo == protocolo
-        ).first()
-    except Exception as e:
-        log_erro("Erro ao buscar agendamento por protocolo:", repr(e))
-        return None
-    finally:
-        db.close()
-
-
-def montar_dados_agendamento_para_reenvio(ag):
-    return {
-        "telefone": ag.telefone or "",
-        "nome": ag.nome or "",
-        "cpf": ag.cpf or "",
-        "modelo": ag.modelo or "",
-        "ano": ag.ano or "",
-        "revisao": ag.revisao or "",
-        "dia": "",
-        "data": ag.data_agendada or "",
-        "horario": ag.horario or "",
-        "itens": ag.itens or "",
-        "venda_adicional": ag.venda_adicional or "",
-        "observacao": ag.observacoes or "",
-        "km_atual": "",
-        "tipo_atendimento": ""
-    }
-
-
-def montar_mensagem_status_sances(retorno_sances):
-    status = retorno_sances.get("status", SANCES_STATUS_PENDENTE)
-
-    if status == SANCES_STATUS_ENVIADO:
-        return (
-            f"\n🔗 *Integração Sances:* enviada com sucesso"
-            f"\n🧾 *Protocolo Sances:* {retorno_sances.get('protocolo_sances', '-')}"
-        )
-
-    if status == SANCES_STATUS_NAO_CONFIGURADO:
-        return "\n🔗 *Integração Sances:* pendente de configuração"
-
-    if status == SANCES_STATUS_ERRO:
-        return "\n⚠️ *Integração Sances:* erro no envio"
-
-    return f"\n🔗 *Integração Sances:* {status}"
-
-
-def etapa_revisao_permite_ir_para_duvidas(etapa):
-    etapas_permitidas = {
-        "revisao_tipo",
-        "revisao_dia",
-        "revisao_data",
-        "revisao_horario",
-        "revisao_tipo_atendimento",
-        "revisao_venda",
-        "revisao_observacao",
-        "revisao_confirmacao",
-    }
-    return etapa in etapas_permitidas
-
-
-def atendimento_humano_ativo_no_banco(telefone):
-    db = SessionLocal()
-
-    try:
-        ultimo = db.query(Atendimento).filter(
-            Atendimento.telefone == telefone
-        ).order_by(Atendimento.id.desc()).first()
-
-        if not ultimo:
-            return False
-
-        status_ultimo = normalizar_status(ultimo.status)
-        return bool(
-            ultimo.atendimento_humano is True and
-            status_ultimo == STATUS_ATENDIMENTO_HUMANO
-        )
-
-    except Exception as e:
-        log_erro("Erro ao consultar atendimento humano no banco:", repr(e))
-        return False
-
-    finally:
-        db.close()
-
-
-def encerrar_atendimento_humano(telefone):
-    iniciar_cliente(telefone)
-    clientes[telefone]["atendimento_humano"] = False
-    clientes[telefone]["etapa"] = "menu"
-    clientes[telefone]["ultima_interacao"] = agora()
-    definir_status_cliente(telefone, STATUS_NOVO_ATENDIMENTO)
-
-    salvar_evento_atendimento(
-        telefone=telefone,
-        setor="Atendimento Humano",
-        status=STATUS_NOVO_ATENDIMENTO,
-        etapa="retorno_menu_apos_humano",
-        atendimento_humano=False,
-        concluido=False
-    )
-
-
-def data_corresponde_ao_dia_escolhido(data_str, dia_str):
-    try:
-        data_obj = datetime.strptime(data_str, "%d/%m/%Y")
-        dia_semana_python = data_obj.weekday()  # segunda=0 ... domingo=6
-        mapa = {
-            0: "1",
-            1: "2",
-            2: "3",
-            3: "4",
-            4: "5",
-            5: "6",
-        }
-        return mapa.get(dia_semana_python, "") == str(dia_str)
-    except Exception:
-        return False
 
 # ==========================================
 # CONTROLE DE ESTADO
@@ -1487,16 +1244,35 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     nome = limpar_texto(dados_extraidos.get("nome"))
     cpf = limpar_cpf(dados_extraidos.get("cpf"))
     ano = limpar_texto(dados_extraidos.get("ano"))
-    revisao = normalizar_revisao_para_fluxo(dados_extraidos.get("revisao"))
+
+    revisao_bruta = limpar_texto(dados_extraidos.get("revisao"))
+    revisao = normalizar_revisao_para_fluxo(revisao_bruta)
+
     km_atual = limpar_texto(
         dados_extraidos.get("km_atual") or dados_extraidos.get("km") or ""
     )
     dia_texto = limpar_texto(dados_extraidos.get("dia"))
     horario = limpar_texto(dados_extraidos.get("horario"))
     data = limpar_texto(dados_extraidos.get("data"))
-    item_adicional = formatar_itens_adicionais_para_salvar(dados_extraidos.get("item_adicional", ""))
+    item_adicional = formatar_itens_adicionais_para_salvar(
+        dados_extraidos.get("item_adicional", "")
+    )
     observacao = limpar_texto(dados_extraidos.get("observacao"))
     tipo_atendimento = limpar_texto(dados_extraidos.get("tipo_atendimento"))
+
+    # tenta entender revisões por quilometragem
+    revisao_texto = normalizar_texto(revisao_bruta)
+    if not revisao:
+        if "5 mil" in revisao_texto or "5000" in revisao_texto:
+            revisao = "1"
+        elif "10 mil" in revisao_texto or "10000" in revisao_texto:
+            revisao = "2"
+        elif "15 mil" in revisao_texto or "15000" in revisao_texto:
+            revisao = "3"
+        elif "20 mil" in revisao_texto or "20000" in revisao_texto:
+            revisao = "4"
+        elif "25 mil" in revisao_texto or "25000" in revisao_texto:
+            revisao = "5"
 
     if dia_texto in ["1", "2", "3", "4", "5", "6"]:
         dia_numero = dia_texto
@@ -1528,8 +1304,11 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     if data and not dados.get("data") and data_texto_valida(data):
         dados["data"] = data
 
+    # só salva horário se vier em formato aceitável
     if horario and not dados.get("horario"):
-        dados["horario"] = horario
+        horario_limpo = horario.strip()
+        if re.match(r"^\d{1,2}:\d{2}$", horario_limpo):
+            dados["horario"] = horario_limpo
 
     if item_adicional and not dados.get("venda_adicional") and item_adicional_valido(item_adicional):
         dados["itens"] = item_adicional
@@ -2336,6 +2115,53 @@ def processar_followup_inteligente():
 # ==========================================
 # WORKER
 # ==========================================
+def processar_fila_sances():
+    db = SessionLocal()
+
+    try:
+        agendamentos = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.sances_status.in_([
+                SANCES_STATUS_PENDENTE,
+                SANCES_STATUS_ERRO
+            ])
+        ).all()
+
+        for ag in agendamentos:
+            try:
+                if (ag.sances_tentativas or 0) >= SANCES_RETRY_MAX:
+                    continue
+
+                dados = montar_dados_agendamento_para_reenvio(ag)
+                retorno = enviar_agendamento_para_sances(dados)
+
+                ag.sances_status = retorno.get("status", SANCES_STATUS_ERRO)
+                ag.sances_enviado = bool(retorno.get("sucesso", False))
+                ag.sances_protocolo = retorno.get("protocolo_sances", "") or ""
+                ag.sances_erro = retorno.get("erro", "") or ""
+                ag.sances_data_envio = datetime.now()
+
+                ag.sances_tentativas = (ag.sances_tentativas or 0) + 1
+                ag.sances_ultima_tentativa = datetime.now()
+                ag.sances_ultimo_retorno = str(retorno)
+
+                db.commit()
+
+                log_info(
+                    "[SANCES WORKER] Reenvio feito:",
+                    ag.protocolo,
+                    retorno.get("status")
+                )
+
+            except Exception as e:
+                db.rollback()
+                log_erro("Erro no retry Sances:", repr(e))
+
+    except Exception as e:
+        log_erro("Erro geral fila Sances:", repr(e))
+
+    finally:
+        db.close()
+
 def worker():
     while True:
         try:
@@ -2981,14 +2807,57 @@ def webhook():
         # se a IA conseguiu preencher a etapa atual automaticamente, avança
         if etapa_atualizada != etapa and etapa != "revisao_confirmacao":
             clientes[telefone]["etapa"] = etapa_atualizada
-
-            if etapa_atualizada == "revisao_horario":
-                enviar_proxima_etapa_com_contexto_ia(telefone)
-            else:
-                enviar_proxima_etapa_com_contexto_ia(telefone)
+            enviar_proxima_etapa_com_contexto_ia(telefone)
             return jsonify({"status": "ok"}), 200
 
-        if intencao_ia == "duvidas" and etapa_revisao_permite_ir_para_duvidas(etapa):
+        # ==========================================
+        # PROTEÇÃO PARA NÃO ENVIAR RESPOSTAS DA REVISÃO
+        # PARA A CENTRAL DE DÚVIDAS
+        # ==========================================
+        texto_norm = normalizar_texto(texto)
+        texto_limpo_opcao = limpar_opcao(texto)
+
+        respostas_que_nao_sao_duvida = False
+
+        if etapa == "revisao_tipo":
+            if (
+                normalizar_revisao_para_fluxo(texto) in ["1", "2", "3", "4", "5"]
+                or "revisao" in texto_norm
+                or "revisão" in texto_norm
+                or "mil" in texto_norm
+                or texto_limpo_opcao in ["1", "2", "3", "4", "5"]
+            ):
+                respostas_que_nao_sao_duvida = True
+
+        elif etapa == "revisao_dia":
+            if texto_limpo_opcao in ["1", "2", "3", "4", "5", "6"]:
+                respostas_que_nao_sao_duvida = True
+
+        elif etapa == "revisao_data":
+            if re.match(r"^\d{2}/\d{2}/\d{4}$", texto.strip()):
+                respostas_que_nao_sao_duvida = True
+
+        elif etapa == "revisao_horario":
+            if texto_limpo_opcao.isdigit():
+                respostas_que_nao_sao_duvida = True
+
+        elif etapa == "revisao_tipo_atendimento":
+            if texto_limpo_opcao in ["1", "2"]:
+                respostas_que_nao_sao_duvida = True
+
+        elif etapa == "revisao_venda":
+            if texto.strip():
+                respostas_que_nao_sao_duvida = True
+
+        elif etapa == "revisao_observacao":
+            if texto.strip():
+                respostas_que_nao_sao_duvida = True
+
+        if (
+            intencao_ia == "duvidas"
+            and etapa_revisao_permite_ir_para_duvidas(etapa)
+            and not respostas_que_nao_sao_duvida
+        ):
             encaminhar_para_menu_duvidas(telefone, etapa_atual=etapa)
             return jsonify({"status": "ok"}), 200
 
@@ -3044,8 +2913,27 @@ def webhook():
         if etapa == "revisao_tipo":
             revisao = clientes[telefone].get("revisao") or normalizar_revisao_para_fluxo(texto)
 
+            if not revisao:
+                if "5 mil" in texto_norm or "5000" in texto_norm:
+                    revisao = "1"
+                elif "10 mil" in texto_norm or "10000" in texto_norm:
+                    revisao = "2"
+                elif "15 mil" in texto_norm or "15000" in texto_norm:
+                    revisao = "3"
+                elif "20 mil" in texto_norm or "20000" in texto_norm:
+                    revisao = "4"
+                elif "25 mil" in texto_norm or "25000" in texto_norm:
+                    revisao = "5"
+
             if revisao not in ["1", "2", "3", "4", "5"]:
-                enviar_mensagem(telefone, "⚠️ Opção inválida. Digite de 1 a 5.")
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não consegui identificar a revisão.\n\n"
+                    "Digite de 1 a 5 ou escreva algo como:\n"
+                    "• 1ª revisão\n"
+                    "• 2ª revisão\n"
+                    "• revisão de 5 mil"
+                )
                 return jsonify({"status": "ok"}), 200
 
             clientes[telefone]["revisao"] = revisao
@@ -3210,7 +3098,6 @@ def webhook():
                     "⚠️ Digite *1* para confirmar ou *2* para corrigir."
                 )
                 return jsonify({"status": "ok"}), 200
-
     # ==========================================
     # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
     # ==========================================
