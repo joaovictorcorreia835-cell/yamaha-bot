@@ -901,8 +901,9 @@ def ativar_atendimento_humano(telefone):
     enviar_mensagem(
         telefone,
         "👨‍💼 *Atendimento humano acionado*\n\n"
-        "Nossa equipe seguirá com você por aqui.\n"
-        "Quando quiser voltar ao menu automático, envie *menu*."
+        "Perfeito, vou direcionar seu atendimento para nossa equipe.\n"
+        "Daqui em diante, um atendente segue com você por aqui.\n\n"
+        "Quando quiser voltar ao menu automático, é só enviar *menu*."
     )
 
 
@@ -1209,8 +1210,9 @@ def salvar_evento_atendimento(
 def enviar_menu(telefone):
     mensagem = (
         "Olá 👋\n\n"
-        "🏍️ *Pós-Vendas Motoshow Yamaha*\n\n"
-        "Escolha uma opção:\n\n"
+        "Seja bem-vindo ao *Pós-Vendas Motoshow Yamaha* 🏍️\n\n"
+        "Estou aqui para te ajudar com seu atendimento.\n"
+        "Escolha uma opção abaixo:\n\n"
         "1️⃣ Agendar Revisão\n"
         "2️⃣ Peças\n"
         "3️⃣ Acessórios\n"
@@ -1218,7 +1220,7 @@ def enviar_menu(telefone):
         "5️⃣ Logista / Atacado\n"
         "6️⃣ Dúvidas\n"
         "7️⃣ Atendimento Humano\n\n"
-        "Equipe Motoshow Yamaha"
+        "Você pode responder com o *número da opção* ou me escrever o que precisa."
     )
     enviar_mensagem(telefone, mensagem)
 
@@ -1242,15 +1244,19 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
         enviar_mensagem(
             telefone,
             "🔩 *Peças*\n\n"
-            "Perfeito, recebi sua solicitação.\n"
-            "Nossa equipe vai verificar *valor* e *disponibilidade*.\n\n"
-            "Se quiser complementar, envie:\n"
+            "Perfeito, recebi sua solicitação 👍\n"
+            "Nossa equipe vai verificar *valor* e *disponibilidade* para você.\n\n"
+            "Se quiser complementar, pode me enviar:\n"
             "• modelo da moto\n"
             "• ano\n"
             "• peça desejada"
         )
     else:
-        enviar_mensagem(telefone, "🔩 *Peças*\n\nInforme a peça desejada:")
+        enviar_mensagem(
+            telefone,
+            "🔩 *Peças*\n\n"
+            "Me informe a *peça desejada* para eu registrar sua solicitação."
+        )
 
 
 def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
@@ -1271,41 +1277,49 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         enviar_mensagem(
             telefone,
             "🛵 *Acessórios*\n\n"
-            "Perfeito, recebi sua solicitação.\n"
-            "Envie mais detalhes do acessório desejado, se quiser."
+            "Perfeito, recebi sua solicitação 👍\n"
+            "Se quiser, pode me enviar mais detalhes do acessório que procura."
         )
     else:
-        enviar_mensagem(telefone, "🛵 *Acessórios*\n\nInforme o acessório desejado:")
+        enviar_mensagem(
+            telefone,
+            "🛵 *Acessórios*\n\n"
+            "Me informe qual *acessório desejado* você procura."
+        )
 
 
 def menu_duvidas():
     return (
         "📘 *Central de Dúvidas*\n\n"
-        "Escolha uma opção:\n\n"
+        "Posso te ajudar com informações rápidas sobre:\n\n"
         "1️⃣ Dúvidas sobre Revisões\n"
         "2️⃣ Dúvidas sobre Garantia\n"
-        "3️⃣ Voltar ao menu principal"
+        "3️⃣ Voltar ao menu principal\n\n"
+        "Escolha uma opção para eu te ajudar melhor."
     )
 
 
 def montar_mensagem_horarios(lista):
     if not lista:
-        return "⚠️ Nenhum horário disponível no momento."
-    msg = "⏰ *Escolha o horário disponível:*\n\n"
+        return "⚠️ No momento não encontrei horários disponíveis para essa opção."
+
+    msg = "⏰ *Estes são os horários disponíveis:*\n\n"
     for i, h in enumerate(lista, start=1):
         msg += f"{i} - {h}\n"
+
+    msg += "\nMe responda com o *número do horário* que você prefere."
     return msg
 
 
 def montar_mensagem_venda_adicional():
     return (
-        "🛒 *Deseja adicionar algum item?*\n\n"
-        "Sugestões:\n"
+        "🛒 *Deseja aproveitar para incluir algum item no atendimento?*\n\n"
+        "Sugestões que muitos clientes pedem:\n"
         "• Filtro de ar\n"
         "• Pastilha de freio\n"
         "• Slider\n"
         "• Protetor de motor\n\n"
-        "Digite o item desejado.\n"
+        "Se quiser incluir algum, é só digitar o nome do item.\n"
         "Se não quiser adicionar nada, digite *2*."
     )
 
@@ -1324,7 +1338,7 @@ def montar_resumo_confirmacao(telefone):
         observacao = "Nenhuma"
 
     return (
-        "📋 *Confirmação do Agendamento*\n\n"
+        "📋 *Confirmação do seu agendamento*\n\n"
         f"👤 *Nome:* {dados.get('nome', '-')}\n"
         f"📄 *CPF:* {dados.get('cpf', '-')}\n"
         f"🏍️ *Modelo:* {dados.get('modelo', '-')}\n"
@@ -1336,9 +1350,9 @@ def montar_resumo_confirmacao(telefone):
         f"🚶 *Atendimento:* {tipo_atendimento}\n"
         f"🛒 *Adicionais:* {itens}\n"
         f"📝 *Observação:* {observacao}\n\n"
-        "Digite:\n"
-        "*1* para confirmar\n"
-        "*2* para corrigir"
+        "Se estiver tudo certo, digite:\n"
+        "*1* para confirmar agora ✅\n"
+        "*2* para corrigir alguma informação"
     )
 
 
@@ -1347,24 +1361,41 @@ def mensagem_por_etapa_revisao(telefone, etapa):
     dados = clientes[telefone]
 
     if etapa == "revisao_modelo":
-        return "🔧 *Agendamento de Revisão*\n\nInforme o *modelo da moto*:"
+        return (
+            "🔧 *Agendamento de Revisão*\n\n"
+            "Perfeito 👍\n"
+            "Para eu seguir com seu atendimento, me informe o *modelo da sua moto*."
+        )
 
     if etapa == "revisao_nome":
         resumo = f"🏍️ Modelo: {dados['modelo']}\n\n" if dados.get("modelo") else ""
-        return f"{resumo}👤 Informe seu *nome completo*:"
+        return (
+            f"{resumo}"
+            "Ótimo 😊\n\n"
+            "Agora me informe seu *nome completo*."
+        )
 
     if etapa == "revisao_cpf":
-        return "📄 Informe seu *CPF com 11 números*:"
+        return (
+            "Perfeito.\n\n"
+            "Agora preciso do seu *CPF com 11 números* para continuar o agendamento."
+        )
 
     if etapa == "revisao_ano":
-        return "📅 Informe o *ano da moto*:"
+        return (
+            "Certo 👍\n\n"
+            "Me informe agora o *ano da sua moto*."
+        )
 
     if etapa == "revisao_km":
-        return "🔢 Informe a *quilometragem atual* da moto:"
+        return (
+            "Ótimo.\n\n"
+            "Me informe a *quilometragem atual da moto*."
+        )
 
     if etapa == "revisao_tipo":
         return (
-            "🛠️ *Qual revisão deseja agendar?*\n\n"
+            "🛠️ *Qual revisão você deseja agendar?*\n\n"
             "1 - 1ª Revisão\n"
             "2 - 2ª Revisão\n"
             "3 - 3ª Revisão\n"
@@ -1374,7 +1405,7 @@ def mensagem_por_etapa_revisao(telefone, etapa):
 
     if etapa == "revisao_dia":
         return (
-            "📅 *Escolha o dia desejado:*\n\n"
+            "📅 *Qual dia você prefere?*\n\n"
             "1 - Segunda\n"
             "2 - Terça\n"
             "3 - Quarta\n"
@@ -1384,11 +1415,14 @@ def mensagem_por_etapa_revisao(telefone, etapa):
         )
 
     if etapa == "revisao_data":
-        return "📆 Informe a *data desejada* no formato *dd/mm/aaaa*:"
+        return (
+            "📆 Perfeito.\n\n"
+            "Agora me informe a *data desejada* no formato *dd/mm/aaaa*."
+        )
 
     if etapa == "revisao_tipo_atendimento":
         return (
-            "🏢 Como será o atendimento?\n\n"
+            "🏢 Me diga como será seu atendimento:\n\n"
             "1 - Vou aguardar na concessionária\n"
             "2 - Vou deixar a moto e retirar depois"
         )
@@ -1398,7 +1432,7 @@ def mensagem_por_etapa_revisao(telefone, etapa):
 
     if etapa == "revisao_observacao":
         return (
-            "📝 Deseja adicionar alguma observação?\n\n"
+            "📝 Se quiser, você também pode me passar alguma observação para o atendimento.\n\n"
             "Exemplos:\n"
             "• moto com barulho\n"
             "• verificar freio\n"
@@ -2741,7 +2775,7 @@ def webhook():
             enviar_mensagem(
                 telefone,
                 "📘 *Dúvidas sobre Revisões*\n\n"
-                "Envie sua dúvida em texto livre.\n\n"
+                "Pode me enviar sua dúvida em texto livre.\n\n"
                 "Exemplos:\n"
                 "• Qual o valor da revisão?\n"
                 "• O que troca na 2ª revisão?\n"
@@ -2756,7 +2790,7 @@ def webhook():
             enviar_mensagem(
                 telefone,
                 "📘 *Dúvidas sobre Garantia*\n\n"
-                "Envie sua dúvida em texto livre.\n\n"
+                "Pode me enviar sua dúvida em texto livre.\n\n"
                 "Exemplos:\n"
                 "• O que a garantia cobre?\n"
                 "• Preciso levar documentos?\n"
@@ -3073,7 +3107,7 @@ def webhook():
 
                 enviar_mensagem(
                     telefone,
-                    "✅ *Agendamento Confirmado*\n\n"
+                    "✅ *Agendamento confirmado com sucesso*\n\n"
                     f"👤 {dados['nome']}\n"
                     f"🏍️ {dados['modelo']}\n"
                     f"📅 {dados['data']}\n"
@@ -3081,8 +3115,7 @@ def webhook():
                     f"📌 Protocolo: {protocolo}"
                     f"{mensagem_sances}\n\n"
                     "Lembrando de trazer o manual no momento da revisão para facilitar o atendimento.\n\n"
-                    "Obrigado por escolher a Motoshow Yamaha 🏍️\n"
-                    "Equipe Motoshow Yamaha"
+                    "Agradecemos por escolher a *Motoshow Yamaha* 🏍️"
                 )
 
                 resetar_cliente(telefone)
@@ -3120,7 +3153,8 @@ def webhook():
         )
         enviar_mensagem(
             telefone,
-            "✅ Solicitação de peças registrada.\nNossa equipe dará continuidade."
+            "✅ Sua solicitação de peças foi registrada com sucesso.\n\n"
+            "Nossa equipe vai continuar seu atendimento."
         )
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
@@ -3154,8 +3188,10 @@ def webhook():
         )
         enviar_mensagem(
             telefone,
-            "✅ Solicitação registrada.\nNossa equipe dará continuidade."
+            "✅ Sua solicitação de garantia foi registrada com sucesso.\n\n"
+            "Nossa equipe vai continuar seu atendimento."
         )
+        
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
 
@@ -3195,7 +3231,8 @@ def webhook():
             )
             enviar_mensagem(
                 telefone,
-                "✅ Solicitação registrada.\nNossa equipe dará continuidade."
+                "✅ Sua solicitação foi registrada com sucesso.\n\n"
+                "Nossa equipe comercial vai continuar seu atendimento."
             )
 
         resetar_cliente(telefone)
