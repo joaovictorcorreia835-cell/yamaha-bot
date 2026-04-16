@@ -313,6 +313,26 @@
                 <h3>Atendimentos de Revisão</h3>
                 <div class="numero">{{ total_revisoes if total_revisoes is defined else revisao }}</div>
             </div>
+            
+            <div class="card ciano">
+                <h3>Sances Pendentes</h3>
+                <div class="numero">{{ sances_pendentes if sances_pendentes is defined else 0 }}</div>
+            </div>
+
+            <div class="card verde">
+                <h3>Sances Enviados</h3>
+                <div class="numero">{{ sances_enviados if sances_enviados is defined else 0 }}</div>
+            </div>
+
+            <div class="card vermelho">
+                <h3>Sances com Erro</h3>
+                <div class="numero">{{ sances_erros if sances_erros is defined else 0 }}</div>
+            </div>
+
+            <div class="card amarelo">
+                <h3>Sances Não Configurado</h3>
+                <div class="numero">{{ sances_nao_configurado if sances_nao_configurado is defined else 0 }}</div>
+            </div>
 
             <div class="card verde">
                 <h3>Revisões Agendadas</h3>
