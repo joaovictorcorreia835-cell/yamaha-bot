@@ -1534,7 +1534,6 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     if data and not dados.get("data") and data_texto_valida(data):
         dados["data"] = data
 
-    # aceita horário direto em texto livre, ex: 08:00
     if horario and not dados.get("horario"):
         dados["horario"] = horario
 
@@ -1553,6 +1552,34 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
             dados["tipo_atendimento"] = "DEIXAR A MOTO E RETIRAR DEPOIS"
         else:
             dados["tipo_atendimento"] = tipo_atendimento
+
+
+def montar_resumo_dados_ia_revisao(telefone):
+    iniciar_cliente(telefone)
+    dados = clientes[telefone]
+
+    partes = []
+
+    if dados.get("modelo"):
+        partes.append(f"🏍️ Modelo: {dados['modelo']}")
+    if dados.get("ano"):
+        partes.append(f"📅 Ano: {dados['ano']}")
+    if dados.get("revisao"):
+        partes.append(f"🔧 Revisão: {dados['revisao']}ª")
+    if dados.get("dia_texto"):
+        partes.append(f"📍 Dia: {dados['dia_texto']}")
+    if dados.get("data"):
+        partes.append(f"📆 Data: {dados['data']}")
+    if dados.get("horario"):
+        partes.append(f"⏰ Horário: {dados['horario']}")
+    if dados.get("km_atual"):
+        partes.append(f"🔢 KM: {dados['km_atual']}")
+
+    if not partes:
+        return ""
+
+    return "Já identifiquei estas informações do seu pedido:\n\n" + "\n".join(partes)
+
 
 def enviar_proxima_etapa_com_contexto_ia(telefone):
     etapa = primeira_etapa_pendente_revisao(telefone)
@@ -1596,59 +1623,6 @@ def enviar_proxima_etapa_com_contexto_ia(telefone):
         )
 
     enviar_mensagem(telefone, mensagem_etapa)
-
-
-def mensagem_duvida_retorno_fluxo(telefone):
-    iniciar_cliente(telefone)
-    etapa_retorno = clientes[telefone].get("etapa_retorno_duvida", "")
-
-    if etapa_retorno and etapa_retorno.startswith("revisao"):
-        return (
-            "Se desejar, você pode:\n\n"
-            "1️⃣ Continuar agendamento\n"
-            "2️⃣ Fazer outra dúvida\n"
-            "3️⃣ Falar com atendente"
-        )
-
-    return (
-        "Se desejar, você pode:\n\n"
-        "1️⃣ Fazer outra dúvida\n"
-        "2️⃣ Voltar ao menu principal\n"
-        "3️⃣ Falar com atendente"
-    )
-
-
-def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
-    iniciar_cliente(telefone)
-
-    etapa_origem = etapa_atual or clientes[telefone].get("etapa", "")
-    clientes[telefone]["etapa_retorno_duvida"] = etapa_origem
-    clientes[telefone]["origem_etapa"] = etapa_origem
-    clientes[telefone]["etapa"] = "menu_duvidas"
-
-    enviar_mensagem(
-        telefone,
-        "📘 Percebi que você enviou uma dúvida.\n\n"
-        "Vou te direcionar para a central de dúvidas:"
-    )
-    enviar_mensagem(telefone, menu_duvidas())
-
-
-def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
-    setor = f"Dúvidas {categoria.title()}"
-
-    return salvar_evento_atendimento(
-        telefone=telefone,
-        setor=setor,
-        status=STATUS_NOVO_ATENDIMENTO,
-        etapa="duvida_respondida",
-        dados={
-            "itens": f"Pergunta: {limpar_texto(pergunta)}",
-            "venda_adicional": f"Resposta IA: {limpar_texto(resposta)}"
-        },
-        atendimento_humano=False,
-        concluido=False
-    )
 
 
 # ==========================================
@@ -1705,6 +1679,7 @@ def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
     proxima = primeira_etapa_pendente_revisao(telefone)
     clientes[telefone]["etapa"] = proxima
     return proxima
+
 
 
 def enviar_proxima_etapa_revisao(telefone):
@@ -2973,7 +2948,7 @@ def webhook():
     if etapa.startswith("revisao"):
         definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
-        
+
         # ==========================================
         # PROTEÇÃO DE CONTEXTO NO FLUXO DE REVISÃO
         # ==========================================
