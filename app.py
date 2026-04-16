@@ -1569,6 +1569,8 @@ def salvar_agendamento(telefone, dados):
 
     except Exception as e:
         db.rollback()
+        import traceback
+        traceback.print_exc()
         log_erro("Erro salvar agendamento:", repr(e))
         return None
 
