@@ -547,6 +547,37 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
     finally:
         db.close()
 
+def buscar_agendamento_por_protocolo(protocolo):
+    db = SessionLocal()
+
+    try:
+        return db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.protocolo == protocolo
+        ).first()
+    except Exception as e:
+        log_erro("Erro ao buscar agendamento por protocolo:", repr(e))
+        return None
+    finally:
+        db.close()
+
+
+def montar_dados_agendamento_para_reenvio(ag):
+    return {
+        "telefone": ag.telefone or "",
+        "nome": ag.nome or "",
+        "cpf": ag.cpf or "",
+        "modelo": ag.modelo or "",
+        "ano": ag.ano or "",
+        "revisao": ag.revisao or "",
+        "dia": "",
+        "data": ag.data_agendada or "",
+        "horario": ag.horario or "",
+        "itens": ag.itens or "",
+        "venda_adicional": ag.venda_adicional or "",
+        "observacao": ag.observacoes or "",
+        "km_atual": "",
+        "tipo_atendimento": ""
+    }
 
 def montar_mensagem_status_sances(retorno_sances):
     status = retorno_sances.get("status", SANCES_STATUS_PENDENTE)
@@ -2051,6 +2082,53 @@ def dashboard():
     finally:
         db.close()
 
+# ==========================================
+# REENVIO MANUAL SANCES
+# ==========================================
+@app.route("/reenvio-sances/<protocolo>", methods=["POST"])
+def reenvio_sances(protocolo):
+    try:
+        protocolo = limpar_texto(protocolo)
+
+        if not protocolo:
+            return jsonify({
+                "ok": False,
+                "mensagem": "Protocolo inválido."
+            }), 400
+
+        ag = buscar_agendamento_por_protocolo(protocolo)
+
+        if not ag:
+            return jsonify({
+                "ok": False,
+                "mensagem": "Agendamento não encontrado."
+            }), 404
+
+        dados_reenvio = montar_dados_agendamento_para_reenvio(ag)
+        retorno_sances = enviar_agendamento_para_sances(dados_reenvio)
+
+        atualizado = atualizar_status_sances_agendamento(protocolo, retorno_sances)
+
+        if not atualizado:
+            return jsonify({
+                "ok": False,
+                "mensagem": "Falha ao atualizar status do Sances no banco."
+            }), 500
+
+        return jsonify({
+            "ok": True,
+            "mensagem": "Reenvio processado com sucesso.",
+            "status": retorno_sances.get("status", SANCES_STATUS_ERRO),
+            "protocolo_sances": retorno_sances.get("protocolo_sances", ""),
+            "erro": retorno_sances.get("erro", "")
+        }), 200
+
+    except Exception as e:
+        log_erro("Erro na rota de reenvio Sances:", repr(e))
+        return jsonify({
+            "ok": False,
+            "mensagem": "Erro interno ao reenviar para o Sances."
+        }), 500
 
 # ==========================================
 # WEBHOOK
