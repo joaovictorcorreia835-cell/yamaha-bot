@@ -1,88 +1,30 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from database import engine
 from sqlalchemy import text
-
-def executar(conn, sql, nome_coluna):
-    try:
-        conn.execute(text(sql))
-        print(f"{nome_coluna} criada")
-    except Exception:
-        print(f"{nome_coluna} já existe")
+import os
 
 def migrar():
-    with engine.connect() as conn:
-        # ==========================================
-        # AGENDAMENTOS_REVISAO - CAMPOS SANCES
-        # ==========================================
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_status VARCHAR(50) DEFAULT 'PENDENTE';",
-            "agendamentos_revisao.sances_status"
-        )
+    print("DATABASE_URL:", os.getenv("DATABASE_URL"))
 
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_enviado BOOLEAN DEFAULT FALSE;",
-            "agendamentos_revisao.sances_enviado"
-        )
+    comandos = [
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_status VARCHAR(50) DEFAULT 'PENDENTE';",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_enviado BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_protocolo VARCHAR(255) DEFAULT '';",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_erro TEXT DEFAULT '';",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_data_envio TIMESTAMP NULL;",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_tentativas INTEGER DEFAULT 0;",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_ultima_tentativa TIMESTAMP NULL;",
+        "ALTER TABLE agendamentos_revisao ADD COLUMN IF NOT EXISTS sances_ultimo_retorno TEXT DEFAULT '';",
+        "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS followup_1 BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS followup_2 BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS followup_3 BOOLEAN DEFAULT FALSE;",
+    ]
 
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_protocolo VARCHAR(255) DEFAULT '';",
-            "agendamentos_revisao.sances_protocolo"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_erro TEXT DEFAULT '';",
-            "agendamentos_revisao.sances_erro"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_data_envio TIMESTAMP NULL;",
-            "agendamentos_revisao.sances_data_envio"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_tentativas INTEGER DEFAULT 0;",
-            "agendamentos_revisao.sances_tentativas"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_ultima_tentativa TIMESTAMP NULL;",
-            "agendamentos_revisao.sances_ultima_tentativa"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE agendamentos_revisao ADD COLUMN sances_ultimo_retorno TEXT DEFAULT '';",
-            "agendamentos_revisao.sances_ultimo_retorno"
-        )
-
-        # ==========================================
-        # ATENDIMENTOS - CAMPOS FOLLOW-UP
-        # ==========================================
-        executar(
-            conn,
-            "ALTER TABLE atendimentos ADD COLUMN followup_1 BOOLEAN DEFAULT FALSE;",
-            "atendimentos.followup_1"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE atendimentos ADD COLUMN followup_2 BOOLEAN DEFAULT FALSE;",
-            "atendimentos.followup_2"
-        )
-
-        executar(
-            conn,
-            "ALTER TABLE atendimentos ADD COLUMN followup_3 BOOLEAN DEFAULT FALSE;",
-            "atendimentos.followup_3"
-        )
-
-        conn.commit()
+    with engine.begin() as conn:
+        for sql in comandos:
+            conn.execute(text(sql))
 
     print("✅ MIGRAÇÃO COMPLETA CONCLUÍDA")
 
