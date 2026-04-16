@@ -2203,24 +2203,39 @@ def processar_followup_inteligente():
 
         atendimentos = db.query(Atendimento).filter(
             Atendimento.concluido == False
-        ).all()
+        ).order_by(Atendimento.id.desc()).all()
+
+        telefones_processados = set()
 
         for at in atendimentos:
             try:
                 if not at.telefone:
                     continue
 
+                telefone = limpar_telefone(at.telefone)
+
+                if not telefone:
+                    continue
+
+                # evita múltiplos disparos para o mesmo número no mesmo ciclo
+                if telefone in telefones_processados:
+                    continue
+
                 if bool(at.atendimento_humano):
+                    telefones_processados.add(telefone)
                     continue
 
                 ultima = at.ultima_interacao or agora_time
                 tempo_parado = (agora_time - ultima).total_seconds()
-                telefone = limpar_telefone(at.telefone)
+
+                if tempo_parado < 60:
+                    telefones_processados.add(telefone)
+                    continue
 
                 enviado = False
 
-                # 1º FOLLOW-UP (30 min)
-                if tempo_parado > 1800 and not bool(at.followup_1):
+                # 1º FOLLOW-UP - 30 minutos
+                if 1800 <= tempo_parado < 7200 and at.followup_1 is not True:
                     enviado = enviar_mensagem(
                         telefone,
                         "👋 Oi! Vi que você começou um atendimento e não finalizou.\n\n"
@@ -2229,8 +2244,8 @@ def processar_followup_inteligente():
                     if enviado:
                         at.followup_1 = True
 
-                # 2º FOLLOW-UP (2 horas)
-                elif tempo_parado > 7200 and not bool(at.followup_2):
+                # 2º FOLLOW-UP - 2 horas
+                elif 7200 <= tempo_parado < 86400 and at.followup_2 is not True:
                     enviado = enviar_mensagem(
                         telefone,
                         "⏰ Só passando pra te lembrar da sua solicitação.\n\n"
@@ -2239,8 +2254,8 @@ def processar_followup_inteligente():
                     if enviado:
                         at.followup_2 = True
 
-                # 3º FOLLOW-UP (24 horas)
-                elif tempo_parado > 86400 and not bool(at.followup_3):
+                # 3º FOLLOW-UP - 24 horas
+                elif tempo_parado >= 86400 and at.followup_3 is not True:
                     enviado = enviar_mensagem(
                         telefone,
                         "🚨 Última chamada!\n\n"
@@ -2253,6 +2268,8 @@ def processar_followup_inteligente():
                 if enviado:
                     at.ultima_interacao = agora_time
                     db.commit()
+
+                telefones_processados.add(telefone)
 
             except Exception as e:
                 db.rollback()
@@ -2271,10 +2288,8 @@ def worker():
         try:
             processar_inatividade()
             processar_lembretes_agendamento()
-
-            # 🔥 NOVO
-            processar_fila_sances()
             processar_followup_inteligente()
+            processar_fila_sances()
 
         except Exception as e:
             log_erro("Worker erro:", repr(e))
@@ -2291,7 +2306,6 @@ def iniciar_worker():
     worker_followup_iniciado = True
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
-
 
 # ==========================================
 # DASHBOARD
