@@ -2037,7 +2037,7 @@ def dashboard():
             quinta=quinta,
             total_itens_vendidos=total_itens_vendidos,
             ranking_itens=ranking_itens,
-            agendamentos=agendamentos
+            agendamentos=agendamentos,
             sances_pendentes=sances_pendentes,
             sances_enviados=sances_enviados,
             sances_erros=sances_erros,
@@ -2627,7 +2627,7 @@ def webhook():
                     telefone,
                     "⚠️ Digite *1* para confirmar ou *2* para corrigir."
                 )
-                 return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok"}), 200
 
     # ==========================================
     # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
