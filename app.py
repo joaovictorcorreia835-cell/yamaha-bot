@@ -28,7 +28,7 @@ ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
 BASE_URL = os.getenv("BASE_URL", "")
 
 # Evita erro se vier vazio ou inválido
-TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "900") or 900)
+TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "43200") or 43200)
 
 ARQUIVO_FOLLOWUP = os.getenv("ARQUIVO_FOLLOWUP", "clientes_disparo.xlsx")
 INTERVALO_WORKER_FOLLOWUP = int(os.getenv("INTERVALO_WORKER_FOLLOWUP", "300") or 300)
@@ -920,12 +920,6 @@ def processar_inatividade():
                 continue
 
             if agora_atual - ultima > TEMPO_INATIVIDADE:
-                if dados.get("etapa") != "menu":
-                    enviar_mensagem(
-                        telefone,
-                        "⏰ Seu atendimento foi encerrado por inatividade.\n\n"
-                        "Quando quiser continuar, envie *menu*."
-                    )
                 resetar_cliente(telefone)
 
     except Exception as e:
@@ -2588,6 +2582,22 @@ def webhook():
     registrar_mensagem_processada(message_id)
 
     iniciar_cliente(telefone)
+
+    ultima_interacao = clientes[telefone].get("ultima_interacao", agora())
+    if (
+        clientes[telefone].get("etapa") != "menu"
+        and not clientes[telefone].get("atendimento_humano")
+        and (agora() - ultima_interacao) > TEMPO_INATIVIDADE
+    ):
+        resetar_cliente(telefone)
+        enviar_mensagem(
+            telefone,
+            "Olá 👋\n\n"
+            "Como passou um tempo desde a última mensagem, vou te mostrar o menu novamente para seguir da melhor forma."
+        )
+        enviar_menu(telefone)
+        return jsonify({"status": "ok"}), 200
+
     atualizar_interacao(telefone)
     atualizar_retorno_na_planilha(telefone, texto)
 
