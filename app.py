@@ -2973,6 +2973,23 @@ def webhook():
     if etapa.startswith("revisao"):
         definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
+        
+        # ==========================================
+        # PROTEÇÃO DE CONTEXTO NO FLUXO DE REVISÃO
+        # ==========================================
+        etapas_bloqueadas_para_troca_setor = {
+            "revisao_tipo",
+            "revisao_dia",
+            "revisao_data",
+            "revisao_horario",
+            "revisao_tipo_atendimento",
+            "revisao_venda",
+            "revisao_observacao",
+            "revisao_confirmacao",
+        }
+
+        if etapa in etapas_bloqueadas_para_troca_setor and intencao_ia in ["pecas", "acessorios", "garantia", "atacado"]:
+            intencao_ia = ""
 
         etapa_atualizada = primeira_etapa_pendente_revisao(telefone)
 
