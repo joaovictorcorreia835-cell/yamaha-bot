@@ -335,38 +335,27 @@ def normalizar_status(status):
     mapa = {
         "NOVO": STATUS_NOVO_ATENDIMENTO,
         "NOVO_ATENDIMENTO": STATUS_NOVO_ATENDIMENTO,
-
         "INICIADO": STATUS_AGENDAMENTO_INICIADO,
         "AGENDAMENTO_INICIADO": STATUS_AGENDAMENTO_INICIADO,
-
         "AGENDADO": STATUS_AGENDADO,
         "AGENDADA": STATUS_AGENDADO,
-
         "CONFIRMADO": STATUS_CONFIRMADO,
         "CONFIRMADA": STATUS_CONFIRMADO,
-
         "REAGENDADO": STATUS_REAGENDADO,
         "REAGENDADA": STATUS_REAGENDADO,
-
         "CANCELADO": STATUS_CANCELADO,
         "CANCELADA": STATUS_CANCELADO,
-
         "NAO_COMPARECEU": STATUS_NAO_COMPARECEU,
         "NÃO_COMPARECEU": STATUS_NAO_COMPARECEU,
-
         "EM_EXECUCAO": STATUS_EM_EXECUCAO,
         "EM EXECUCAO": STATUS_EM_EXECUCAO,
         "EM EXECUÇÃO": STATUS_EM_EXECUCAO,
-
         "FINALIZADO": STATUS_FINALIZADO,
         "FINALIZADA": STATUS_FINALIZADO,
-
         "POS_VENDA_ENVIADO": STATUS_POS_VENDA_ENVIADO,
-
         "ATENDIMENTO_HUMANO": STATUS_ATENDIMENTO_HUMANO,
         "HUMANO": STATUS_ATENDIMENTO_HUMANO,
         "ATENDIMENTO HUMANO": STATUS_ATENDIMENTO_HUMANO,
-
         "EM ATENDIMENTO": STATUS_NOVO_ATENDIMENTO,
     }
 
@@ -376,7 +365,6 @@ def normalizar_status(status):
 def definir_status_cliente(telefone, status):
     if telefone not in clientes:
         clientes[telefone] = {}
-
     clientes[telefone]["status"] = normalizar_status(status)
 
 
@@ -445,6 +433,24 @@ def enviar_agendamento_para_sances(dados_agendamento):
             "mensagem": "Erro ao preparar integração com Sances.",
             "erro": repr(e)
         }
+
+
+def etapa_revisao_permite_ir_para_duvidas(etapa):
+    etapas_bloqueadas = [
+        "revisao_modelo",
+        "revisao_nome",
+        "revisao_cpf",
+        "revisao_ano",
+        "revisao_km",
+        "revisao_tipo",
+        "revisao_dia",
+        "revisao_data",
+        "revisao_horario",
+        "revisao_tipo_atendimento",
+        "revisao_venda",
+        "revisao_observacao",
+    ]
+    return etapa not in etapas_bloqueadas
 
 
 # ==========================================
@@ -837,6 +843,59 @@ def enviar_menu(telefone):
         "Equipe Motoshow Yamaha"
     )
     enviar_mensagem(telefone, mensagem)
+
+
+def iniciar_fluxo_pecas(telefone, texto_inicial=""):
+    iniciar_cliente(telefone)
+    clientes[telefone]["etapa"] = "pecas"
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Peças",
+        status=STATUS_NOVO_ATENDIMENTO,
+        etapa="pecas_iniciado",
+        dados={"observacao": texto_inicial},
+        atendimento_humano=False,
+        concluido=False
+    )
+
+    if limpar_texto(texto_inicial):
+        enviar_mensagem(
+            telefone,
+            "🔩 *Peças*\n\n"
+            "Perfeito, recebi sua solicitação.\n"
+            "Nossa equipe vai verificar *valor* e *disponibilidade*.\n\n"
+            "Se quiser complementar, envie:\n"
+            "• modelo da moto\n"
+            "• ano\n"
+            "• peça desejada"
+        )
+    else:
+        enviar_mensagem(telefone, "🔩 *Peças*\n\nInforme a peça desejada:")
+
+
+def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
+    iniciar_cliente(telefone)
+    clientes[telefone]["etapa"] = "acessorios"
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Acessórios",
+        status=STATUS_NOVO_ATENDIMENTO,
+        etapa="acessorios_iniciado",
+        atendimento_humano=False,
+        concluido=False
+    )
+
+    if limpar_texto(texto_inicial):
+        enviar_mensagem(
+            telefone,
+            "🛵 *Acessórios*\n\n"
+            "Perfeito, recebi sua solicitação.\n"
+            "Envie mais detalhes do acessório desejado, se quiser."
+        )
+    else:
+        enviar_mensagem(telefone, "🛵 *Acessórios*\n\nInforme o acessório desejado:")
 
 
 def menu_duvidas():
@@ -1952,6 +2011,17 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     # ==========================================
+    # SAÍDA RÁPIDA DE DÚVIDAS PARA PEÇAS / ACESSÓRIOS
+    # ==========================================
+    if etapa in ["menu_duvidas", "duvida_revisoes", "duvida_garantia", "duvida_pos_resposta"] and intencao_ia == "pecas":
+        iniciar_fluxo_pecas(telefone, texto)
+        return jsonify({"status": "ok"}), 200
+
+    if etapa in ["menu_duvidas", "duvida_revisoes", "duvida_garantia", "duvida_pos_resposta"] and intencao_ia == "acessorios":
+        iniciar_fluxo_acessorios(telefone, texto)
+        return jsonify({"status": "ok"}), 200
+
+    # ==========================================
     # MENU PRINCIPAL
     # ==========================================
     if etapa == "menu":
@@ -1962,29 +2032,11 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "2":
-            clientes[telefone]["etapa"] = "pecas"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Peças",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="pecas_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(telefone, "🔩 *Peças*\n\nInforme a peça desejada:")
+            iniciar_fluxo_pecas(telefone)
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "3":
-            clientes[telefone]["etapa"] = "acessorios"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Acessórios",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="acessorios_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(telefone, "🛵 *Acessórios*\n\nInforme o acessório desejado:")
+            iniciar_fluxo_acessorios(telefone)
             return jsonify({"status": "ok"}), 200
 
         elif texto_opcao == "4":
@@ -2039,35 +2091,17 @@ def webhook():
                 enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
             return jsonify({"status": "ok"}), 200
 
-        elif intencao_ia == "duvidas":
-            clientes[telefone]["etapa"] = "menu_duvidas"
-            enviar_mensagem(telefone, menu_duvidas())
-            return jsonify({"status": "ok"}), 200
-
         elif intencao_ia == "pecas":
-            clientes[telefone]["etapa"] = "pecas"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Peças",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="pecas_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(telefone, "🔩 Informe a peça desejada:")
+            iniciar_fluxo_pecas(telefone, texto)
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "acessorios":
-            clientes[telefone]["etapa"] = "acessorios"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Acessórios",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="acessorios_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(telefone, "🛵 Informe o acessório desejado:")
+            iniciar_fluxo_acessorios(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        elif intencao_ia == "duvidas":
+            clientes[telefone]["etapa"] = "menu_duvidas"
+            enviar_mensagem(telefone, menu_duvidas())
             return jsonify({"status": "ok"}), 200
 
         elif intencao_ia == "garantia":
@@ -2145,6 +2179,14 @@ def webhook():
             enviar_menu(telefone)
             return jsonify({"status": "ok"}), 200
 
+        elif intencao_ia == "pecas":
+            iniciar_fluxo_pecas(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        elif intencao_ia == "acessorios":
+            iniciar_fluxo_acessorios(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
         enviar_mensagem(telefone, menu_duvidas())
         return jsonify({"status": "ok"}), 200
 
@@ -2152,6 +2194,14 @@ def webhook():
     # RESPOSTA DÚVIDAS
     # ==========================================
     if etapa in ["duvida_revisoes", "duvida_garantia"]:
+        if intencao_ia == "pecas":
+            iniciar_fluxo_pecas(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        if intencao_ia == "acessorios":
+            iniciar_fluxo_acessorios(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
         categoria = "revisoes" if etapa == "duvida_revisoes" else "garantia"
 
         resposta_duvida = responder_duvida_por_tabela(
@@ -2177,15 +2227,20 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     if etapa == "duvida_pos_resposta":
+        if intencao_ia == "pecas":
+            iniciar_fluxo_pecas(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        if intencao_ia == "acessorios":
+            iniciar_fluxo_acessorios(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
         etapa_retorno = clientes[telefone].get("etapa_retorno_duvida", "")
 
         if etapa_retorno and etapa_retorno.startswith("revisao"):
             if texto_opcao == "1":
                 clientes[telefone]["etapa"] = etapa_retorno
-                enviar_mensagem(
-                    telefone,
-                    "Perfeito 👍 Vamos continuar seu agendamento."
-                )
+                enviar_mensagem(telefone, "Perfeito 👍 Vamos continuar seu agendamento.")
                 if etapa_retorno == "revisao_horario":
                     revisao = clientes[telefone]["revisao"]
                     dia = clientes[telefone]["dia"]
@@ -2233,7 +2288,7 @@ def webhook():
         definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos_ia)
 
-        if intencao_ia == "duvidas":
+        if intencao_ia == "duvidas" and etapa_revisao_permite_ir_para_duvidas(etapa):
             encaminhar_para_menu_duvidas(telefone, etapa_atual=etapa)
             return jsonify({"status": "ok"}), 200
 
@@ -2406,10 +2461,7 @@ def webhook():
                 clientes[telefone]["sances_erro"] = retorno_sances.get("erro", "")
                 clientes[telefone]["sances_data_envio"] = formatar_data_hora()
 
-                if retorno_sances.get("sucesso"):
-                    clientes[telefone]["sances_enviado"] = True
-                else:
-                    clientes[telefone]["sances_enviado"] = False
+                clientes[telefone]["sances_enviado"] = bool(retorno_sances.get("sucesso"))
 
                 definir_status_cliente(telefone, STATUS_AGENDADO)
                 salvar_atendimento_dashboard(telefone, dados)
@@ -2421,17 +2473,11 @@ def webhook():
                         f"\n🧾 *Protocolo Sances:* {retorno_sances.get('protocolo_sances', '-')}"
                     )
                 elif retorno_sances.get("status") == SANCES_STATUS_NAO_CONFIGURADO:
-                    mensagem_sances = (
-                        "\n🔗 *Integração Sances:* pendente de configuração"
-                    )
+                    mensagem_sances = "\n🔗 *Integração Sances:* pendente de configuração"
                 elif retorno_sances.get("status") == SANCES_STATUS_ERRO:
-                    mensagem_sances = (
-                        "\n⚠️ *Integração Sances:* erro no envio"
-                    )
+                    mensagem_sances = "\n⚠️ *Integração Sances:* erro no envio"
                 else:
-                    mensagem_sances = (
-                        f"\n🔗 *Integração Sances:* {retorno_sances.get('status', SANCES_STATUS_PENDENTE)}"
-                    )
+                    mensagem_sances = f"\n🔗 *Integração Sances:* {retorno_sances.get('status', SANCES_STATUS_PENDENTE)}"
 
                 enviar_mensagem(
                     telefone,
@@ -2539,10 +2585,7 @@ def webhook():
             )
 
             if enviado:
-                enviar_mensagem(
-                    telefone,
-                    "✅ Catálogo enviado com sucesso."
-                )
+                enviar_mensagem(telefone, "✅ Catálogo enviado com sucesso.")
             else:
                 enviar_mensagem(
                     telefone,

@@ -163,8 +163,56 @@ def texto_parece_valor_revisao(texto_normalizado):
     return tem_valor and (tem_contexto_revisao or tem_km or tem_meses)
 
 
+def texto_parece_valor_pecas(texto_normalizado):
+    termos_valor = [
+        "valor", "preco", "preço", "quanto custa", "quanto e", "quanto é",
+        "custa", "orcamento", "orçamento", "disponibilidade", "tem", "possui"
+    ]
+
+    termos_pecas = [
+        "peca", "pecas", "peça", "peças",
+        "oleo", "óleo",
+        "filtro", "filtro de oleo", "filtro de óleo", "filtro de ar",
+        "pastilha", "pastilha de freio", "pastilha dianteira", "pastilha traseira",
+        "vela", "vela de ignicao", "vela de ignição",
+        "bateria", "relacao", "relação", "kit transmissao", "kit transmissão",
+        "corrente", "coroa", "pinhao", "pinhão", "pneu", "camara", "câmara",
+        "retentor", "amortecedor", "embreagem", "disco de freio", "lona de freio",
+        "sapata de freio"
+    ]
+
+    tem_valor = any(p in texto_normalizado for p in termos_valor)
+    tem_peca = any(p in texto_normalizado for p in termos_pecas)
+
+    return tem_valor and tem_peca
+
+
+def texto_parece_consulta_pecas(texto_normalizado):
+    termos_pecas = [
+        "peca", "pecas", "peça", "peças",
+        "oleo", "óleo",
+        "filtro", "filtro de oleo", "filtro de óleo", "filtro de ar",
+        "pastilha", "vela", "bateria", "relacao", "relação",
+        "kit transmissao", "kit transmissão", "pneu", "corrente",
+        "coroa", "pinhao", "pinhão", "retentor", "embreagem"
+    ]
+
+    termos_consulta = [
+        "tem", "possui", "quanto", "valor", "preco", "preço", "custa",
+        "orcamento", "orçamento", "disponibilidade", "quero saber", "preciso de"
+    ]
+
+    tem_peca = any(p in texto_normalizado for p in termos_pecas)
+    tem_consulta = any(p in texto_normalizado for p in termos_consulta)
+
+    return tem_peca and tem_consulta
+
+
 def frase_parece_duvida(texto):
     texto_norm = normalizar_texto(texto)
+
+    if texto_parece_valor_pecas(texto_norm) or texto_parece_consulta_pecas(texto_norm):
+        return False
 
     gatilhos_duvida = [
         "qual o valor",
@@ -197,7 +245,7 @@ def frase_parece_duvida(texto):
         "qual", "quais", "quanto", "como", "o que", "me explica", "explica"
     ]
 
-    if any(gatilho in texto_norm for gatilho in gatilhos_duvida):
+    if any(gatilho in texto_norm for gatilhos in [gatilhos_duvida] for gatilho in gatilhos):
         return True
 
     if "?" in str(texto):
@@ -411,6 +459,9 @@ def extrair_item_adicional(texto):
     texto_lower = normalizar_texto(texto)
 
     itens_comuns = [
+        "filtro",
+        "filtro de oleo",
+        "filtro de óleo",
         "filtro de ar",
         "pastilha traseira",
         "pastilha dianteira",
@@ -418,23 +469,35 @@ def extrair_item_adicional(texto):
         "sapata de freio",
         "kit lubrificante",
         "oleo",
+        "óleo",
         "slider",
         "bau",
+        "baú",
         "suporte celular",
         "suporte para celular",
         "protetor motor",
         "vela",
         "vela de ignicao",
+        "vela de ignição",
         "limpeza de bico",
         "limpeza de injecao",
-        "troca de oleo"
+        "limpeza de injeção",
+        "troca de oleo",
+        "troca de óleo",
+        "bateria",
+        "relacao",
+        "relação",
+        "kit transmissao",
+        "kit transmissão",
+        "pneu"
     ]
 
     encontrados = []
 
     for item in itens_comuns:
-        if item in texto_lower:
-            item_formatado = item.upper()
+        item_normalizado = normalizar_texto(item)
+        if item_normalizado in texto_lower:
+            item_formatado = item_normalizado.upper()
             if item_formatado not in encontrados:
                 encontrados.append(item_formatado)
 
@@ -522,6 +585,15 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "agendar_revisao", 0.99
 
+    if texto_parece_valor_revisao(texto_normalizado):
+        return "valor_revisao", 0.98
+
+    if texto_parece_valor_pecas(texto_normalizado):
+        return "pecas", 0.99
+
+    if texto_parece_consulta_pecas(texto_normalizado):
+        return "pecas", 0.97
+
     if any(p in texto_normalizado for p in [
         "peca",
         "pecas",
@@ -532,16 +604,20 @@ def detectar_intencao_regras(texto_normalizado):
         "preço do filtro",
         "quanto custa o filtro",
         "filtro de oleo",
+        "filtro de óleo",
         "filtro de ar",
         "pastilha",
         "vela",
         "oleo do motor",
         "óleo do motor",
+        "oleo",
+        "óleo",
         "relacao",
         "relação",
         "kit transmissao",
         "kit transmissão",
-        "bateria"
+        "bateria",
+        "pneu"
     ]):
         return "pecas", 0.96
 
@@ -561,9 +637,6 @@ def detectar_intencao_regras(texto_normalizado):
         "garantia", "defeito", "problema em garantia"
     ]):
         return "garantia", 0.94
-
-    if texto_parece_valor_revisao(texto_normalizado):
-        return "valor_revisao", 0.98
 
     if any(p in texto_normalizado for p in [
         "o que troca",
@@ -743,7 +816,7 @@ def classificar_com_ia(texto):
                         "Use pecas quando a pessoa perguntar valor, preço, orçamento ou disponibilidade de peça avulsa "
                         "como filtro, pastilha, vela, bateria, óleo, relação ou itens similares. "
                         "Use duvidas quando a pessoa quiser apenas tirar uma dúvida sobre revisão ou garantia, "
-                        "sem pedir agendamento. "
+                        "sem pedir agendamento e sem pedir preço de peça. "
                         "Se houver intenção clara de agendar ou marcar horário, sempre responda agendar_revisao. "
                         "Se o texto parecer apenas um nome, CPF, data, horário, modelo ou outra resposta curta de cadastro, responda vazio."
                     )
@@ -1008,7 +1081,25 @@ def classificar_intencao(texto):
         dados["revisao"] = km_para_revisao(dados["km"])
 
     if not intencao:
-        if frase_parece_duvida(texto):
+        if texto_parece_valor_pecas(texto_normalizado):
+            intencao = "pecas"
+            confianca = 0.95
+
+        elif texto_parece_consulta_pecas(texto_normalizado):
+            intencao = "pecas"
+            confianca = 0.93
+
+        elif dados["item_adicional"] and any(
+            p in texto_normalizado for p in ["valor", "preco", "preço", "quanto custa", "orcamento", "orçamento", "custa", "tem", "disponibilidade"]
+        ):
+            intencao = "pecas"
+            confianca = 0.92
+
+        elif dados["modelo"] and dados["item_adicional"]:
+            intencao = "pecas"
+            confianca = 0.88
+
+        elif frase_parece_duvida(texto):
             intencao = "duvidas"
             confianca = 0.90
 
@@ -1030,16 +1121,6 @@ def classificar_intencao(texto):
             else:
                 intencao = "agendar_revisao"
                 confianca = 0.75
-
-        elif dados["item_adicional"] and any(
-            p in texto_normalizado for p in ["valor", "preco", "preço", "quanto custa", "orcamento", "orçamento"]
-        ):
-            intencao = "pecas"
-            confianca = 0.88
-
-        elif dados["modelo"] and dados["item_adicional"]:
-            intencao = "pecas"
-            confianca = 0.82
 
         else:
             intencao = "menu"

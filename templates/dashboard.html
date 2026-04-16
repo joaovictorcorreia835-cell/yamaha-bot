@@ -226,6 +226,16 @@
             color: #6d28d9;
         }
 
+        .status-confirmado {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-padrao {
+            background: #e5e7eb;
+            color: #334155;
+        }
+
         .info-lista {
             display: grid;
             gap: 12px;
@@ -468,22 +478,25 @@
                     </thead>
                     <tbody>
                         {% for ag in agendamentos %}
+                        {% set status_formatado = (ag.status or '')|upper %}
                         <tr>
-                            <td>{{ ag.protocolo }}</td>
-                            <td>{{ ag.nome }}</td>
-                            <td>{{ ag.telefone }}</td>
-                            <td>{{ ag.modelo }}</td>
-                            <td>{{ ag.revisao }}ª</td>
-                            <td>{{ ag.data_agendada }}</td>
-                            <td>{{ ag.horario }}</td>
+                            <td>{{ ag.protocolo or '-' }}</td>
+                            <td>{{ ag.nome or '-' }}</td>
+                            <td>{{ ag.telefone or '-' }}</td>
+                            <td>{{ ag.modelo or '-' }}</td>
+                            <td>{{ ag.revisao or '-' }}{% if ag.revisao %}ª{% endif %}</td>
+                            <td>{{ ag.data_agendada or '-' }}</td>
+                            <td>{{ ag.horario or '-' }}</td>
                             <td class="itens-coluna">{{ ag.itens if ag.itens else 'Nenhum' }}</td>
                             <td>
                                 <span class="status-badge
-                                    {% if ag.status == 'AGENDADO' %}status-agendado{% endif %}
-                                    {% if ag.status == 'CANCELADO' %}status-cancelado{% endif %}
-                                    {% if ag.status == 'REAGENDADO' %}status-reagendado{% endif %}
-                                    {% if ag.status == 'CONCLUIDO' %}status-concluido{% endif %}">
-                                    {{ ag.status }}
+                                    {% if status_formatado == 'AGENDADO' %}status-agendado
+                                    {% elif status_formatado == 'CANCELADO' %}status-cancelado
+                                    {% elif status_formatado == 'REAGENDADO' %}status-reagendado
+                                    {% elif status_formatado in ['CONCLUIDO', 'CONCLUÍDO', 'FINALIZADO'] %}status-concluido
+                                    {% elif status_formatado == 'CONFIRMADO' %}status-confirmado
+                                    {% else %}status-padrao{% endif %}">
+                                    {{ ag.status or 'SEM STATUS' }}
                                 </span>
                             </td>
                         </tr>

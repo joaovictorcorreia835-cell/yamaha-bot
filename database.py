@@ -1,7 +1,10 @@
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Float
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
+from dotenv import load_dotenv
 import os
+
+load_dotenv()
 
 # ==========================================
 # CONFIG
@@ -126,7 +129,7 @@ class AgendamentoRevisao(Base):
     horario = Column(String, index=True)
 
     itens = Column(Text)
-    venda_adicional = Column(String)
+    venda_adicional = Column(Text)
 
     status = Column(String, default="AGENDADO")
     observacoes = Column(Text)
