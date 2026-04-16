@@ -45,7 +45,6 @@ class Atendimento(Base):
     modelo = Column(String)
     ano = Column(String)
     revisao = Column(String)
-
     cpf = Column(String)
 
     dia_semana = Column(String)
@@ -54,8 +53,6 @@ class Atendimento(Base):
 
     itens = Column(Text)
     venda_adicional = Column(Text)
-
-    tipo_atendimento = Column(String)
 
     origem = Column(String)
     status = Column(String)
@@ -69,9 +66,7 @@ class Atendimento(Base):
     followup_3 = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
-    ultima_acao_bot = Column(DateTime, nullable=True)
     data = Column(DateTime, default=datetime.now)
-
 
 # ==========================================
 # TABELA DISPAROS

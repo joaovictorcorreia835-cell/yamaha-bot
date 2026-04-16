@@ -997,9 +997,6 @@ def salvar_evento_atendimento(
             data=agora_datetime()
         )
 
-        if hasattr(atendimento, "tipo_atendimento"):
-            atendimento.tipo_atendimento = tipo_atendimento
-
         db.add(atendimento)
         db.commit()
         return True
@@ -2232,10 +2229,6 @@ def processar_followup_inteligente():
                 # não atualizar ultima_interacao aqui
                 # ultima_interacao deve refletir a última interação real do cliente,
                 # e não o disparo automático do bot
-
-                if enviado and hasattr(at, "ultima_acao_bot"):
-                    at.ultima_acao_bot = agora_time
-                    houve_alteracao = True
 
                 telefones_processados.add(telefone)
 
