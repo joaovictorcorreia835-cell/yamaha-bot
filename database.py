@@ -55,6 +55,8 @@ class Atendimento(Base):
     itens = Column(Text)
     venda_adicional = Column(Text)
 
+    tipo_atendimento = Column(String)
+
     origem = Column(String)
     status = Column(String)
     etapa = Column(String)
@@ -67,6 +69,7 @@ class Atendimento(Base):
     followup_3 = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
+    ultima_acao_bot = Column(DateTime, nullable=True)
     data = Column(DateTime, default=datetime.now)
 
 
