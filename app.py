@@ -516,7 +516,55 @@ def enviar_agendamento_para_sances(dados_agendamento):
             "mensagem": "Erro ao preparar integração com Sances.",
             "erro": repr(e)
         }
+def processar_fila_sances():
+    db = SessionLocal()
 
+    try:
+        agendamentos = db.query(AgendamentoRevisao).filter(
+            AgendamentoRevisao.sances_status.in_([
+                SANCES_STATUS_PENDENTE,
+                SANCES_STATUS_ERRO
+            ])
+        ).all()
+
+        for ag in agendamentos:
+            try:
+                # limite de tentativas
+                if ag.sances_tentativas >= SANCES_RETRY_MAX:
+                    continue
+
+                dados = montar_dados_agendamento_para_reenvio(ag)
+
+                retorno = enviar_agendamento_para_sances(dados)
+
+                # atualiza status
+                ag.sances_status = retorno.get("status", SANCES_STATUS_ERRO)
+                ag.sances_enviado = bool(retorno.get("sucesso", False))
+                ag.sances_protocolo = retorno.get("protocolo_sances", "") or ""
+                ag.sances_erro = retorno.get("erro", "") or ""
+                ag.sances_data_envio = datetime.now()
+
+                ag.sances_tentativas = (ag.sances_tentativas or 0) + 1
+                ag.sances_ultima_tentativa = datetime.now()
+                ag.sances_ultimo_retorno = str(retorno)
+
+                db.commit()
+
+                log_info(
+                    f"[SANCES WORKER] Reenvio feito:",
+                    ag.protocolo,
+                    retorno.get("status")
+                )
+
+            except Exception as e:
+                db.rollback()
+                log_erro("Erro no retry Sances:", repr(e))
+
+    except Exception as e:
+        log_erro("Erro geral fila Sances:", repr(e))
+
+    finally:
+        db.close()
 
 def atualizar_status_sances_agendamento(protocolo, retorno_sances):
     db = SessionLocal()
@@ -1925,6 +1973,65 @@ def processar_lembretes_agendamento():
     finally:
         db.close()
 
+def processar_followup_inteligente():
+    db = SessionLocal()
+
+    try:
+        agora_time = datetime.now()
+
+        atendimentos = db.query(Atendimento).filter(
+            Atendimento.concluido == False
+        ).all()
+
+        for at in atendimentos:
+            try:
+                if not at.telefone:
+                    continue
+
+                ultima = at.ultima_interacao or agora_time
+                tempo_parado = (agora_time - ultima).total_seconds()
+
+                telefone = limpar_telefone(at.telefone)
+
+                # ==========================================
+                # 1º FOLLOW-UP (30 min)
+                # ==========================================
+                if tempo_parado > 1800 and tempo_parado <= 3600:
+                    enviar_mensagem(
+                        telefone,
+                        "👋 Oi! Vi que você começou um atendimento e não finalizou.\n\n"
+                        "Posso te ajudar a concluir rapidinho? 🚀"
+                    )
+
+                # ==========================================
+                # 2º FOLLOW-UP (2 horas)
+                # ==========================================
+                elif tempo_parado > 7200 and tempo_parado <= 10800:
+                    enviar_mensagem(
+                        telefone,
+                        "⏰ Só passando pra te lembrar da sua solicitação.\n\n"
+                        "Se quiser, posso finalizar seu agendamento agora 👍"
+                    )
+
+                # ==========================================
+                # 3º FOLLOW-UP (24 horas)
+                # ==========================================
+                elif tempo_parado > 86400 and tempo_parado <= 90000:
+                    enviar_mensagem(
+                        telefone,
+                        "🚨 Última chamada!\n\n"
+                        "Ainda quer agendar sua revisão?\n"
+                        "Temos horários disponíveis essa semana 🏍️"
+                    )
+
+            except Exception as e:
+                log_erro("Erro follow-up individual:", repr(e))
+
+    except Exception as e:
+        log_erro("Erro geral follow-up inteligente:", repr(e))
+
+    finally:
+        db.close()
 
 # ==========================================
 # WORKER
@@ -1934,6 +2041,11 @@ def worker():
         try:
             processar_inatividade()
             processar_lembretes_agendamento()
+
+            # 🔥 NOVO
+            processar_fila_sances()
+            processar_followup_inteligente()
+
         except Exception as e:
             log_erro("Worker erro:", e)
 

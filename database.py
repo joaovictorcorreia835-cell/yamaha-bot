@@ -62,6 +62,10 @@ class Atendimento(Base):
     atendimento_humano = Column(Boolean, default=False)
     concluido = Column(Boolean, default=False)
 
+    followup_1 = Column(Boolean, default=False)
+    followup_2 = Column(Boolean, default=False)
+    followup_3 = Column(Boolean, default=False)
+
     ultima_interacao = Column(DateTime, default=datetime.now)
     data = Column(DateTime, default=datetime.now)
 
@@ -109,6 +113,7 @@ class LeadAtacado(Base):
 # TABELA AGENDAMENTOS REVISAO
 # Alinhada ao banco atual do Render
 # + PREPARADA PARA INTEGRAÇÃO SANCES
+# + CONTROLE DE TENTATIVAS
 # ==========================================
 class AgendamentoRevisao(Base):
     __tablename__ = "agendamentos_revisao"
@@ -145,6 +150,13 @@ class AgendamentoRevisao(Base):
     sances_protocolo = Column(String, default="")
     sances_erro = Column(Text, default="")
     sances_data_envio = Column(DateTime, nullable=True)
+
+    # ==========================================
+    # CONTROLE DE RETRY / FILA SANCES
+    # ==========================================
+    sances_tentativas = Column(Integer, default=0)
+    sances_ultima_tentativa = Column(DateTime, nullable=True)
+    sances_ultimo_retorno = Column(Text, default="")
 
     criado_em = Column(DateTime, default=datetime.now)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
