@@ -170,7 +170,7 @@
             border-collapse: collapse;
             overflow: hidden;
             border-radius: 12px;
-            min-width: 980px;
+            min-width: 1100px;
         }
 
         thead {
@@ -267,6 +267,21 @@
             line-height: 1.4;
         }
 
+        .btn-reenvio {
+            background: #163b8c;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        .btn-reenvio:hover {
+            background: #0f2f70;
+        }
+
         @media (max-width: 980px) {
             .grid,
             .grid-2 {
@@ -313,7 +328,7 @@
                 <h3>Atendimentos de Revisão</h3>
                 <div class="numero">{{ total_revisoes if total_revisoes is defined else revisao }}</div>
             </div>
-            
+
             <div class="card ciano">
                 <h3>Sances Pendentes</h3>
                 <div class="numero">{{ sances_pendentes if sances_pendentes is defined else 0 }}</div>
@@ -494,6 +509,8 @@
                             <th>Horário</th>
                             <th>Itens Adicionais</th>
                             <th>Status</th>
+                            <th>Sances</th>
+                            <th>Ação</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -508,6 +525,7 @@
                             <td>{{ ag.data_agendada or '-' }}</td>
                             <td>{{ ag.horario or '-' }}</td>
                             <td class="itens-coluna">{{ ag.itens if ag.itens else 'Nenhum' }}</td>
+
                             <td>
                                 <span class="status-badge
                                     {% if status_formatado == 'AGENDADO' %}status-agendado
@@ -516,8 +534,29 @@
                                     {% elif status_formatado in ['CONCLUIDO', 'CONCLUÍDO', 'FINALIZADO'] %}status-concluido
                                     {% elif status_formatado == 'CONFIRMADO' %}status-confirmado
                                     {% else %}status-padrao{% endif %}">
-                                    {{ ag.status or 'SEM STATUS' }}
+                                    {{ ag.status or 'PENDENTE' }}
                                 </span>
+                            </td>
+
+                            <td>
+                                <span class="status-badge
+                                    {% if ag.sances_status == 'ENVIADO' %}status-agendado
+                                    {% elif ag.sances_status == 'ERRO' %}status-cancelado
+                                    {% elif ag.sances_status == 'PENDENTE' %}status-reagendado
+                                    {% elif ag.sances_status == 'NAO_CONFIGURADO' %}status-padrao
+                                    {% else %}status-padrao{% endif %}">
+                                    {{ ag.sances_status if ag.sances_status else 'PENDENTE' }}
+                                </span>
+                            </td>
+
+                            <td>
+                                {% if ag.sances_status in ['PENDENTE', 'ERRO', 'NAO_CONFIGURADO'] or not ag.sances_status %}
+                                    <button class="btn-reenvio" onclick="reenviarSances('{{ ag.protocolo }}')">
+                                        Reenviar
+                                    </button>
+                                {% else %}
+                                    <span style="color:#64748b; font-size:12px;">—</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -640,6 +679,28 @@
                     maintainAspectRatio: false
                 }
             });
+        }
+
+        async function reenviarSances(protocolo) {
+            const confirmar = confirm(`Deseja reenviar o agendamento ${protocolo} para o Sances?`);
+            if (!confirmar) return;
+
+            try {
+                const response = await fetch(`/reenvio-sances/${protocolo}`, {
+                    method: "POST"
+                });
+
+                const data = await response.json();
+
+                if (data.ok) {
+                    alert(`Reenvio concluído.\nStatus: ${data.status}`);
+                    window.location.reload();
+                } else {
+                    alert(`Falha no reenvio: ${data.mensagem}`);
+                }
+            } catch (error) {
+                alert("Erro ao tentar reenviar para o Sances.");
+            }
         }
     </script>
 
