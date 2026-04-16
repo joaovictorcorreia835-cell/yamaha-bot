@@ -633,9 +633,14 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "acessorios", 0.94
 
+# PRIORIDADE: dúvidas sobre garantia primeiro
+    if frase_parece_duvida(texto_normalizado) and "garantia" in texto_normalizado:
+        return "duvidas", 0.95
+
+# GARANTIA REAL (problema técnico)
     if any(p in texto_normalizado for p in [
-        "garantia", "defeito", "problema em garantia"
-    ]):
+        "defeito", "problema", "nao funciona", "não funciona", "quebrou"
+    ]   ) and "garantia" in texto_normalizado:
         return "garantia", 0.94
 
     if any(p in texto_normalizado for p in [
