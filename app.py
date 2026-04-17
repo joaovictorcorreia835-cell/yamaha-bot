@@ -1115,7 +1115,6 @@ def salvar_evento_atendimento(
         dia = limpar_texto(base.get("dia", ""))
         data_agendada = limpar_texto(base.get("data", ""))
         horario = limpar_texto(base.get("horario", ""))
-        tipo_atendimento = limpar_texto(base.get("tipo_atendimento", ""))
         venda_adicional = formatar_itens_adicionais_para_salvar(
             base.get("venda_adicional", "")
         )
@@ -1127,6 +1126,8 @@ def salvar_evento_atendimento(
             venda_adicional = ""
         if itens.strip().upper() == "NENHUM":
             itens = ""
+
+        agora_db = agora_datetime()
 
         atendimento = Atendimento(
             telefone=telefone,
@@ -1146,8 +1147,9 @@ def salvar_evento_atendimento(
             etapa=limpar_texto(etapa),
             atendimento_humano=bool(atendimento_humano),
             concluido=bool(concluido),
-            ultima_interacao=agora_datetime(),
-            data=agora_datetime(),
+            ultima_interacao=agora_db,
+            ultima_mensagem_cliente=agora_db,
+            data=agora_db,
         )
 
         db.add(atendimento)

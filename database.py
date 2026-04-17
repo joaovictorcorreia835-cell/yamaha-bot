@@ -66,6 +66,8 @@ class Atendimento(Base):
     followup_3 = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
+    ultima_mensagem_cliente = Column(DateTime, nullable=True)
+
     data = Column(DateTime, default=datetime.now)
 
 # ==========================================
