@@ -3433,20 +3433,36 @@ def webhook():
                     )
                     return jsonify({"status": "ok"}), 200
 
-                retorno_sances = enviar_agendamento_para_sances(dados)
-
-                clientes[telefone]["sances_status"] = retorno_sances.get("status", SANCES_STATUS_ERRO)
-                clientes[telefone]["sances_protocolo"] = retorno_sances.get("protocolo_sances", "")
-                clientes[telefone]["sances_erro"] = retorno_sances.get("erro", "")
-                clientes[telefone]["sances_data_envio"] = formatar_data_hora()
-                clientes[telefone]["sances_enviado"] = bool(retorno_sances.get("sucesso", False))
-
-                atualizar_status_sances_agendamento(protocolo, retorno_sances)
-
                 definir_status_cliente(telefone, STATUS_AGENDADO)
                 salvar_atendimento_dashboard(telefone, dados)
 
-                mensagem_sances = montar_mensagem_status_sances(retorno_sances)
+                mensagem_sances = ""
+
+                try:
+                    retorno_sances = enviar_agendamento_para_sances(dados)
+
+                    clientes[telefone]["sances_status"] = retorno_sances.get("status", SANCES_STATUS_ERRO)
+                    clientes[telefone]["sances_protocolo"] = retorno_sances.get("protocolo_sances", "")
+                    clientes[telefone]["sances_erro"] = retorno_sances.get("erro", "")
+                    clientes[telefone]["sances_data_envio"] = formatar_data_hora()
+                    clientes[telefone]["sances_enviado"] = bool(retorno_sances.get("sucesso", False))
+
+                    atualizar_status_sances_agendamento(protocolo, retorno_sances)
+
+                    try:
+                        mensagem_sances = montar_mensagem_status_sances(retorno_sances)
+                    except Exception as e:
+                        log_erro("Erro ao montar mensagem do Sances:", repr(e))
+                        mensagem_sances = ""
+
+                except Exception as e:
+                    log_erro("Erro na integração com Sances:", repr(e))
+                    clientes[telefone]["sances_status"] = SANCES_STATUS_ERRO
+                    clientes[telefone]["sances_protocolo"] = ""
+                    clientes[telefone]["sances_erro"] = repr(e)
+                    clientes[telefone]["sances_data_envio"] = formatar_data_hora()
+                    clientes[telefone]["sances_enviado"] = False
+                    mensagem_sances = ""
 
                 enviar_mensagem(
                     telefone,
