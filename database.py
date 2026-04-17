@@ -64,6 +64,8 @@ class Atendimento(Base):
     followup_1 = Column(Boolean, default=False)
     followup_2 = Column(Boolean, default=False)
     followup_3 = Column(Boolean, default=False)
+    followup_respondido = Column(Boolean, default=False)
+    followup_recuperado = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
     ultima_mensagem_cliente = Column(DateTime, nullable=True)

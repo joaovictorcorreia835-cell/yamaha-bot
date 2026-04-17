@@ -3053,7 +3053,249 @@ def reenvio_sances(protocolo):
             "mensagem": "Erro interno ao reenviar para o Sances.",
         }), 500
 
+# ==========================================
+# FOLLOW-UP INTELIGENTE (V2)
+# ==========================================
 
+def identificar_contexto_followup(at):
+    setor = limpar_texto(getattr(at, "setor", "")).lower()
+    etapa = limpar_texto(getattr(at, "etapa", "")).lower()
+    status = normalizar_status(getattr(at, "status", ""))
+
+    if status == normalizar_status(STATUS_AGENDADO):
+        return "agendado"
+
+    if "revisao_confirmacao" in etapa:
+        return "fechamento_revisao"
+
+    if "revisao_horario" in etapa or "revisao_data" in etapa or "revisao_dia" in etapa:
+        return "agenda_revisao"
+
+    if etapa.startswith("revisao") or setor in ["revisão", "revisao"]:
+        return "revisao"
+
+    if setor in ["peças", "pecas"] or etapa == "pecas":
+        return "pecas"
+
+    if setor in ["acessórios", "acessorios"] or etapa == "acessorios":
+        return "acessorios"
+
+    if setor == "garantia" or etapa == "garantia":
+        return "garantia"
+
+    if "atacado" in setor or "logista" in setor or etapa == "atacado":
+        return "atacado"
+
+    if "duvida" in etapa:
+        return "duvidas"
+
+    return "geral"
+
+
+def obter_tempos_followup_por_contexto(contexto):
+    if contexto == "fechamento_revisao":
+        return 2 * 3600, 20 * 3600, 72 * 3600
+
+    if contexto == "agenda_revisao":
+        return 4 * 3600, 24 * 3600, 4 * 24 * 3600
+
+    return 6 * 3600, 24 * 3600, 5 * 24 * 3600
+
+
+def montar_mensagem_followup_inteligente(at, nivel):
+    contexto = identificar_contexto_followup(at)
+    nome = limpar_texto(getattr(at, "nome", "")).title()
+
+    saudacao = f"Oi, {nome}! " if nome else "Oi! "
+
+    mensagens = {
+        "fechamento_revisao": {
+            1: saudacao + "vi que seu agendamento de revisão ficou quase finalizado.\n\nFalta só concluir para garantir seu horário 🛠️🏍️",
+            2: saudacao + "ainda dá tempo de garantir seu horário de revisão.\n\nSe quiser, finalizo com você agora 👍",
+            3: saudacao + "última mensagem sobre seu agendamento.\n\nSe quiser reservar um horário, me chama aqui 🏍️",
+        },
+        "agenda_revisao": {
+            1: saudacao + "vi que você começou seu agendamento de revisão.\n\nPosso te ajudar a concluir? 🚀",
+            2: saudacao + "só lembrando da sua revisão.\n\nPosso continuar agora 👍",
+            3: saudacao + "ainda quer agendar sua revisão?\n\nMe chama aqui 🏍️",
+        },
+        "revisao": {
+            1: saudacao + "vi que você iniciou um atendimento de revisão.\n\nQuer continuar?",
+            2: saudacao + "posso continuar seu atendimento de revisão agora 👍",
+            3: saudacao + "ainda quer seguir com sua revisão?\n\nEstou por aqui 🏍️",
+        },
+        "pecas": {
+            1: saudacao + "vi que você solicitou peças.\n\nQuer continuar?",
+            2: saudacao + "posso te ajudar com as peças agora 👍",
+            3: saudacao + "ainda precisa das peças?\n\nMe chama aqui 🔧",
+        },
+        "acessorios": {
+            1: saudacao + "vi que você buscou acessórios.\n\nQuer continuar?",
+            2: saudacao + "posso te ajudar com acessórios agora 👍",
+            3: saudacao + "ainda quer ver acessórios?\n\nEstou aqui 🏍️",
+        },
+        "garantia": {
+            1: saudacao + "vi sua solicitação de garantia.\n\nQuer continuar?",
+            2: saudacao + "posso te ajudar com a garantia agora 👍",
+            3: saudacao + "ainda precisa de ajuda com garantia?\n\nEstou aqui.",
+        },
+        "atacado": {
+            1: saudacao + "vi sua solicitação comercial.\n\nQuer continuar?",
+            2: saudacao + "posso seguir com seu atendimento agora 👍",
+            3: saudacao + "ainda quer continuar?\n\nMe chama aqui.",
+        },
+        "geral": {
+            1: saudacao + "vi que você começou um atendimento.\n\nPosso te ajudar a concluir?",
+            2: saudacao + "posso continuar seu atendimento agora 👍",
+            3: saudacao + "ainda quer continuar?\n\nMe chama aqui.",
+        },
+    }
+
+    return mensagens.get(contexto, mensagens["geral"]).get(nivel, mensagens["geral"][1])
+
+
+def resetar_followups_do_cliente(telefone):
+    telefone = limpar_telefone(telefone)
+    if not telefone:
+        return
+
+    db = SessionLocal()
+    try:
+        atendimento = (
+            db.query(Atendimento)
+            .filter(
+                Atendimento.telefone == telefone,
+                Atendimento.concluido == False,
+            )
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
+
+        if atendimento:
+            atendimento.followup_1 = False
+            atendimento.followup_2 = False
+            atendimento.followup_3 = False
+            atendimento.ultima_interacao = agora_datetime()
+
+            if hasattr(atendimento, "ultima_mensagem_cliente"):
+                atendimento.ultima_mensagem_cliente = agora_datetime()
+
+            if hasattr(atendimento, "followup_respondido"):
+                atendimento.followup_respondido = True
+
+            if hasattr(atendimento, "followup_recuperado"):
+                atendimento.followup_recuperado = True
+
+            db.commit()
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro reset followup:", repr(e))
+
+    finally:
+        db.close()
+
+
+def processar_followup_inteligente():
+    db = SessionLocal()
+
+    try:
+        agora_time = datetime.now()
+
+        if agora_time.hour < 6 or agora_time.hour >= 22:
+            return
+
+        atendimentos = (
+            db.query(Atendimento)
+            .filter(Atendimento.concluido == False)
+            .order_by(Atendimento.id.desc())
+            .all()
+        )
+
+        telefones_processados = set()
+        houve_alteracao = False
+
+        for at in atendimentos:
+            try:
+                telefone = limpar_telefone(getattr(at, "telefone", ""))
+                if not telefone:
+                    continue
+
+                if telefone in telefones_processados:
+                    continue
+
+                telefones_processados.add(telefone)
+
+                if bool(getattr(at, "atendimento_humano", False)):
+                    continue
+
+                if bool(getattr(at, "concluido", False)):
+                    continue
+
+                status = normalizar_status(getattr(at, "status", ""))
+
+                if status == normalizar_status(STATUS_AGENDADO):
+                    continue
+
+                if status in [
+                    normalizar_status("CANCELADO"),
+                    normalizar_status("CANCELADA"),
+                    normalizar_status(STATUS_CANCELADO) if "STATUS_CANCELADO" in globals() else "cancelado",
+                ]:
+                    continue
+
+                ultima = getattr(at, "ultima_mensagem_cliente", None) or getattr(at, "ultima_interacao", None)
+                if not ultima:
+                    continue
+
+                contexto = identificar_contexto_followup(at)
+                t1, t2, t3 = obter_tempos_followup_por_contexto(contexto)
+
+                tempo_parado = (agora_time - ultima).total_seconds()
+
+                followup_1 = bool(getattr(at, "followup_1", False))
+                followup_2 = bool(getattr(at, "followup_2", False))
+                followup_3 = bool(getattr(at, "followup_3", False))
+
+                if tempo_parado >= t1 and not followup_1:
+                    enviado = enviar_mensagem(
+                        telefone,
+                        montar_mensagem_followup_inteligente(at, 1)
+                    )
+                    if enviado:
+                        at.followup_1 = True
+                        houve_alteracao = True
+
+                elif tempo_parado >= t2 and followup_1 and not followup_2:
+                    enviado = enviar_mensagem(
+                        telefone,
+                        montar_mensagem_followup_inteligente(at, 2)
+                    )
+                    if enviado:
+                        at.followup_2 = True
+                        houve_alteracao = True
+
+                elif tempo_parado >= t3 and followup_1 and followup_2 and not followup_3:
+                    enviado = enviar_mensagem(
+                        telefone,
+                        montar_mensagem_followup_inteligente(at, 3)
+                    )
+                    if enviado:
+                        at.followup_3 = True
+                        houve_alteracao = True
+
+            except Exception as e:
+                log_erro("Erro follow-up:", repr(e))
+
+        if houve_alteracao:
+            db.commit()
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro geral follow-up:", repr(e))
+
+    finally:
+        db.close()
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -3106,6 +3348,7 @@ def webhook():
 
         atualizar_interacao(telefone)
         atualizar_ultima_mensagem_cliente(telefone)
+        resetar_followups_do_cliente(telefone)
         atualizar_retorno_na_planilha(telefone, texto)
 
         etapa = clientes[telefone].get("etapa", "menu")
