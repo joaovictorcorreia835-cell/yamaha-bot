@@ -636,8 +636,30 @@ def resetar_cliente(telefone):
 
 
 def atualizar_interacao(telefone):
-    if telefone in clientes:
-        clientes[telefone]["ultima_interacao"] = agora()
+    telefone = limpar_telefone(telefone)
+    if not telefone:
+        return
+
+    iniciar_cliente(telefone)
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    db = SessionLocal()
+    try:
+        atendimento = db.query(Atendimento).filter(
+            Atendimento.telefone == telefone,
+            Atendimento.concluido == False
+        ).order_by(Atendimento.id.desc()).first()
+
+        if atendimento:
+            atendimento.ultima_interacao = agora_datetime()
+            db.commit()
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro ao atualizar interação no banco:", repr(e))
+
+    finally:
+        db.close()
 
 
 def limpar_dados_fluxo_revisao(telefone):
@@ -2089,8 +2111,8 @@ def processar_lembretes_agendamento():
     db = SessionLocal()
 
     try:
-        agora = datetime.now()
-        hoje = agora.date()
+        agora_time = datetime.now()
+        hoje = agora_time.date()
 
         agendamentos = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
@@ -2102,7 +2124,6 @@ def processar_lembretes_agendamento():
         for ag in agendamentos:
             try:
                 data_texto = limpar_texto(getattr(ag, "data_agendada", ""))
-
                 if not data_texto:
                     continue
 
@@ -2115,7 +2136,8 @@ def processar_lembretes_agendamento():
                 diferenca = (data_agendada - hoje).days
                 data_criacao = getattr(ag, "data", None)
 
-                if diferenca == 1 and data_criacao and (agora - data_criacao).total_seconds() > 3600:
+                # envia 1 dia antes, mas nunca logo após criar o agendamento
+                if diferenca == 1 and data_criacao and (agora_time - data_criacao).total_seconds() > 3600:
                     mensagem = (
                         "🔔 *Lembrete de Revisão*\n\n"
                         f"Olá *{str(getattr(ag, 'nome', '') or '')}*\n\n"
@@ -2151,12 +2173,20 @@ def processar_followup_inteligente():
     try:
         agora_time = datetime.now()
 
+        # janela permitida: 06:00 até 21:59
+        if agora_time.hour < 6 or agora_time.hour >= 22:
+            return
+
         atendimentos = db.query(Atendimento).filter(
             Atendimento.concluido == False
         ).order_by(Atendimento.id.desc()).all()
 
         telefones_processados = set()
         houve_alteracao = False
+
+        TEMPO_FOLLOWUP_1 = 6 * 3600
+        TEMPO_FOLLOWUP_2 = 24 * 3600
+        TEMPO_FOLLOWUP_3 = 5 * 24 * 3600
 
         for at in atendimentos:
             try:
@@ -2172,7 +2202,13 @@ def processar_followup_inteligente():
                 if telefone in telefones_processados:
                     continue
 
+                # não envia se estiver em atendimento humano
                 if bool(getattr(at, "atendimento_humano", False)):
+                    telefones_processados.add(telefone)
+                    continue
+
+                # não envia se já concluído
+                if bool(getattr(at, "concluido", False)):
                     telefones_processados.add(telefone)
                     continue
 
@@ -2183,59 +2219,56 @@ def processar_followup_inteligente():
 
                 tempo_parado = (agora_time - ultima).total_seconds()
 
-                if tempo_parado < 1800:
-                    telefones_processados.add(telefone)
-                    continue
-
                 followup_1 = bool(getattr(at, "followup_1", False))
                 followup_2 = bool(getattr(at, "followup_2", False))
                 followup_3 = bool(getattr(at, "followup_3", False))
 
+                total_followups = int(followup_1) + int(followup_2) + int(followup_3)
+
+                # máximo 3 mensagens por cliente
+                if total_followups >= 3:
+                    telefones_processados.add(telefone)
+                    continue
+
                 enviado = False
 
-                # 1º FOLLOW-UP - 30 minutos
-                if 1800 <= tempo_parado < 7200 and not followup_1:
+                # FOLLOW-UP 1 - após 6 horas sem resposta
+                if tempo_parado >= TEMPO_FOLLOWUP_1 and not followup_1:
                     enviado = enviar_mensagem(
                         telefone,
                         "👋 Oi! Vi que você começou um atendimento e não finalizou.\n\n"
                         "Posso te ajudar a concluir rapidinho? 🚀"
                     )
-                    if enviado and hasattr(at, "followup_1"):
+                    if enviado:
                         at.followup_1 = True
                         houve_alteracao = True
 
-                # 2º FOLLOW-UP - 2 horas
-                elif 7200 <= tempo_parado < 86400 and not followup_2:
+                # FOLLOW-UP 2 - após 24 horas sem resposta
+                elif tempo_parado >= TEMPO_FOLLOWUP_2 and followup_1 and not followup_2:
                     enviado = enviar_mensagem(
                         telefone,
                         "⏰ Só passando pra te lembrar da sua solicitação.\n\n"
                         "Se quiser, posso finalizar seu agendamento agora 👍"
                     )
-                    if enviado and hasattr(at, "followup_2"):
+                    if enviado:
                         at.followup_2 = True
                         houve_alteracao = True
 
-                # 3º FOLLOW-UP - 24 horas
-                elif tempo_parado >= 86400 and not followup_3:
+                # FOLLOW-UP 3 - após 5 dias sem resposta
+                elif tempo_parado >= TEMPO_FOLLOWUP_3 and followup_1 and followup_2 and not followup_3:
                     enviado = enviar_mensagem(
                         telefone,
                         "🚨 Última chamada!\n\n"
                         "Ainda quer agendar sua revisão?\n"
                         "Temos horários disponíveis essa semana 🏍️"
                     )
-                    if enviado and hasattr(at, "followup_3"):
+                    if enviado:
                         at.followup_3 = True
                         houve_alteracao = True
-
-                # importante:
-                # não atualizar ultima_interacao aqui
-                # ultima_interacao deve refletir a última interação real do cliente,
-                # e não o disparo automático do bot
 
                 telefones_processados.add(telefone)
 
             except Exception as e:
-                db.rollback()
                 log_erro("Erro follow-up individual:", repr(e))
 
         if houve_alteracao:
@@ -2247,7 +2280,6 @@ def processar_followup_inteligente():
 
     finally:
         db.close()
-
 # ==========================================
 # APOIO DÚVIDAS / REVISÃO / SANCES
 # ==========================================
@@ -2823,6 +2855,9 @@ def webhook():
         clientes[telefone]["etapa"] = "atendimento_humano"
         definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
 
+        if texto_normalizado not in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
+            return jsonify({"status": "ok", "modo": "atendimento_humano"}), 200
+
     if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
         encerrar_atendimento_humano(telefone)
         resetar_cliente(telefone)
@@ -2854,8 +2889,14 @@ def webhook():
     intencao_ia = resposta_ia.get("intencao", "")
     dados_extraidos_ia = resposta_ia.get("dados_extraidos", {}) or {}
 
-    etapa = clientes[telefone]["etapa"]
-
+    # daqui para baixo segue o restante normal do seu fluxo
+    # usando:
+    # etapa
+    # intencao_ia
+    # dados_extraidos_ia
+    # texto
+    # texto_opcao
+    # texto_normalizado
     # ==========================================
     # INTENÇÕES GERAIS
     # ==========================================
