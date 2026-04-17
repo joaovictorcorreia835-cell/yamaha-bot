@@ -662,6 +662,32 @@ def atualizar_interacao(telefone):
         db.close()
 
 
+def atualizar_ultima_mensagem_cliente(telefone):
+    telefone = limpar_telefone(telefone)
+    if not telefone:
+        return
+
+    iniciar_cliente(telefone)
+
+    db = SessionLocal()
+    try:
+        atendimento = db.query(Atendimento).filter(
+            Atendimento.telefone == telefone,
+            Atendimento.concluido == False
+        ).order_by(Atendimento.id.desc()).first()
+
+        if atendimento:
+            atendimento.ultima_mensagem_cliente = agora_datetime()
+            db.commit()
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro ao atualizar ultima mensagem cliente:", repr(e))
+
+    finally:
+        db.close()
+
+
 def limpar_dados_fluxo_revisao(telefone):
     iniciar_cliente(telefone)
 
@@ -2212,7 +2238,13 @@ def processar_followup_inteligente():
                     telefones_processados.add(telefone)
                     continue
 
-                ultima = getattr(at, "ultima_interacao", None)
+                # não envia se já estiver agendado
+                status_atual = normalizar_status(getattr(at, "status", ""))
+                if status_atual == normalizar_status(STATUS_AGENDADO):
+                    telefones_processados.add(telefone)
+                    continue
+
+                ultima = getattr(at, "ultima_mensagem_cliente", None) or getattr(at, "ultima_interacao", None)
                 if not ultima:
                     telefones_processados.add(telefone)
                     continue
@@ -2455,6 +2487,7 @@ def etapa_revisao_permite_ir_para_duvidas(etapa):
         "revisao_tipo",
     }
     return etapa in etapas_permitidas
+
 
 
 def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
@@ -2847,6 +2880,7 @@ def webhook():
         return jsonify({"status": "ok"}), 200
 
     atualizar_interacao(telefone)
+    atualizar_ultima_mensagem_cliente(telefone)
     atualizar_retorno_na_planilha(telefone, texto)
 
     # Persistência de atendimento humano via banco
