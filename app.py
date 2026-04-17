@@ -73,13 +73,18 @@ SANCES_STATUS_PENDENTE = "PENDENTE"
 SANCES_STATUS_ENVIADO = "ENVIADO"
 SANCES_STATUS_ERRO = "ERRO"
 SANCES_STATUS_NAO_CONFIGURADO = "NAO_CONFIGURADO"
+
 # ==========================================
 # URLs Z-API
 # ==========================================
 # Proteção caso alguma env não esteja definida
 if ZAPI_INSTANCE_ID and ZAPI_TOKEN:
-    url_envio = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
-    url_documento = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
+    url_envio = (
+        f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+    )
+    url_documento = (
+        f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
+    )
 else:
     url_envio = ""
     url_documento = ""
@@ -148,8 +153,7 @@ def limpar_telefone(telefone):
     try:
         telefone = str(telefone or "").strip()
         telefone = (
-            telefone
-            .replace("@c.us", "")
+            telefone.replace("@c.us", "")
             .replace("@s.whatsapp.net", "")
             .replace("@g.us", "")
         )
@@ -211,7 +215,12 @@ def formatar_valor_brl(valor):
                 valor_texto = valor_texto.replace(".", "").replace(",", ".")
             valor_float = float(valor_texto)
 
-        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return (
+            f"R$ {valor_float:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
     except Exception:
         return f"R$ {valor}"
 
@@ -260,11 +269,31 @@ def normalizar_revisao_para_fluxo(valor):
     texto_norm = normalizar_texto(texto).replace(" ", "")
 
     mapa = {
-        "1": "1", "1a": "1", "1ª": "1", "1o": "1", "primeira": "1",
-        "2": "2", "2a": "2", "2ª": "2", "2o": "2", "segunda": "2",
-        "3": "3", "3a": "3", "3ª": "3", "3o": "3", "terceira": "3",
-        "4": "4", "4a": "4", "4ª": "4", "4o": "4", "quarta": "4",
-        "5": "5", "5a": "5", "5ª": "5", "5o": "5", "quinta": "5",
+        "1": "1",
+        "1a": "1",
+        "1ª": "1",
+        "1o": "1",
+        "primeira": "1",
+        "2": "2",
+        "2a": "2",
+        "2ª": "2",
+        "2o": "2",
+        "segunda": "2",
+        "3": "3",
+        "3a": "3",
+        "3ª": "3",
+        "3o": "3",
+        "terceira": "3",
+        "4": "4",
+        "4a": "4",
+        "4ª": "4",
+        "4o": "4",
+        "quarta": "4",
+        "5": "5",
+        "5a": "5",
+        "5ª": "5",
+        "5o": "5",
+        "quinta": "5",
     }
 
     if texto_norm in mapa:
@@ -370,7 +399,16 @@ def item_adicional_valido(item):
     if not item_limpo:
         return False
 
-    if item_limpo in ["NENHUM", "NAO", "NÃO", "SEM ITEM", "SEM ITENS", "-", "OK", "SEM"]:
+    if item_limpo in [
+        "NENHUM",
+        "NAO",
+        "NÃO",
+        "SEM ITEM",
+        "SEM ITENS",
+        "-",
+        "OK",
+        "SEM",
+    ]:
         return False
 
     return True
@@ -463,7 +501,7 @@ def log_integracao_sances(telefone, acao, payload=None, retorno=None):
             f"telefone={telefone}",
             f"acao={acao}",
             f"payload={payload}",
-            f"retorno={retorno}"
+            f"retorno={retorno}",
         )
     except Exception as e:
         log_erro("Erro no log da integração Sances:", repr(e))
@@ -482,9 +520,11 @@ def montar_payload_sances(dados):
         "horario": limpar_texto(dados.get("horario", "")),
         "observacao": limpar_texto(dados.get("observacao", "")),
         "itens": formatar_itens_adicionais_para_salvar(dados.get("itens", "")),
-        "venda_adicional": formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", "")),
+        "venda_adicional": formatar_itens_adicionais_para_salvar(
+            dados.get("venda_adicional", "")
+        ),
         "tipo_atendimento": limpar_texto(dados.get("tipo_atendimento", "")),
-        "origem": "BOT_WHATSAPP"
+        "origem": "BOT_WHATSAPP",
     }
 
 
@@ -494,7 +534,7 @@ def retorno_padrao_sances():
         "status": SANCES_STATUS_PENDENTE,
         "protocolo_sances": "",
         "mensagem": "",
-        "erro": ""
+        "erro": "",
     }
 
 
@@ -503,51 +543,57 @@ def simular_envio_sances(payload):
 
     if resultado == "enviado":
         retorno = retorno_padrao_sances()
-        retorno.update({
-            "sucesso": True,
-            "status": SANCES_STATUS_ENVIADO,
-            "protocolo_sances": f"SCS-{uuid.uuid4().hex[:8].upper()}",
-            "mensagem": "Agendamento enviado com sucesso ao Sances (modo mock).",
-            "erro": ""
-        })
+        retorno.update(
+            {
+                "sucesso": True,
+                "status": SANCES_STATUS_ENVIADO,
+                "protocolo_sances": f"SCS-{uuid.uuid4().hex[:8].upper()}",
+                "mensagem": "Agendamento enviado com sucesso ao Sances (modo mock).",
+                "erro": "",
+            }
+        )
         log_integracao_sances(
             telefone=payload.get("telefone", ""),
             acao="mock_envio_agendamento_sucesso",
             payload=payload,
-            retorno=retorno
+            retorno=retorno,
         )
         return retorno
 
     if resultado == "erro":
         retorno = retorno_padrao_sances()
-        retorno.update({
-            "sucesso": False,
-            "status": SANCES_STATUS_ERRO,
-            "protocolo_sances": "",
-            "mensagem": "Falha simulada no envio ao Sances.",
-            "erro": "Erro simulado de integração Sances"
-        })
+        retorno.update(
+            {
+                "sucesso": False,
+                "status": SANCES_STATUS_ERRO,
+                "protocolo_sances": "",
+                "mensagem": "Falha simulada no envio ao Sances.",
+                "erro": "Erro simulado de integração Sances",
+            }
+        )
         log_integracao_sances(
             telefone=payload.get("telefone", ""),
             acao="mock_envio_agendamento_erro",
             payload=payload,
-            retorno=retorno
+            retorno=retorno,
         )
         return retorno
 
     retorno = retorno_padrao_sances()
-    retorno.update({
-        "sucesso": False,
-        "status": SANCES_STATUS_NAO_CONFIGURADO,
-        "protocolo_sances": "",
-        "mensagem": "Integração com Sances ainda não configurada.",
-        "erro": "Sances não configurado"
-    })
+    retorno.update(
+        {
+            "sucesso": False,
+            "status": SANCES_STATUS_NAO_CONFIGURADO,
+            "protocolo_sances": "",
+            "mensagem": "Integração com Sances ainda não configurada.",
+            "erro": "Sances não configurado",
+        }
+    )
     log_integracao_sances(
         telefone=payload.get("telefone", ""),
         acao="mock_envio_agendamento_nao_configurado",
         payload=payload,
-        retorno=retorno
+        retorno=retorno,
     )
     return retorno
 
@@ -563,29 +609,33 @@ def enviar_agendamento_para_sances(dados_agendamento):
             telefone=payload.get("telefone", ""),
             acao="envio_real_nao_implementado",
             payload=payload,
-            retorno="Modo real selecionado, mas integração ainda não implementada."
+            retorno="Modo real selecionado, mas integração ainda não implementada.",
         )
 
         retorno = retorno_padrao_sances()
-        retorno.update({
-            "sucesso": False,
-            "status": SANCES_STATUS_NAO_CONFIGURADO,
-            "protocolo_sances": "",
-            "mensagem": "Modo real do Sances ainda não implementado.",
-            "erro": "Integração real ainda não implementada"
-        })
+        retorno.update(
+            {
+                "sucesso": False,
+                "status": SANCES_STATUS_NAO_CONFIGURADO,
+                "protocolo_sances": "",
+                "mensagem": "Modo real do Sances ainda não implementado.",
+                "erro": "Integração real ainda não implementada",
+            }
+        )
         return retorno
 
     except Exception as e:
         log_erro("Erro ao preparar envio para Sances:", repr(e))
         retorno = retorno_padrao_sances()
-        retorno.update({
-            "sucesso": False,
-            "status": SANCES_STATUS_ERRO,
-            "protocolo_sances": "",
-            "mensagem": "Erro ao preparar integração com Sances.",
-            "erro": repr(e)
-        })
+        retorno.update(
+            {
+                "sucesso": False,
+                "status": SANCES_STATUS_ERRO,
+                "protocolo_sances": "",
+                "mensagem": "Erro ao preparar integração com Sances.",
+                "erro": repr(e),
+            }
+        )
         return retorno
 
 
@@ -622,7 +672,7 @@ def estado_padrao_cliente():
         "sances_status": SANCES_STATUS_PENDENTE,
         "sances_protocolo": "",
         "sances_erro": "",
-        "sances_data_envio": ""
+        "sances_data_envio": "",
     }
 
 
@@ -645,10 +695,15 @@ def atualizar_interacao(telefone):
 
     db = SessionLocal()
     try:
-        atendimento = db.query(Atendimento).filter(
-            Atendimento.telefone == telefone,
-            Atendimento.concluido == False
-        ).order_by(Atendimento.id.desc()).first()
+        atendimento = (
+            db.query(Atendimento)
+            .filter(
+                Atendimento.telefone == telefone,
+                Atendimento.concluido == False,
+            )
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
 
         if atendimento:
             atendimento.ultima_interacao = agora_datetime()
@@ -671,10 +726,15 @@ def atualizar_ultima_mensagem_cliente(telefone):
 
     db = SessionLocal()
     try:
-        atendimento = db.query(Atendimento).filter(
-            Atendimento.telefone == telefone,
-            Atendimento.concluido == False
-        ).order_by(Atendimento.id.desc()).first()
+        atendimento = (
+            db.query(Atendimento)
+            .filter(
+                Atendimento.telefone == telefone,
+                Atendimento.concluido == False,
+            )
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
 
         if atendimento:
             atendimento.ultima_mensagem_cliente = agora_datetime()
@@ -736,7 +796,7 @@ def ativar_atendimento_humano(telefone):
         status=STATUS_ATENDIMENTO_HUMANO,
         etapa="atendimento_humano",
         atendimento_humano=True,
-        concluido=False
+        concluido=False,
     )
 
     enviar_mensagem(
@@ -744,7 +804,7 @@ def ativar_atendimento_humano(telefone):
         "👨‍💼 *Atendimento humano acionado*\n\n"
         "Perfeito, vou direcionar seu atendimento para nossa equipe.\n"
         "Daqui em diante, um atendente segue com você por aqui.\n\n"
-        "Quando quiser voltar ao menu automático, é só enviar *menu*."
+        "Quando quiser voltar ao menu automático, é só enviar *menu*.",
     )
 
 
@@ -757,7 +817,10 @@ def processar_inatividade():
             ultima = dados.get("ultima_interacao", agora_atual)
 
             # não encerrar automaticamente atendimento humano
-            if dados.get("atendimento_humano") is True or dados.get("etapa") == "atendimento_humano":
+            if (
+                dados.get("atendimento_humano") is True
+                or dados.get("etapa") == "atendimento_humano"
+            ):
                 continue
 
             if agora_atual - ultima > TEMPO_INATIVIDADE:
@@ -817,14 +880,20 @@ def extrair_texto(payload):
         data = payload.get("data", {}) or {}
 
         candidatos = [
-            data.get("text", {}).get("message") if isinstance(data.get("text"), dict) else None,
+            data.get("text", {}).get("message")
+            if isinstance(data.get("text"), dict)
+            else None,
             data.get("text") if isinstance(data.get("text"), str) else None,
             data.get("body"),
             data.get("message"),
             data.get("caption"),
-            data.get("extendedTextMessage", {}).get("text") if isinstance(data.get("extendedTextMessage"), dict) else None,
+            data.get("extendedTextMessage", {}).get("text")
+            if isinstance(data.get("extendedTextMessage"), dict)
+            else None,
             data.get("conversation"),
-            payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
+            payload.get("text", {}).get("message")
+            if isinstance(payload.get("text"), dict)
+            else None,
             payload.get("text") if isinstance(payload.get("text"), str) else None,
             payload.get("body"),
             payload.get("message"),
@@ -911,19 +980,19 @@ def enviar_mensagem(telefone, mensagem):
 
         headers = {
             "Client-Token": ZAPI_CLIENT_TOKEN,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         payload = {
             "phone": telefone,
-            "message": mensagem
+            "message": mensagem,
         }
 
         response = requests.post(
             url_envio,
             json=payload,
             headers=headers,
-            timeout=30
+            timeout=30,
         )
 
         if response.status_code not in [200, 201]:
@@ -951,7 +1020,7 @@ def enviar_pdf(telefone, arquivo, legenda=""):
 
         headers = {
             "Client-Token": ZAPI_CLIENT_TOKEN,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         url_pdf = f"{BASE_URL}/pdf/{arquivo}"
@@ -960,14 +1029,14 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             "phone": telefone,
             "document": url_pdf,
             "fileName": arquivo,
-            "caption": legenda
+            "caption": legenda,
         }
 
         response = requests.post(
             url_documento,
             json=payload,
             headers=headers,
-            timeout=30
+            timeout=30,
         )
 
         if response.status_code not in [200, 201]:
@@ -993,7 +1062,7 @@ def salvar_evento_atendimento(
     dados=None,
     atendimento_humano=False,
     concluido=False,
-    origem="BOT"
+    origem="BOT",
 ):
     db = SessionLocal()
 
@@ -1015,8 +1084,12 @@ def salvar_evento_atendimento(
         data_agendada = limpar_texto(base.get("data", ""))
         horario = limpar_texto(base.get("horario", ""))
         tipo_atendimento = limpar_texto(base.get("tipo_atendimento", ""))
-        venda_adicional = formatar_itens_adicionais_para_salvar(base.get("venda_adicional", ""))
-        itens = formatar_itens_adicionais_para_salvar(base.get("itens", venda_adicional))
+        venda_adicional = formatar_itens_adicionais_para_salvar(
+            base.get("venda_adicional", "")
+        )
+        itens = formatar_itens_adicionais_para_salvar(
+            base.get("itens", venda_adicional)
+        )
 
         if venda_adicional.strip().upper() == "NENHUM":
             venda_adicional = ""
@@ -1042,7 +1115,7 @@ def salvar_evento_atendimento(
             atendimento_humano=bool(atendimento_humano),
             concluido=bool(concluido),
             ultima_interacao=agora_datetime(),
-            data=agora_datetime()
+            data=agora_datetime(),
         )
 
         db.add(atendimento)
@@ -1098,7 +1171,7 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
         etapa="pecas_iniciado",
         dados=clientes[telefone],
         atendimento_humano=False,
-        concluido=False
+        concluido=False,
     )
 
     if limpar_texto(texto_inicial):
@@ -1110,13 +1183,13 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
             "Se quiser complementar, pode me enviar:\n"
             "• modelo da moto\n"
             "• ano\n"
-            "• peça desejada"
+            "• peça desejada",
         )
     else:
         enviar_mensagem(
             telefone,
             "🔩 *Peças*\n\n"
-            "Me informe a *peça desejada* para eu registrar sua solicitação."
+            "Me informe a *peça desejada* para eu registrar sua solicitação.",
         )
 
 
@@ -1134,7 +1207,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         etapa="acessorios_iniciado",
         dados=clientes[telefone],
         atendimento_humano=False,
-        concluido=False
+        concluido=False,
     )
 
     if limpar_texto(texto_inicial):
@@ -1142,13 +1215,13 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
             telefone,
             "🛵 *Acessórios*\n\n"
             "Perfeito, recebi sua solicitação 👍\n"
-            "Se quiser, pode me enviar mais detalhes do acessório que procura."
+            "Se quiser, pode me enviar mais detalhes do acessório que procura.",
         )
     else:
         enviar_mensagem(
             telefone,
             "🛵 *Acessórios*\n\n"
-            "Me informe qual *acessório desejado* você procura."
+            "Me informe qual *acessório desejado* você procura.",
         )
 
 
@@ -1191,11 +1264,20 @@ def montar_mensagem_venda_adicional():
 def montar_resumo_confirmacao(telefone):
     dados = clientes.get(telefone, {})
 
-    itens = formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", ""))
+    itens = formatar_itens_adicionais_para_salvar(
+        dados.get("venda_adicional", "")
+    )
     observacao = dados.get("observacao") or "Nenhuma"
     tipo_atendimento = dados.get("tipo_atendimento") or "Não informado"
 
-    if limpar_texto(itens).upper() in ["", "NENHUM", "NAO", "NÃO", "SEM ITEM", "SEM ITENS"]:
+    if limpar_texto(itens).upper() in [
+        "",
+        "NENHUM",
+        "NAO",
+        "NÃO",
+        "SEM ITEM",
+        "SEM ITENS",
+    ]:
         itens = "Nenhum"
 
     if not limpar_texto(observacao):
@@ -1322,7 +1404,7 @@ def resposta_ia_vazia():
         "confianca": 0.0,
         "resposta": "",
         "proxima_etapa": "",
-        "dados_extraidos": {}
+        "dados_extraidos": {},
     }
 
 
@@ -1424,7 +1506,11 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         if re.match(r"^\d{1,2}:\d{2}$", horario_limpo):
             dados["horario"] = horario_limpo
 
-    if item_adicional and not dados.get("venda_adicional") and item_adicional_valido(item_adicional):
+    if (
+        item_adicional
+        and not dados.get("venda_adicional")
+        and item_adicional_valido(item_adicional)
+    ):
         dados["itens"] = item_adicional
         dados["venda_adicional"] = item_adicional
 
@@ -1498,7 +1584,10 @@ def enviar_proxima_etapa_com_contexto_ia(telefone):
                 mensagem = f"{resumo}\n\n{mensagem}"
 
             enviar_mensagem(telefone, mensagem)
-            enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, "revisao_dia"))
+            enviar_mensagem(
+                telefone,
+                mensagem_por_etapa_revisao(telefone, "revisao_dia"),
+            )
             return
 
         clientes[telefone]["horarios_disponiveis"] = horarios
@@ -1506,7 +1595,7 @@ def enviar_proxima_etapa_com_contexto_ia(telefone):
         if resumo:
             enviar_mensagem(
                 telefone,
-                f"{resumo}\n\nPerfeito 👍 Agora só falta você escolher um horário."
+                f"{resumo}\n\nPerfeito 👍 Agora só falta você escolher um horário.",
             )
 
         enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
@@ -1517,7 +1606,7 @@ def enviar_proxima_etapa_com_contexto_ia(telefone):
     if resumo:
         enviar_mensagem(
             telefone,
-            f"{resumo}\n\nPerfeito 👍 Agora só preciso de mais uma informação para continuar."
+            f"{resumo}\n\nPerfeito 👍 Agora só preciso de mais uma informação para continuar.",
         )
 
     enviar_mensagem(telefone, mensagem_etapa)
@@ -1571,7 +1660,7 @@ def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
         status=STATUS_AGENDAMENTO_INICIADO,
         etapa="revisao_iniciada",
         atendimento_humano=False,
-        concluido=False
+        concluido=False,
     )
 
     proxima = primeira_etapa_pendente_revisao(telefone)
@@ -1599,9 +1688,13 @@ def enviar_proxima_etapa_revisao(telefone):
             clientes[telefone]["horarios_disponiveis"] = []
             enviar_mensagem(
                 telefone,
-                "⚠️ Não há horários disponíveis para esse tipo de revisão neste dia.\n\nEscolha outro dia."
+                "⚠️ Não há horários disponíveis para esse tipo de revisão neste dia.\n\n"
+                "Escolha outro dia.",
             )
-            enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, "revisao_dia"))
+            enviar_mensagem(
+                telefone,
+                mensagem_por_etapa_revisao(telefone, "revisao_dia"),
+            )
             return
 
         clientes[telefone]["horarios_disponiveis"] = horarios
@@ -1632,11 +1725,15 @@ def verificar_capacidade(data, horario, revisao):
     try:
         limite = limite_por_revisao(revisao)
 
-        quantidade = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.data_agendada == limpar_texto(data),
-            AgendamentoRevisao.horario == limpar_texto(horario),
-            AgendamentoRevisao.status == STATUS_AGENDADO
-        ).count()
+        quantidade = (
+            db.query(AgendamentoRevisao)
+            .filter(
+                AgendamentoRevisao.data_agendada == limpar_texto(data),
+                AgendamentoRevisao.horario == limpar_texto(horario),
+                AgendamentoRevisao.status == STATUS_AGENDADO,
+            )
+            .count()
+        )
 
         return quantidade < limite
 
@@ -1673,7 +1770,7 @@ def horarios_por_revisao(revisao, dia):
             "12:00",
             "13:00",
             "14:00",
-            "15:00"
+            "15:00",
         ]
 
     return ["08:00"]
@@ -1708,8 +1805,12 @@ def salvar_agendamento(telefone, dados):
     try:
         protocolo = gerar_protocolo()
 
-        itens_formatados = formatar_itens_adicionais_para_salvar(dados.get("itens", ""))
-        venda_formatada = formatar_itens_adicionais_para_salvar(dados.get("venda_adicional", ""))
+        itens_formatados = formatar_itens_adicionais_para_salvar(
+            dados.get("itens", "")
+        )
+        venda_formatada = formatar_itens_adicionais_para_salvar(
+            dados.get("venda_adicional", "")
+        )
 
         agendamento = AgendamentoRevisao(
             protocolo=protocolo,
@@ -1731,7 +1832,7 @@ def salvar_agendamento(telefone, dados):
             sances_enviado=False,
             sances_protocolo="",
             sances_erro="",
-            sances_data_envio=None
+            sances_data_envio=None,
         )
 
         db.add(agendamento)
@@ -1744,6 +1845,7 @@ def salvar_agendamento(telefone, dados):
     except Exception as e:
         db.rollback()
         import traceback
+
         traceback.print_exc()
         log_erro("Erro salvar agendamento:", repr(e))
         return None
@@ -1760,7 +1862,7 @@ def salvar_atendimento_dashboard(telefone, dados):
         etapa="revisao_finalizada",
         dados=dados,
         atendimento_humano=False,
-        concluido=True
+        concluido=True,
     )
 
 
@@ -1776,10 +1878,14 @@ def buscar_agendamento_ativo(cpf):
         if not cpf_limpo:
             return None
 
-        agendamento = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.cpf == cpf_limpo,
-            AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO)
-        ).first()
+        agendamento = (
+            db.query(AgendamentoRevisao)
+            .filter(
+                AgendamentoRevisao.cpf == cpf_limpo,
+                AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
+            )
+            .first()
+        )
 
         return agendamento
 
@@ -1804,10 +1910,14 @@ def cancelar_agendamento(cpf, novo_status=STATUS_CANCELADO):
         if not cpf_limpo:
             return None
 
-        agendamento = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.cpf == cpf_limpo,
-            AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO)
-        ).first()
+        agendamento = (
+            db.query(AgendamentoRevisao)
+            .filter(
+                AgendamentoRevisao.cpf == cpf_limpo,
+                AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
+            )
+            .first()
+        )
 
         if not agendamento:
             return None
@@ -1860,7 +1970,7 @@ def responder_consulta_agendamento(telefone, cpf):
     if not cpf_limpo or len(cpf_limpo) != 11:
         enviar_mensagem(
             telefone,
-            "📄 Para consultar seu agendamento, informe seu *CPF com 11 números*."
+            "📄 Para consultar seu agendamento, informe seu *CPF com 11 números*.",
         )
         clientes[telefone]["etapa"] = "consulta_agendamento_cpf"
         return
@@ -1875,13 +1985,13 @@ def responder_consulta_agendamento(telefone, cpf):
             etapa="consulta_agendamento_nao_localizado",
             dados={"cpf": cpf_limpo},
             atendimento_humano=False,
-            concluido=False
+            concluido=False,
         )
 
         enviar_mensagem(
             telefone,
             "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
-            "Se quiser, posso iniciar um novo agendamento. Envie *quero agendar revisão*."
+            "Se quiser, posso iniciar um novo agendamento. Envie *quero agendar revisão*.",
         )
         resetar_cliente(telefone)
         return
@@ -1900,10 +2010,10 @@ def responder_consulta_agendamento(telefone, cpf):
             "data": str(ag.data_agendada or ""),
             "horario": str(ag.horario or ""),
             "itens": str(ag.itens or ""),
-            "venda_adicional": str(ag.venda_adicional or "")
+            "venda_adicional": str(ag.venda_adicional or ""),
         },
         atendimento_humano=False,
-        concluido=False
+        concluido=False,
     )
 
     enviar_mensagem(
@@ -1914,7 +2024,7 @@ def responder_consulta_agendamento(telefone, cpf):
         f"📅 {str(ag.data_agendada or '')}\n"
         f"⏰ {str(ag.horario or '')}\n"
         f"📌 Protocolo: {str(ag.protocolo or '')}\n\n"
-        "Equipe Motoshow Yamaha"
+        "Equipe Motoshow Yamaha",
     )
 
     resetar_cliente(telefone)
@@ -1927,7 +2037,7 @@ def responder_cancelamento_agendamento(telefone, cpf):
         if not cpf_limpo or len(cpf_limpo) != 11:
             enviar_mensagem(
                 telefone,
-                "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*."
+                "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*.",
             )
             clientes[telefone]["etapa"] = "cancelar_agendamento_cpf"
             return
@@ -1943,14 +2053,17 @@ def responder_cancelamento_agendamento(telefone, cpf):
                     etapa="cancelamento_nao_localizado",
                     dados={"cpf": cpf_limpo},
                     atendimento_humano=False,
-                    concluido=False
+                    concluido=False,
                 )
             except Exception as e:
-                log_erro("Erro ao salvar evento de cancelamento não localizado:", repr(e))
+                log_erro(
+                    "Erro ao salvar evento de cancelamento não localizado:",
+                    repr(e),
+                )
 
             enviar_mensagem(
                 telefone,
-                "⚠️ Não encontrei agendamento ativo para este CPF."
+                "⚠️ Não encontrei agendamento ativo para este CPF.",
             )
             resetar_cliente(telefone)
             return
@@ -1971,10 +2084,10 @@ def responder_cancelamento_agendamento(telefone, cpf):
                     "data": ag_cancelado.get("data_agendada", ""),
                     "horario": ag_cancelado.get("horario", ""),
                     "itens": ag_cancelado.get("itens", ""),
-                    "venda_adicional": ag_cancelado.get("venda_adicional", "")
+                    "venda_adicional": ag_cancelado.get("venda_adicional", ""),
                 },
                 atendimento_humano=False,
-                concluido=True
+                concluido=True,
             )
         except Exception as e:
             log_erro("Erro ao salvar evento de cancelamento:", repr(e))
@@ -1996,7 +2109,7 @@ def responder_cancelamento_agendamento(telefone, cpf):
         log_erro("Erro responder_cancelamento_agendamento:", repr(e))
         enviar_mensagem(
             telefone,
-            "⚠️ O cancelamento foi processado, mas ocorreu uma falha ao finalizar a resposta. Envie *menu* para continuar."
+            "⚠️ O cancelamento foi processado, mas ocorreu uma falha ao finalizar a resposta. Envie *menu* para continuar.",
         )
         resetar_cliente(telefone)
 
@@ -2007,7 +2120,7 @@ def iniciar_reagendamento(telefone, cpf):
     if not cpf_limpo or len(cpf_limpo) != 11:
         enviar_mensagem(
             telefone,
-            "📄 Para reagendar, informe seu *CPF com 11 números*."
+            "📄 Para reagendar, informe seu *CPF com 11 números*.",
         )
         clientes[telefone]["etapa"] = "reagendar_agendamento_cpf"
         return
@@ -2022,12 +2135,12 @@ def iniciar_reagendamento(telefone, cpf):
             etapa="reagendamento_nao_localizado",
             dados={"cpf": cpf_limpo},
             atendimento_humano=False,
-            concluido=False
+            concluido=False,
         )
 
         enviar_mensagem(
             telefone,
-            "⚠️ Não encontrei agendamento ativo para este CPF."
+            "⚠️ Não encontrei agendamento ativo para este CPF.",
         )
         resetar_cliente(telefone)
         return
@@ -2047,10 +2160,10 @@ def iniciar_reagendamento(telefone, cpf):
             "data": str(ag.data_agendada or ""),
             "horario": str(ag.horario or ""),
             "itens": str(ag.itens or ""),
-            "venda_adicional": str(ag.venda_adicional or "")
+            "venda_adicional": str(ag.venda_adicional or ""),
         },
         atendimento_humano=False,
-        concluido=False
+        concluido=False,
     )
 
     limpar_dados_fluxo_revisao(telefone)
@@ -2063,19 +2176,22 @@ def iniciar_reagendamento(telefone, cpf):
     clientes[telefone]["reagendamento"] = True
     clientes[telefone]["protocolo_antigo"] = str(ag.protocolo or "")
 
-    cancelar_agendamento(clientes[telefone]["cpf"], novo_status=STATUS_REAGENDADO)
+    cancelar_agendamento(
+        clientes[telefone]["cpf"],
+        novo_status=STATUS_REAGENDADO,
+    )
     definir_status_cliente(telefone, STATUS_REAGENDADO)
 
     clientes[telefone]["etapa"] = "revisao_dia"
 
     enviar_mensagem(
-    telefone,
-    "🔄 *Reagendamento iniciado* ..."
+        telefone,
+        "🔄 *Reagendamento iniciado* ...",
     )
 
     enviar_mensagem(
         telefone,
-        mensagem_por_etapa_revisao(telefone, "revisao_dia")
+        mensagem_por_etapa_revisao(telefone, "revisao_dia"),
     )
 
 # ==========================================
@@ -2142,7 +2258,7 @@ def processar_lembretes_agendamento():
 
         agendamentos = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
-            AgendamentoRevisao.lembrete_enviado == False
+            AgendamentoRevisao.lembrete_enviado == False,
         ).all()
 
         houve_alteracao = False
@@ -2163,7 +2279,11 @@ def processar_lembretes_agendamento():
                 data_criacao = getattr(ag, "data", None)
 
                 # envia 1 dia antes, mas nunca logo após criar o agendamento
-                if diferenca == 1 and data_criacao and (agora_time - data_criacao).total_seconds() > 3600:
+                if (
+                    diferenca == 1
+                    and data_criacao
+                    and (agora_time - data_criacao).total_seconds() > 3600
+                ):
                     mensagem = (
                         "🔔 *Lembrete de Revisão*\n\n"
                         f"Olá *{str(getattr(ag, 'nome', '') or '')}*\n\n"
@@ -2174,7 +2294,10 @@ def processar_lembretes_agendamento():
                         "Equipe Motoshow Yamaha"
                     )
 
-                    enviado = enviar_mensagem(str(getattr(ag, "telefone", "") or ""), mensagem)
+                    enviado = enviar_mensagem(
+                        str(getattr(ag, "telefone", "") or ""),
+                        mensagem,
+                    )
                     if enviado:
                         ag.lembrete_enviado = True
                         houve_alteracao = True
@@ -2244,7 +2367,9 @@ def processar_followup_inteligente():
                     telefones_processados.add(telefone)
                     continue
 
-                ultima = getattr(at, "ultima_mensagem_cliente", None) or getattr(at, "ultima_interacao", None)
+                ultima = getattr(at, "ultima_mensagem_cliente", None) or getattr(
+                    at, "ultima_interacao", None
+                )
                 if not ultima:
                     telefones_processados.add(telefone)
                     continue
@@ -2255,7 +2380,9 @@ def processar_followup_inteligente():
                 followup_2 = bool(getattr(at, "followup_2", False))
                 followup_3 = bool(getattr(at, "followup_3", False))
 
-                total_followups = int(followup_1) + int(followup_2) + int(followup_3)
+                total_followups = (
+                    int(followup_1) + int(followup_2) + int(followup_3)
+                )
 
                 # máximo 3 mensagens por cliente
                 if total_followups >= 3:
@@ -2269,30 +2396,39 @@ def processar_followup_inteligente():
                     enviado = enviar_mensagem(
                         telefone,
                         "👋 Oi! Vi que você começou um atendimento e não finalizou.\n\n"
-                        "Posso te ajudar a concluir rapidinho? 🚀"
+                        "Posso te ajudar a concluir rapidinho? 🚀",
                     )
                     if enviado:
                         at.followup_1 = True
                         houve_alteracao = True
 
                 # FOLLOW-UP 2 - após 24 horas sem resposta
-                elif tempo_parado >= TEMPO_FOLLOWUP_2 and followup_1 and not followup_2:
+                elif (
+                    tempo_parado >= TEMPO_FOLLOWUP_2
+                    and followup_1
+                    and not followup_2
+                ):
                     enviado = enviar_mensagem(
                         telefone,
                         "⏰ Só passando pra te lembrar da sua solicitação.\n\n"
-                        "Se quiser, posso finalizar seu agendamento agora 👍"
+                        "Se quiser, posso finalizar seu agendamento agora 👍",
                     )
                     if enviado:
                         at.followup_2 = True
                         houve_alteracao = True
 
                 # FOLLOW-UP 3 - após 5 dias sem resposta
-                elif tempo_parado >= TEMPO_FOLLOWUP_3 and followup_1 and followup_2 and not followup_3:
+                elif (
+                    tempo_parado >= TEMPO_FOLLOWUP_3
+                    and followup_1
+                    and followup_2
+                    and not followup_3
+                ):
                     enviado = enviar_mensagem(
                         telefone,
                         "🚨 Última chamada!\n\n"
                         "Ainda quer agendar sua revisão?\n"
-                        "Temos horários disponíveis essa semana 🏍️"
+                        "Temos horários disponíveis essa semana 🏍️",
                     )
                     if enviado:
                         at.followup_3 = True
@@ -2312,6 +2448,8 @@ def processar_followup_inteligente():
 
     finally:
         db.close()
+
+
 # ==========================================
 # APOIO DÚVIDAS / REVISÃO / SANCES
 # ==========================================
@@ -2331,7 +2469,7 @@ def encerrar_atendimento_humano(telefone):
             status=STATUS_NOVO_ATENDIMENTO,
             etapa="atendimento_humano_encerrado",
             atendimento_humano=False,
-            concluido=False
+            concluido=False,
         )
 
         return True
@@ -2353,12 +2491,18 @@ def montar_dados_agendamento_para_reenvio(ag):
             "dia": "",
             "data": limpar_texto(getattr(ag, "data_agendada", "")),
             "horario": limpar_texto(getattr(ag, "horario", "")),
-            "itens": formatar_itens_adicionais_para_salvar(getattr(ag, "itens", "")),
-            "venda_adicional": formatar_itens_adicionais_para_salvar(getattr(ag, "venda_adicional", "")),
+            "itens": formatar_itens_adicionais_para_salvar(
+                getattr(ag, "itens", "")
+            ),
+            "venda_adicional": formatar_itens_adicionais_para_salvar(
+                getattr(ag, "venda_adicional", "")
+            ),
             "observacao": limpar_texto(
                 getattr(ag, "observacoes", "") or getattr(ag, "observacao", "")
             ),
-            "tipo_atendimento": limpar_texto(getattr(ag, "tipo_atendimento", "")),
+            "tipo_atendimento": limpar_texto(
+                getattr(ag, "tipo_atendimento", "")
+            ),
             "protocolo": limpar_texto(getattr(ag, "protocolo", "")),
         }
     except Exception as e:
@@ -2405,18 +2549,25 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
 
         agora_time = datetime.now()
         sucesso = bool(retorno_sances.get("sucesso", False))
-        status = limpar_texto(retorno_sances.get("status", "")) or SANCES_STATUS_ERRO
+        status = (
+            limpar_texto(retorno_sances.get("status", ""))
+            or SANCES_STATUS_ERRO
+        )
 
         ag.sances_status = status
         ag.sances_enviado = sucesso
-        ag.sances_protocolo = limpar_texto(retorno_sances.get("protocolo_sances", ""))
+        ag.sances_protocolo = limpar_texto(
+            retorno_sances.get("protocolo_sances", "")
+        )
         ag.sances_erro = limpar_texto(retorno_sances.get("erro", ""))
 
         if sucesso:
             ag.sances_data_envio = agora_time
 
         if hasattr(ag, "sances_tentativas"):
-            ag.sances_tentativas = int(getattr(ag, "sances_tentativas", 0) or 0) + 1
+            ag.sances_tentativas = (
+                int(getattr(ag, "sances_tentativas", 0) or 0) + 1
+            )
 
         if hasattr(ag, "sances_ultima_tentativa"):
             ag.sances_ultima_tentativa = agora_time
@@ -2446,10 +2597,13 @@ def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
             status=STATUS_NOVO_ATENDIMENTO,
             etapa="duvida_respondida",
             dados={
-                "observacao": f"Pergunta: {limpar_texto(pergunta)} | Resposta: {limpar_texto(resposta)}"
+                "observacao": (
+                    f"Pergunta: {limpar_texto(pergunta)} | "
+                    f"Resposta: {limpar_texto(resposta)}"
+                )
             },
             atendimento_humano=False,
-            concluido=True
+            concluido=True,
         )
     except Exception as e:
         log_erro("Erro salvar dúvida dashboard:", repr(e))
@@ -2459,7 +2613,9 @@ def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
 def mensagem_duvida_retorno_fluxo(telefone):
     iniciar_cliente(telefone)
 
-    etapa_retorno = limpar_texto(clientes[telefone].get("etapa_retorno_duvida", ""))
+    etapa_retorno = limpar_texto(
+        clientes[telefone].get("etapa_retorno_duvida", "")
+    )
 
     if etapa_retorno and etapa_retorno.startswith("revisao"):
         return (
@@ -2489,16 +2645,18 @@ def etapa_revisao_permite_ir_para_duvidas(etapa):
     return etapa in etapas_permitidas
 
 
-
 def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
     try:
         iniciar_cliente(telefone)
-        clientes[telefone]["etapa_retorno_duvida"] = limpar_texto(etapa_atual)
+        clientes[telefone]["etapa_retorno_duvida"] = limpar_texto(
+            etapa_atual
+        )
         clientes[telefone]["etapa"] = "menu_duvidas"
 
         enviar_mensagem(
             telefone,
-            "Sem problema 👍 Vou te direcionar para a central de dúvidas e depois podemos voltar para o seu agendamento."
+            "Sem problema 👍 Vou te direcionar para a central de dúvidas "
+            "e depois podemos voltar para o seu agendamento.",
         )
         enviar_mensagem(telefone, menu_duvidas())
         return True
@@ -2532,6 +2690,7 @@ def data_corresponde_ao_dia_escolhido(data_digitada, dia_escolhido):
         log_erro("Erro ao validar correspondência de dia/data:", repr(e))
         return False
 
+
 # ==========================================
 # WORKER
 # ==========================================
@@ -2544,7 +2703,7 @@ def processar_fila_sances():
         agendamentos = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.sances_status.in_([
                 SANCES_STATUS_PENDENTE,
-                SANCES_STATUS_ERRO
+                SANCES_STATUS_ERRO,
             ])
         ).all()
 
@@ -2565,7 +2724,9 @@ def processar_fila_sances():
                     else:
                         intervalo_minimo = 1800  # 30 min
 
-                    segundos_desde_tentativa = (agora_time - ultima_tentativa).total_seconds()
+                    segundos_desde_tentativa = (
+                        agora_time - ultima_tentativa
+                    ).total_seconds()
                     if segundos_desde_tentativa < intervalo_minimo:
                         continue
 
@@ -2576,7 +2737,11 @@ def processar_fila_sances():
                 ag.sances_enviado = bool(retorno.get("sucesso", False))
                 ag.sances_protocolo = retorno.get("protocolo_sances", "") or ""
                 ag.sances_erro = retorno.get("erro", "") or ""
-                ag.sances_data_envio = agora_time if ag.sances_enviado else getattr(ag, "sances_data_envio", None)
+                ag.sances_data_envio = (
+                    agora_time
+                    if ag.sances_enviado
+                    else getattr(ag, "sances_data_envio", None)
+                )
 
                 ag.sances_tentativas = tentativas + 1
                 ag.sances_ultima_tentativa = agora_time
@@ -2588,7 +2753,7 @@ def processar_fila_sances():
                     "[SANCES WORKER] Reenvio processado:",
                     str(getattr(ag, "protocolo", "") or ""),
                     ag.sances_status,
-                    f"Tentativa {ag.sances_tentativas}"
+                    f"Tentativa {ag.sances_tentativas}",
                 )
 
             except Exception as e:
@@ -2612,12 +2777,18 @@ def worker():
         try:
             processar_lembretes_agendamento()
         except Exception as e:
-            log_erro("Worker erro em processar_lembretes_agendamento:", repr(e))
+            log_erro(
+                "Worker erro em processar_lembretes_agendamento:",
+                repr(e),
+            )
 
         try:
             processar_followup_inteligente()
         except Exception as e:
-            log_erro("Worker erro em processar_followup_inteligente:", repr(e))
+            log_erro(
+                "Worker erro em processar_followup_inteligente:",
+                repr(e),
+            )
 
         try:
             processar_fila_sances()
@@ -2637,7 +2808,6 @@ def iniciar_worker():
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
     log_info("Worker iniciado com sucesso.")
-
 
 # ==========================================
 # DASHBOARD
@@ -2675,46 +2845,66 @@ def dashboard():
         total_revisoes = query.filter(Atendimento.setor == "Revisão").count()
         revisao = total_revisoes
 
-        total_duvidas_revisoes = query.filter(Atendimento.setor == "Dúvidas Revisoes").count()
-        total_duvidas_garantia = query.filter(Atendimento.setor == "Dúvidas Garantia").count()
+        total_duvidas_revisoes = query.filter(
+            Atendimento.setor == "Dúvidas Revisoes"
+        ).count()
+        total_duvidas_garantia = query.filter(
+            Atendimento.setor == "Dúvidas Garantia"
+        ).count()
         total_duvidas = total_duvidas_revisoes + total_duvidas_garantia
 
-        agendados = query_ag.filter(AgendamentoRevisao.status == STATUS_AGENDADO).count()
+        agendados = query_ag.filter(
+            AgendamentoRevisao.status == STATUS_AGENDADO
+        ).count()
         concluidos = query_ag.filter(
-            AgendamentoRevisao.status.in_(["CONCLUIDO", "CONCLUÍDO", "Concluído", STATUS_FINALIZADO])
+            AgendamentoRevisao.status.in_(
+                ["CONCLUIDO", "CONCLUÍDO", "Concluído", STATUS_FINALIZADO]
+            )
         ).count()
         atendimento_humano = query.filter(
             Atendimento.atendimento_humano == True
         ).count()
 
-        cancelados = query_ag.filter(AgendamentoRevisao.status == STATUS_CANCELADO).count()
-        reagendados = query_ag.filter(AgendamentoRevisao.status == STATUS_REAGENDADO).count()
+        cancelados = query_ag.filter(
+            AgendamentoRevisao.status == STATUS_CANCELADO
+        ).count()
+        reagendados = query_ag.filter(
+            AgendamentoRevisao.status == STATUS_REAGENDADO
+        ).count()
         total_agendamentos_periodo = query_ag.count()
 
-        sances_pendentes = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_PENDENTE).count()
-        sances_enviados = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_ENVIADO).count()
-        sances_erros = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_ERRO).count()
-        sances_nao_configurado = query_ag.filter(AgendamentoRevisao.sances_status == SANCES_STATUS_NAO_CONFIGURADO).count()
+        sances_pendentes = query_ag.filter(
+            AgendamentoRevisao.sances_status == SANCES_STATUS_PENDENTE
+        ).count()
+        sances_enviados = query_ag.filter(
+            AgendamentoRevisao.sances_status == SANCES_STATUS_ENVIADO
+        ).count()
+        sances_erros = query_ag.filter(
+            AgendamentoRevisao.sances_status == SANCES_STATUS_ERRO
+        ).count()
+        sances_nao_configurado = query_ag.filter(
+            AgendamentoRevisao.sances_status == SANCES_STATUS_NAO_CONFIGURADO
+        ).count()
 
         primeira = query.filter(
             Atendimento.setor == "Revisão",
-            Atendimento.revisao == "1"
+            Atendimento.revisao == "1",
         ).count()
         segunda = query.filter(
             Atendimento.setor == "Revisão",
-            Atendimento.revisao == "2"
+            Atendimento.revisao == "2",
         ).count()
         terceira = query.filter(
             Atendimento.setor == "Revisão",
-            Atendimento.revisao == "3"
+            Atendimento.revisao == "3",
         ).count()
         quarta = query.filter(
             Atendimento.setor == "Revisão",
-            Atendimento.revisao == "4"
+            Atendimento.revisao == "4",
         ).count()
         quinta = query.filter(
             Atendimento.setor == "Revisão",
-            Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"])
+            Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"]),
         ).count()
 
         contador_itens = Counter()
@@ -2789,7 +2979,7 @@ def reenvio_sances(protocolo):
         if not protocolo:
             return jsonify({
                 "ok": False,
-                "mensagem": "Protocolo inválido."
+                "mensagem": "Protocolo inválido.",
             }), 400
 
         ag = buscar_agendamento_por_protocolo(protocolo)
@@ -2797,18 +2987,21 @@ def reenvio_sances(protocolo):
         if not ag:
             return jsonify({
                 "ok": False,
-                "mensagem": "Agendamento não encontrado."
+                "mensagem": "Agendamento não encontrado.",
             }), 404
 
         dados_reenvio = montar_dados_agendamento_para_reenvio(ag)
         retorno_sances = enviar_agendamento_para_sances(dados_reenvio)
 
-        atualizado = atualizar_status_sances_agendamento(protocolo, retorno_sances)
+        atualizado = atualizar_status_sances_agendamento(
+            protocolo,
+            retorno_sances,
+        )
 
         if not atualizado:
             return jsonify({
                 "ok": False,
-                "mensagem": "Falha ao atualizar status do Sances no banco."
+                "mensagem": "Falha ao atualizar status do Sances no banco.",
             }), 500
 
         return jsonify({
@@ -2816,14 +3009,14 @@ def reenvio_sances(protocolo):
             "mensagem": "Reenvio processado com sucesso.",
             "status": retorno_sances.get("status", SANCES_STATUS_ERRO),
             "protocolo_sances": retorno_sances.get("protocolo_sances", ""),
-            "erro": retorno_sances.get("erro", "")
+            "erro": retorno_sances.get("erro", ""),
         }), 200
 
     except Exception as e:
         log_erro("Erro na rota de reenvio Sances:", repr(e))
         return jsonify({
             "ok": False,
-            "mensagem": "Erro interno ao reenviar para o Sances."
+            "mensagem": "Erro interno ao reenviar para o Sances.",
         }), 500
 
 
@@ -2835,445 +3028,465 @@ def webhook():
     if request.method == "GET":
         return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
 
-    payload = request.get_json(silent=True) or {}
-    log_info("PAYLOAD RECEBIDO:", payload)
+    try:
+        payload = request.get_json(silent=True) or {}
+        log_info("PAYLOAD RECEBIDO:", payload)
 
-    if evento_eh_do_proprio_bot(payload):
-        return jsonify({"status": "ignorado", "motivo": "proprio_bot"}), 200
+        if evento_eh_do_proprio_bot(payload):
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "proprio_bot",
+            }), 200
 
-    message_id = extrair_message_id(payload)
-    telefone = extrair_telefone(payload)
-    texto = extrair_texto(payload)
-    tipo_mensagem = extrair_tipo_mensagem(payload)
+        message_id = extrair_message_id(payload)
+        telefone = extrair_telefone(payload)
+        texto = extrair_texto(payload) or ""
+        tipo_mensagem = extrair_tipo_mensagem(payload)
 
-    if not telefone:
-        return jsonify({"status": "ignorado", "motivo": "sem telefone"}), 200
+        if not telefone:
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "sem telefone",
+            }), 200
 
-    if telefone_eh_grupo(telefone):
-        return jsonify({"status": "ignorado", "motivo": "grupo"}), 200
+        if telefone_eh_grupo(telefone):
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "grupo",
+            }), 200
 
-    if message_id and mensagem_ja_processada(message_id):
-        return jsonify({"status": "ignorado", "motivo": "duplicado"}), 200
+        if message_id and mensagem_ja_processada(message_id):
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "duplicado",
+            }), 200
 
-    telefone = limpar_telefone(telefone)
-    texto = limpar_texto(texto)
-    texto_normalizado = normalizar_texto(texto)
-    texto_opcao = limpar_opcao(texto)
+        telefone = limpar_telefone(telefone)
+        texto = limpar_texto(texto)
+        texto_normalizado = normalizar_texto(texto)
+        texto_opcao = limpar_opcao(texto)
 
-    if message_id:
-        registrar_mensagem_processada(message_id)
+        if message_id:
+            registrar_mensagem_processada(message_id)
 
-    iniciar_cliente(telefone)
+        iniciar_cliente(telefone)
 
-    ultima_interacao = clientes[telefone].get("ultima_interacao", agora())
-    if (
-        clientes[telefone].get("etapa") != "menu"
-        and not clientes[telefone].get("atendimento_humano")
-        and (agora() - ultima_interacao) > TEMPO_INATIVIDADE
-    ):
-        resetar_cliente(telefone)
-        enviar_mensagem(
-            telefone,
-            "Olá 👋\n\n"
-            "Como passou um tempo desde a última mensagem, vou te mostrar o menu novamente para seguir da melhor forma."
-        )
-        enviar_menu(telefone)
-        return jsonify({"status": "ok"}), 200
-
-    atualizar_interacao(telefone)
-    atualizar_ultima_mensagem_cliente(telefone)
-    atualizar_retorno_na_planilha(telefone, texto)
-
-    # Persistência de atendimento humano via banco
-    if atendimento_humano_ativo_no_banco(telefone):
-        clientes[telefone]["atendimento_humano"] = True
-        clientes[telefone]["etapa"] = "atendimento_humano"
-        definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
-
-        # em atendimento humano o bot só volta se o cliente mandar menu
-        if texto_normalizado != "menu":
-            return jsonify({"status": "ok", "modo": "atendimento_humano"}), 200
-
-    if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
-        encerrar_atendimento_humano(telefone)
-        resetar_cliente(telefone)
-        enviar_menu(telefone)
-        return jsonify({"status": "ok"}), 200
-
-    # tratamento de áudio fora do atendimento humano
-    if tipo_mensagem == "audio":
-        enviar_mensagem(
-            telefone,
-            "🎤 Recebi seu áudio.\n\n"
-            "No momento, para eu seguir corretamente no atendimento automático, peço que envie sua mensagem em *texto*.\n\n"
-            "Se preferir, digite *7* para falar com *atendimento humano*."
-        )
-        return jsonify({"status": "ok", "modo": "audio_recebido"}), 200
-
-    etapa = clientes[telefone]["etapa"]
-
-    etapas_bloqueadas_ia = [
-        "revisao_modelo",
-        "revisao_nome",
-        "revisao_cpf",
-        "revisao_ano",
-        "revisao_km",
-        "revisao_revisao",
-        "revisao_dia",
-        "revisao_data",
-        "revisao_horario",
-        "revisao_venda",
-        "revisao_observacao",
-        "revisao_confirmacao"
-    ]
-
-    if etapa in etapas_bloqueadas_ia:
-        resposta_ia = resposta_ia_vazia()
-    else:
-        resposta_ia = obter_dados_extraidos_ia(texto)
-
-    intencao_ia = resposta_ia.get("intencao", "")
-    dados_extraidos_ia = resposta_ia.get("dados_extraidos", {}) or {}
-
-    # daqui para baixo segue o restante normal do seu fluxo
-    # usando:
-    # etapa
-    # intencao_ia
-    # dados_extraidos_ia
-    # texto
-    # texto_opcao
-    # texto_normalizado
-
-    # ==========================================
-    # INTENÇÕES GERAIS
-    # ==========================================
-    if intencao_ia in ["humano", "falar_humano", "atendimento_humano"] and not etapa.startswith("revisao"):
-        if etapa != "atendimento_humano":
-            ativar_atendimento_humano(telefone)
-        return jsonify({"status": "ok"}), 200
-
-    if intencao_ia in ["consultar_agendamento", "acompanhar_agendamento"]:
-        cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
-        responder_consulta_agendamento(telefone, cpf)
-        return jsonify({"status": "ok"}), 200
-
-    if intencao_ia == "cancelar_agendamento":
-        cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
-        responder_cancelamento_agendamento(telefone, cpf)
-        return jsonify({"status": "ok"}), 200
-
-    if intencao_ia in ["reagendar_agendamento", "reagendar"]:
-        cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
-        limpar_dados_fluxo_revisao(telefone)
-        iniciar_reagendamento(telefone, cpf)
-        return jsonify({"status": "ok"}), 200
-
-    if etapa == "consulta_agendamento_cpf":
-        responder_consulta_agendamento(telefone, texto)
-        return jsonify({"status": "ok"}), 200
-
-    if etapa == "cancelar_agendamento_cpf":
-        responder_cancelamento_agendamento(telefone, texto)
-        return jsonify({"status": "ok"}), 200
-
-    if etapa == "reagendar_agendamento_cpf":
-        iniciar_reagendamento(telefone, texto)
-        return jsonify({"status": "ok"}), 200
-
-    # ==========================================
-    # SAÍDA RÁPIDA DE DÚVIDAS PARA PEÇAS / ACESSÓRIOS
-    # ==========================================
-    if etapa in ["menu_duvidas", "duvida_revisoes", "duvida_garantia", "duvida_pos_resposta"] and intencao_ia == "pecas":
-        iniciar_fluxo_pecas(telefone, texto)
-        return jsonify({"status": "ok"}), 200
-
-    if etapa in ["menu_duvidas", "duvida_revisoes", "duvida_garantia", "duvida_pos_resposta"] and intencao_ia == "acessorios":
-        iniciar_fluxo_acessorios(telefone, texto)
-        return jsonify({"status": "ok"}), 200
-
-    # ==========================================
-    # MENU PRINCIPAL
-    # ==========================================
-    if etapa == "menu":
-        if texto_opcao == "1":
-            clientes[telefone]["atendimento_humano"] = False
-            definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
-            proxima = iniciar_fluxo_revisao_por_intencao(telefone, {})
-            enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
-            return jsonify({"status": "ok"}), 200
-
-        elif texto_opcao == "2":
-            clientes[telefone]["atendimento_humano"] = False
-            iniciar_fluxo_pecas(telefone)
-            return jsonify({"status": "ok"}), 200
-
-        elif texto_opcao == "3":
-            clientes[telefone]["atendimento_humano"] = False
-            iniciar_fluxo_acessorios(telefone)
-            return jsonify({"status": "ok"}), 200
-
-        elif texto_opcao == "4":
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["etapa"] = "garantia"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Garantia",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="garantia_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(telefone, "🛡️ *Garantia*\n\nDescreva sua solicitação:")
-            return jsonify({"status": "ok"}), 200
-
-        elif texto_opcao == "5":
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["etapa"] = "atacado"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Logista / Atacado",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="atacado_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
+        ultima_interacao = clientes[telefone].get("ultima_interacao", agora())
+        if (
+            clientes[telefone].get("etapa", "menu") != "menu"
+            and not clientes[telefone].get("atendimento_humano", False)
+            and (agora() - ultima_interacao) > TEMPO_INATIVIDADE
+        ):
+            resetar_cliente(telefone)
             enviar_mensagem(
                 telefone,
-                "📦 *Logista / Atacado*\n\n"
-                "1 - Solicitar cotação\n"
-                "2 - Cadastro de logista\n"
-                "3 - Receber catálogo\n"
-                "4 - Falar com consultor"
+                "Olá 👋\n\n"
+                "Como passou um tempo desde a última mensagem, vou te mostrar o menu novamente para seguir da melhor forma.",
             )
+            enviar_menu(telefone)
             return jsonify({"status": "ok"}), 200
 
-        elif texto_opcao == "6":
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["etapa"] = "menu_duvidas"
-            enviar_mensagem(telefone, menu_duvidas())
-            return jsonify({"status": "ok"}), 200
+        atualizar_interacao(telefone)
+        atualizar_ultima_mensagem_cliente(telefone)
+        atualizar_retorno_na_planilha(telefone, texto)
 
-        elif texto_opcao == "7":
-            ativar_atendimento_humano(telefone)
-            return jsonify({"status": "ok"}), 200
+        # Persistência de atendimento humano via banco
+        if atendimento_humano_ativo_no_banco(telefone):
+            clientes[telefone]["atendimento_humano"] = True
+            clientes[telefone]["etapa"] = "atendimento_humano"
+            definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
 
-        elif intencao_ia == "agendar_revisao":
-            clientes[telefone]["atendimento_humano"] = False
-            definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
-            iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos_ia)
+            # em atendimento humano o bot só volta se o cliente mandar menu
+            if texto_normalizado != "menu":
+                return jsonify({
+                    "status": "ok",
+                    "modo": "atendimento_humano",
+                }), 200
 
-            resumo = montar_resumo_dados_ia_revisao(telefone)
-            if resumo:
-                enviar_mensagem(
-                    telefone,
-                    "Perfeito 👍 Entendi seu pedido de agendamento e já adiantei algumas informações."
-                )
-            else:
-                enviar_mensagem(
-                    telefone,
-                    "Perfeito 👍 Vou seguir com seu agendamento de revisão."
-                )
-
-            enviar_proxima_etapa_com_contexto_ia(telefone)
-            return jsonify({"status": "ok"}), 200
-
-        elif intencao_ia == "pecas":
-            clientes[telefone]["atendimento_humano"] = False
-            iniciar_fluxo_pecas(telefone, texto)
-            return jsonify({"status": "ok"}), 200
-
-        elif intencao_ia == "acessorios":
-            clientes[telefone]["atendimento_humano"] = False
-            iniciar_fluxo_acessorios(telefone, texto)
-            return jsonify({"status": "ok"}), 200
-
-        elif intencao_ia == "duvidas":
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["etapa"] = "menu_duvidas"
-            enviar_mensagem(telefone, menu_duvidas())
-            return jsonify({"status": "ok"}), 200
-
-        elif intencao_ia == "garantia":
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["etapa"] = "garantia"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Garantia",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="garantia_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(telefone, "🛡️ Descreva sua solicitação de garantia:")
-            return jsonify({"status": "ok"}), 200
-
-        elif intencao_ia == "atacado":
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["etapa"] = "atacado"
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Logista / Atacado",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="atacado_iniciado",
-                atendimento_humano=False,
-                concluido=False
-            )
-            enviar_mensagem(
-                telefone,
-                "📦 *Logista / Atacado*\n\n"
-                "1 - Solicitar cotação\n"
-                "2 - Cadastro de logista\n"
-                "3 - Receber catálogo\n"
-                "4 - Falar com consultor"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        enviar_menu(telefone)
-        return jsonify({"status": "ok"}), 200
-
-    # ==========================================
-    # MENU DÚVIDAS
-    # ==========================================
-    if etapa == "menu_duvidas":
-        if texto_opcao == "1":
-            clientes[telefone]["categoria_duvida"] = "revisoes"
-            clientes[telefone]["etapa"] = "duvida_revisoes"
-            enviar_mensagem(
-                telefone,
-                "📘 *Dúvidas sobre Revisões*\n\n"
-                "Pode me enviar sua dúvida em texto livre.\n\n"
-                "Exemplos:\n"
-                "• Qual o valor da revisão?\n"
-                "• O que troca na 2ª revisão?\n"
-                "• Quanto tempo demora?\n"
-                "• Com quantos km faz a revisão?"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif texto_opcao == "2":
-            clientes[telefone]["categoria_duvida"] = "garantia"
-            clientes[telefone]["etapa"] = "duvida_garantia"
-            enviar_mensagem(
-                telefone,
-                "📘 *Dúvidas sobre Garantia*\n\n"
-                "Pode me enviar sua dúvida em texto livre.\n\n"
-                "Exemplos:\n"
-                "• O que a garantia cobre?\n"
-                "• Preciso levar documentos?\n"
-                "• Posso perder a garantia?\n"
-                "• Como funciona a análise?"
-            )
-            return jsonify({"status": "ok"}), 200
-
-        elif texto_opcao == "3":
+        if texto_normalizado in [
+            "menu",
+            "oi",
+            "olá",
+            "ola",
+            "bom dia",
+            "boa tarde",
+            "boa noite",
+        ]:
+            encerrar_atendimento_humano(telefone)
             resetar_cliente(telefone)
             enviar_menu(telefone)
             return jsonify({"status": "ok"}), 200
 
-        elif intencao_ia == "pecas":
+        # tratamento de áudio fora do atendimento humano
+        if tipo_mensagem == "audio":
+            enviar_mensagem(
+                telefone,
+                "🎤 Recebi seu áudio.\n\n"
+                "No momento, para eu seguir corretamente no atendimento automático, peço que envie sua mensagem em *texto*.\n\n"
+                "Se preferir, digite *7* para falar com *atendimento humano*.",
+            )
+            return jsonify({
+                "status": "ok",
+                "modo": "audio_recebido",
+            }), 200
+
+        etapa = clientes[telefone].get("etapa", "menu")
+
+        etapas_bloqueadas_ia = [
+            "revisao_modelo",
+            "revisao_nome",
+            "revisao_cpf",
+            "revisao_ano",
+            "revisao_km",
+            "revisao_revisao",
+            "revisao_dia",
+            "revisao_data",
+            "revisao_horario",
+            "revisao_venda",
+            "revisao_observacao",
+            "revisao_confirmacao",
+        ]
+
+        if etapa in etapas_bloqueadas_ia:
+            resposta_ia = resposta_ia_vazia()
+        else:
+            resposta_ia = obter_dados_extraidos_ia(texto) or resposta_ia_vazia()
+
+        intencao_ia = resposta_ia.get("intencao", "")
+        dados_extraidos_ia = resposta_ia.get("dados_extraidos", {}) or {}
+
+        # ==========================================
+        # INTENÇÕES GERAIS
+        # ==========================================
+        if intencao_ia in ["humano", "falar_humano", "atendimento_humano"] and not str(etapa).startswith("revisao"):
+            if etapa != "atendimento_humano":
+                ativar_atendimento_humano(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        if intencao_ia in ["consultar_agendamento", "acompanhar_agendamento"]:
+            cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
+            responder_consulta_agendamento(telefone, cpf)
+            return jsonify({"status": "ok"}), 200
+
+        if intencao_ia == "cancelar_agendamento":
+            cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
+            responder_cancelamento_agendamento(telefone, cpf)
+            return jsonify({"status": "ok"}), 200
+
+        if intencao_ia in ["reagendar_agendamento", "reagendar"]:
+            cpf = limpar_cpf(dados_extraidos_ia.get("cpf", "") or texto)
+            limpar_dados_fluxo_revisao(telefone)
+            iniciar_reagendamento(telefone, cpf)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "consulta_agendamento_cpf":
+            responder_consulta_agendamento(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "cancelar_agendamento_cpf":
+            responder_cancelamento_agendamento(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "reagendar_agendamento_cpf":
+            iniciar_reagendamento(telefone, texto)
+            return jsonify({"status": "ok"}), 200
+
+        # ==========================================
+        # SAÍDA RÁPIDA DE DÚVIDAS PARA PEÇAS / ACESSÓRIOS
+        # ==========================================
+        if etapa in ["menu_duvidas", "duvida_revisoes", "duvida_garantia", "duvida_pos_resposta"] and intencao_ia == "pecas":
             iniciar_fluxo_pecas(telefone, texto)
             return jsonify({"status": "ok"}), 200
 
-        elif intencao_ia == "acessorios":
+        if etapa in ["menu_duvidas", "duvida_revisoes", "duvida_garantia", "duvida_pos_resposta"] and intencao_ia == "acessorios":
             iniciar_fluxo_acessorios(telefone, texto)
             return jsonify({"status": "ok"}), 200
 
-        enviar_mensagem(telefone, menu_duvidas())
-        return jsonify({"status": "ok"}), 200
-
-    # ==========================================
-    # RESPOSTA DÚVIDAS
-    # ==========================================
-    if etapa in ["duvida_revisoes", "duvida_garantia"]:
-        if intencao_ia == "pecas":
-            iniciar_fluxo_pecas(telefone, texto)
-            return jsonify({"status": "ok"}), 200
-
-        if intencao_ia == "acessorios":
-            iniciar_fluxo_acessorios(telefone, texto)
-            return jsonify({"status": "ok"}), 200
-
-        categoria = "revisoes" if etapa == "duvida_revisoes" else "garantia"
-
-        resposta_duvida = responder_duvida_por_tabela(
-            categoria=categoria,
-            pergunta_cliente=texto,
-            modelo=clientes[telefone].get("modelo", ""),
-            revisao=clientes[telefone].get("revisao", "")
-        )
-
-        clientes[telefone]["duvidas_ia"] = int(clientes[telefone].get("duvidas_ia", 0) or 0) + 1
-
-        salvar_duvida_dashboard(
-            telefone=telefone,
-            categoria="Revisoes" if categoria == "revisoes" else "Garantia",
-            pergunta=texto,
-            resposta=resposta_duvida
-        )
-
-        enviar_mensagem(telefone, resposta_duvida)
-
-        clientes[telefone]["etapa"] = "duvida_pos_resposta"
-        enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
-        return jsonify({"status": "ok"}), 200
-
-    if etapa == "duvida_pos_resposta":
-        if intencao_ia == "pecas":
-            iniciar_fluxo_pecas(telefone, texto)
-            return jsonify({"status": "ok"}), 200
-
-        if intencao_ia == "acessorios":
-            iniciar_fluxo_acessorios(telefone, texto)
-            return jsonify({"status": "ok"}), 200
-
-        etapa_retorno = clientes[telefone].get("etapa_retorno_duvida", "")
-
-        if etapa_retorno and etapa_retorno.startswith("revisao"):
+        # ==========================================
+        # MENU PRINCIPAL
+        # ==========================================
+        if etapa == "menu":
             if texto_opcao == "1":
-                clientes[telefone]["etapa"] = etapa_retorno
-                enviar_mensagem(telefone, "Perfeito 👍 Vamos continuar seu agendamento.")
-
-                if etapa_retorno == "revisao_horario":
-                    revisao = clientes[telefone]["revisao"]
-                    dia = clientes[telefone]["dia"]
-                    horarios = horarios_por_revisao(revisao, dia)
-                    clientes[telefone]["horarios_disponiveis"] = horarios
-                    enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
-                else:
-                    enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa_retorno))
-
+                clientes[telefone]["atendimento_humano"] = False
+                definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
+                proxima = iniciar_fluxo_revisao_por_intencao(telefone, {})
+                enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, proxima))
                 return jsonify({"status": "ok"}), 200
 
             elif texto_opcao == "2":
-                clientes[telefone]["etapa"] = "menu_duvidas"
-                enviar_mensagem(telefone, menu_duvidas())
+                clientes[telefone]["atendimento_humano"] = False
+                iniciar_fluxo_pecas(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif texto_opcao == "3":
-                ativar_atendimento_humano(telefone)
+                clientes[telefone]["atendimento_humano"] = False
+                iniciar_fluxo_acessorios(telefone)
                 return jsonify({"status": "ok"}), 200
 
-            enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
-            return jsonify({"status": "ok"}), 200
+            elif texto_opcao == "4":
+                clientes[telefone]["atendimento_humano"] = False
+                clientes[telefone]["etapa"] = "garantia"
+                salvar_evento_atendimento(
+                    telefone=telefone,
+                    setor="Garantia",
+                    status=STATUS_NOVO_ATENDIMENTO,
+                    etapa="garantia_iniciado",
+                    atendimento_humano=False,
+                    concluido=False
+                )
+                enviar_mensagem(telefone, "🛡️ *Garantia*\n\nDescreva sua solicitação:")
+                return jsonify({"status": "ok"}), 200
 
-        else:
-            if texto_opcao == "1":
+            elif texto_opcao == "5":
+                clientes[telefone]["atendimento_humano"] = False
+                clientes[telefone]["etapa"] = "atacado"
+                salvar_evento_atendimento(
+                    telefone=telefone,
+                    setor="Logista / Atacado",
+                    status=STATUS_NOVO_ATENDIMENTO,
+                    etapa="atacado_iniciado",
+                    atendimento_humano=False,
+                    concluido=False
+                )
+                enviar_mensagem(
+                    telefone,
+                    "📦 *Logista / Atacado*\n\n"
+                    "1 - Solicitar cotação\n"
+                    "2 - Cadastro de logista\n"
+                    "3 - Receber catálogo\n"
+                    "4 - Falar com consultor"
+                )
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "6":
+                clientes[telefone]["atendimento_humano"] = False
                 clientes[telefone]["etapa"] = "menu_duvidas"
                 enviar_mensagem(telefone, menu_duvidas())
                 return jsonify({"status": "ok"}), 200
 
+            elif texto_opcao == "7":
+                ativar_atendimento_humano(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif intencao_ia == "agendar_revisao":
+                clientes[telefone]["atendimento_humano"] = False
+                definir_status_cliente(telefone, STATUS_AGENDAMENTO_INICIADO)
+                iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos_ia)
+
+                resumo = montar_resumo_dados_ia_revisao(telefone)
+                if resumo:
+                    enviar_mensagem(
+                        telefone,
+                        "Perfeito 👍 Entendi seu pedido de agendamento e já adiantei algumas informações."
+                    )
+                else:
+                    enviar_mensagem(
+                        telefone,
+                        "Perfeito 👍 Vou seguir com seu agendamento de revisão."
+                    )
+
+                enviar_proxima_etapa_com_contexto_ia(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif intencao_ia == "pecas":
+                clientes[telefone]["atendimento_humano"] = False
+                iniciar_fluxo_pecas(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            elif intencao_ia == "acessorios":
+                clientes[telefone]["atendimento_humano"] = False
+                iniciar_fluxo_acessorios(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            elif intencao_ia == "duvidas":
+                clientes[telefone]["atendimento_humano"] = False
+                clientes[telefone]["etapa"] = "menu_duvidas"
+                enviar_mensagem(telefone, menu_duvidas())
+                return jsonify({"status": "ok"}), 200
+
+            elif intencao_ia == "garantia":
+                clientes[telefone]["atendimento_humano"] = False
+                clientes[telefone]["etapa"] = "garantia"
+                salvar_evento_atendimento(
+                    telefone=telefone,
+                    setor="Garantia",
+                    status=STATUS_NOVO_ATENDIMENTO,
+                    etapa="garantia_iniciado",
+                    atendimento_humano=False,
+                    concluido=False
+                )
+                enviar_mensagem(telefone, "🛡️ Descreva sua solicitação de garantia:")
+                return jsonify({"status": "ok"}), 200
+
+            elif intencao_ia == "atacado":
+                clientes[telefone]["atendimento_humano"] = False
+                clientes[telefone]["etapa"] = "atacado"
+                salvar_evento_atendimento(
+                    telefone=telefone,
+                    setor="Logista / Atacado",
+                    status=STATUS_NOVO_ATENDIMENTO,
+                    etapa="atacado_iniciado",
+                    atendimento_humano=False,
+                    concluido=False
+                )
+                enviar_mensagem(
+                    telefone,
+                    "📦 *Logista / Atacado*\n\n"
+                    "1 - Solicitar cotação\n"
+                    "2 - Cadastro de logista\n"
+                    "3 - Receber catálogo\n"
+                    "4 - Falar com consultor"
+                )
+                return jsonify({"status": "ok"}), 200
+
+            enviar_menu(telefone)
+            return jsonify({"status": "ok"}), 200
+
+        # ==========================================
+        # MENU DÚVIDAS
+        # ==========================================
+        if etapa == "menu_duvidas":
+            if texto_opcao == "1":
+                clientes[telefone]["categoria_duvida"] = "revisoes"
+                clientes[telefone]["etapa"] = "duvida_revisoes"
+                enviar_mensagem(
+                    telefone,
+                    "📘 *Dúvidas sobre Revisões*\n\n"
+                    "Pode me enviar sua dúvida em texto livre.\n\n"
+                    "Exemplos:\n"
+                    "• Qual o valor da revisão?\n"
+                    "• O que troca na 2ª revisão?\n"
+                    "• Quanto tempo demora?\n"
+                    "• Com quantos km faz a revisão?"
+                )
+                return jsonify({"status": "ok"}), 200
+
             elif texto_opcao == "2":
+                clientes[telefone]["categoria_duvida"] = "garantia"
+                clientes[telefone]["etapa"] = "duvida_garantia"
+                enviar_mensagem(
+                    telefone,
+                    "📘 *Dúvidas sobre Garantia*\n\n"
+                    "Pode me enviar sua dúvida em texto livre.\n\n"
+                    "Exemplos:\n"
+                    "• O que a garantia cobre?\n"
+                    "• Preciso levar documentos?\n"
+                    "• Posso perder a garantia?\n"
+                    "• Como funciona a análise?"
+                )
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "3":
                 resetar_cliente(telefone)
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
 
-            elif texto_opcao == "3":
-                ativar_atendimento_humano(telefone)
+            elif intencao_ia == "pecas":
+                iniciar_fluxo_pecas(telefone, texto)
                 return jsonify({"status": "ok"}), 200
 
+            elif intencao_ia == "acessorios":
+                iniciar_fluxo_acessorios(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            enviar_mensagem(telefone, menu_duvidas())
+            return jsonify({"status": "ok"}), 200
+
+        # ==========================================
+        # RESPOSTA DÚVIDAS
+        # ==========================================
+        if etapa in ["duvida_revisoes", "duvida_garantia"]:
+            if intencao_ia == "pecas":
+                iniciar_fluxo_pecas(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            if intencao_ia == "acessorios":
+                iniciar_fluxo_acessorios(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            categoria = "revisoes" if etapa == "duvida_revisoes" else "garantia"
+
+            resposta_duvida = responder_duvida_por_tabela(
+                categoria=categoria,
+                pergunta_cliente=texto,
+                modelo=clientes[telefone].get("modelo", ""),
+                revisao=clientes[telefone].get("revisao", "")
+            )
+
+            clientes[telefone]["duvidas_ia"] = int(clientes[telefone].get("duvidas_ia", 0) or 0) + 1
+
+            salvar_duvida_dashboard(
+                telefone=telefone,
+                categoria="Revisoes" if categoria == "revisoes" else "Garantia",
+                pergunta=texto,
+                resposta=resposta_duvida
+            )
+
+            enviar_mensagem(telefone, resposta_duvida)
+
+            clientes[telefone]["etapa"] = "duvida_pos_resposta"
             enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
             return jsonify({"status": "ok"}), 200
 
+        if etapa == "duvida_pos_resposta":
+            if intencao_ia == "pecas":
+                iniciar_fluxo_pecas(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            if intencao_ia == "acessorios":
+                iniciar_fluxo_acessorios(telefone, texto)
+                return jsonify({"status": "ok"}), 200
+
+            etapa_retorno = clientes[telefone].get("etapa_retorno_duvida", "")
+
+            if etapa_retorno and etapa_retorno.startswith("revisao"):
+                if texto_opcao == "1":
+                    clientes[telefone]["etapa"] = etapa_retorno
+                    enviar_mensagem(telefone, "Perfeito 👍 Vamos continuar seu agendamento.")
+
+                    if etapa_retorno == "revisao_horario":
+                        revisao = clientes[telefone]["revisao"]
+                        dia = clientes[telefone]["dia"]
+                        horarios = horarios_por_revisao(revisao, dia)
+                        clientes[telefone]["horarios_disponiveis"] = horarios
+                        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+                    else:
+                        enviar_mensagem(
+                            telefone,
+                            mensagem_por_etapa_revisao(telefone, etapa_retorno)
+                        )
+
+                    return jsonify({"status": "ok"}), 200
+
+                elif texto_opcao == "2":
+                    clientes[telefone]["etapa"] = "menu_duvidas"
+                    enviar_mensagem(telefone, menu_duvidas())
+                    return jsonify({"status": "ok"}), 200
+
+                elif texto_opcao == "3":
+                    ativar_atendimento_humano(telefone)
+                    return jsonify({"status": "ok"}), 200
+
+                enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
+                return jsonify({"status": "ok"}), 200
+
+            else:
+                if texto_opcao == "1":
+                    clientes[telefone]["etapa"] = "menu_duvidas"
+                    enviar_mensagem(telefone, menu_duvidas())
+                    return jsonify({"status": "ok"}), 200
+
+                elif texto_opcao == "2":
+                    resetar_cliente(telefone)
+                    enviar_menu(telefone)
+                    return jsonify({"status": "ok"}), 200
+
+                elif texto_opcao == "3":
+                    ativar_atendimento_humano(telefone)
+                    return jsonify({"status": "ok"}), 200
+
+                enviar_mensagem(telefone, mensagem_duvida_retorno_fluxo(telefone))
+                return jsonify({"status": "ok"}), 200
     # ==========================================
     # FLUXO REVISÃO
     # ==========================================
@@ -3292,7 +3505,12 @@ def webhook():
             "revisao_confirmacao",
         }
 
-        if etapa in etapas_bloqueadas_para_troca_setor and intencao_ia in ["pecas", "acessorios", "garantia", "atacado"]:
+        if etapa in etapas_bloqueadas_para_troca_setor and intencao_ia in [
+            "pecas",
+            "acessorios",
+            "garantia",
+            "atacado",
+        ]:
             intencao_ia = ""
 
         etapa_atualizada = primeira_etapa_pendente_revisao(telefone)
@@ -3369,7 +3587,10 @@ def webhook():
             cpf = clientes[telefone].get("cpf") or limpar_cpf(texto)
 
             if len(cpf) != 11:
-                enviar_mensagem(telefone, "⚠️ CPF inválido. Digite novamente com 11 números:")
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ CPF inválido. Digite novamente com 11 números:",
+                )
                 return jsonify({"status": "ok"}), 200
 
             clientes[telefone]["cpf"] = cpf
@@ -3391,7 +3612,10 @@ def webhook():
             km_atual = clientes[telefone].get("km_atual") or re.sub(r"\D", "", texto)
 
             if not km_atual:
-                enviar_mensagem(telefone, "⚠️ Informe a quilometragem atual da moto.")
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Informe a quilometragem atual da moto.",
+                )
                 return jsonify({"status": "ok"}), 200
 
             clientes[telefone]["km_atual"] = km_atual
@@ -3420,7 +3644,7 @@ def webhook():
                     "Digite de 1 a 5 ou escreva algo como:\n"
                     "• 1ª revisão\n"
                     "• 2ª revisão\n"
-                    "• revisão de 5 mil"
+                    "• revisão de 5 mil",
                 )
                 return jsonify({"status": "ok"}), 200
 
@@ -3446,16 +3670,19 @@ def webhook():
             if not validar_data(data_digitada):
                 enviar_mensagem(
                     telefone,
-                    "⚠️ Data inválida.\n\nDigite novamente no formato *dd/mm/aaaa*."
+                    "⚠️ Data inválida.\n\nDigite novamente no formato *dd/mm/aaaa*.",
                 )
                 return jsonify({"status": "ok"}), 200
 
-            if not data_corresponde_ao_dia_escolhido(data_digitada, clientes[telefone]["dia"]):
+            if not data_corresponde_ao_dia_escolhido(
+                data_digitada,
+                clientes[telefone]["dia"],
+            ):
                 enviar_mensagem(
                     telefone,
                     "⚠️ A data informada não corresponde ao dia que você escolheu.\n\n"
                     f"Você escolheu *{clientes[telefone]['dia_texto']}*.\n"
-                    "Digite uma data compatível no formato *dd/mm/aaaa*."
+                    "Digite uma data compatível no formato *dd/mm/aaaa*.",
                 )
                 return jsonify({"status": "ok"}), 200
 
@@ -3481,10 +3708,14 @@ def webhook():
                 enviar_mensagem(telefone, "⚠️ Escolha um horário válido.")
                 return jsonify({"status": "ok"}), 200
 
-            if not verificar_capacidade(clientes[telefone]["data"], horario, clientes[telefone]["revisao"]):
+            if not verificar_capacidade(
+                clientes[telefone]["data"],
+                horario,
+                clientes[telefone]["revisao"],
+            ):
                 enviar_mensagem(
                     telefone,
-                    "⚠️ Esse horário acabou de ficar indisponível.\n\nEscolha outro horário:"
+                    "⚠️ Esse horário acabou de ficar indisponível.\n\nEscolha outro horário:",
                 )
                 enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
                 return jsonify({"status": "ok"}), 200
@@ -3535,7 +3766,7 @@ def webhook():
                 if not protocolo:
                     enviar_mensagem(
                         telefone,
-                        "❌ Ocorreu um erro ao salvar seu agendamento.\nTente novamente em instantes."
+                        "❌ Ocorreu um erro ao salvar seu agendamento.\nTente novamente em instantes.",
                     )
                     return jsonify({"status": "ok"}), 200
 
@@ -3547,11 +3778,22 @@ def webhook():
                 try:
                     retorno_sances = enviar_agendamento_para_sances(dados)
 
-                    clientes[telefone]["sances_status"] = retorno_sances.get("status", SANCES_STATUS_ERRO)
-                    clientes[telefone]["sances_protocolo"] = retorno_sances.get("protocolo_sances", "")
-                    clientes[telefone]["sances_erro"] = retorno_sances.get("erro", "")
+                    clientes[telefone]["sances_status"] = retorno_sances.get(
+                        "status",
+                        SANCES_STATUS_ERRO,
+                    )
+                    clientes[telefone]["sances_protocolo"] = retorno_sances.get(
+                        "protocolo_sances",
+                        "",
+                    )
+                    clientes[telefone]["sances_erro"] = retorno_sances.get(
+                        "erro",
+                        "",
+                    )
                     clientes[telefone]["sances_data_envio"] = formatar_data_hora()
-                    clientes[telefone]["sances_enviado"] = bool(retorno_sances.get("sucesso", False))
+                    clientes[telefone]["sances_enviado"] = bool(
+                        retorno_sances.get("sucesso", False)
+                    )
 
                     atualizar_status_sances_agendamento(protocolo, retorno_sances)
 
@@ -3580,7 +3822,7 @@ def webhook():
                     f"📌 Protocolo: {protocolo}"
                     f"{mensagem_sances}\n\n"
                     "Lembrando de trazer o manual no momento da revisão para facilitar o atendimento.\n\n"
-                    "Agradecemos por escolher a *Motoshow Yamaha* 🏍️"
+                    "Agradecemos por escolher a *Motoshow Yamaha* 🏍️",
                 )
 
                 resetar_cliente(telefone)
@@ -3592,18 +3834,20 @@ def webhook():
                 enviar_mensagem(
                     telefone,
                     "Perfeito. Vamos corrigir seu agendamento.\n\n"
-                    "Informe novamente o *modelo da moto*:"
+                    "Informe novamente o *modelo da moto*:",
                 )
                 return jsonify({"status": "ok"}), 200
 
             else:
                 enviar_mensagem(
                     telefone,
-                    "⚠️ Digite *1* para confirmar ou *2* para corrigir."
+                    "⚠️ Digite *1* para confirmar ou *2* para corrigir.",
                 )
                 return jsonify({"status": "ok"}), 200
 
-    # ==========================================
+        return jsonify({"status": "ok"}), 200
+
+     # ==========================================
     # PEÇAS / ACESSÓRIOS / GARANTIA / ATACADO
     # ==========================================
     if etapa == "pecas":
@@ -3614,12 +3858,12 @@ def webhook():
             etapa="pecas_solicitada",
             dados={"observacao": texto},
             atendimento_humano=False,
-            concluido=True
+            concluido=True,
         )
         enviar_mensagem(
             telefone,
             "✅ Sua solicitação de peças foi registrada com sucesso.\n\n"
-            "Nossa equipe vai continuar seu atendimento."
+            "Nossa equipe vai continuar seu atendimento.",
         )
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
@@ -3632,11 +3876,11 @@ def webhook():
             etapa="acessorio_solicitado",
             dados={"observacao": texto},
             atendimento_humano=False,
-            concluido=True
+            concluido=True,
         )
         enviar_mensagem(
             telefone,
-            "✅ Solicitação registrada.\nNossa equipe dará continuidade."
+            "✅ Solicitação registrada.\nNossa equipe dará continuidade.",
         )
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
@@ -3649,14 +3893,13 @@ def webhook():
             etapa="garantia_solicitada",
             dados={"observacao": texto},
             atendimento_humano=False,
-            concluido=True
+            concluido=True,
         )
         enviar_mensagem(
             telefone,
             "✅ Sua solicitação de garantia foi registrada com sucesso.\n\n"
-            "Nossa equipe vai continuar seu atendimento."
+            "Nossa equipe vai continuar seu atendimento.",
         )
-
         resetar_cliente(telefone)
         return jsonify({"status": "ok"}), 200
 
@@ -3665,7 +3908,7 @@ def webhook():
             enviado = enviar_pdf(
                 telefone,
                 "catalogo-atacado.pdf",
-                "📄 Catálogo Atacado Motoshow Yamaha"
+                "📄 Catálogo Atacado Motoshow Yamaha",
             )
 
             salvar_evento_atendimento(
@@ -3674,7 +3917,7 @@ def webhook():
                 status=STATUS_NOVO_ATENDIMENTO,
                 etapa="catalogo_atacado_enviado" if enviado else "catalogo_atacado_falha",
                 atendimento_humano=False,
-                concluido=True
+                concluido=True,
             )
 
             if enviado:
@@ -3682,7 +3925,7 @@ def webhook():
             else:
                 enviar_mensagem(
                     telefone,
-                    "⚠️ Não consegui enviar o catálogo agora. Nossa equipe dará continuidade."
+                    "⚠️ Não consegui enviar o catálogo agora. Nossa equipe dará continuidade.",
                 )
         else:
             salvar_evento_atendimento(
@@ -3692,12 +3935,12 @@ def webhook():
                 etapa="atacado_solicitado",
                 dados={"observacao": texto},
                 atendimento_humano=False,
-                concluido=True
+                concluido=True,
             )
             enviar_mensagem(
                 telefone,
                 "✅ Sua solicitação foi registrada com sucesso.\n\n"
-                "Nossa equipe comercial vai continuar seu atendimento."
+                "Nossa equipe comercial vai continuar seu atendimento.",
             )
 
         resetar_cliente(telefone)
@@ -3708,12 +3951,20 @@ def webhook():
 
     return jsonify({"status": "ok"}), 200
 
+except Exception as e:
+    log_erro("ERRO NO WEBHOOK:", repr(e))
+    return jsonify(
+        {
+            "status": "erro",
+            "detalhe": "falha interna no webhook",
+        }
+    ), 200
+
 
 # ==========================================
 # INICIAR WORKER
 # ==========================================
 iniciar_worker()
-
 
 # ==========================================
 # START
@@ -3721,5 +3972,5 @@ iniciar_worker()
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 5000))
+        port=int(os.getenv("PORT", 5000)),
     )
