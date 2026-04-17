@@ -2089,7 +2089,8 @@ def processar_lembretes_agendamento():
     db = SessionLocal()
 
     try:
-        hoje = datetime.now().date()
+        agora = datetime.now()
+        hoje = agora.date()
 
         agendamentos = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
@@ -2112,8 +2113,9 @@ def processar_lembretes_agendamento():
                     continue
 
                 diferenca = (data_agendada - hoje).days
+                data_criacao = getattr(ag, "data", None)
 
-                if diferenca == 1:
+                if diferenca == 1 and data_criacao and (agora - data_criacao).total_seconds() > 3600:
                     mensagem = (
                         "🔔 *Lembrete de Revisão*\n\n"
                         f"Olá *{str(getattr(ag, 'nome', '') or '')}*\n\n"
