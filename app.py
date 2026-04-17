@@ -2823,18 +2823,36 @@ def webhook():
         clientes[telefone]["etapa"] = "atendimento_humano"
         definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
 
-        if texto_normalizado not in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
-            return jsonify({"status": "ok", "modo": "atendimento_humano"}), 200
-
-    resposta_ia = obter_dados_extraidos_ia(texto)
-    intencao_ia = resposta_ia.get("intencao", "")
-    dados_extraidos_ia = resposta_ia.get("dados_extraidos", {}) or {}
-
     if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
         encerrar_atendimento_humano(telefone)
         resetar_cliente(telefone)
         enviar_menu(telefone)
         return jsonify({"status": "ok"}), 200
+
+    etapa = clientes[telefone]["etapa"]
+
+    etapas_bloqueadas_ia = [
+        "revisao_modelo",
+        "revisao_nome",
+        "revisao_cpf",
+        "revisao_ano",
+        "revisao_km",
+        "revisao_revisao",
+        "revisao_dia",
+        "revisao_data",
+        "revisao_horario",
+        "revisao_venda",
+        "revisao_observacao",
+        "revisao_confirmacao"
+    ]
+
+    if etapa in etapas_bloqueadas_ia:
+        resposta_ia = resposta_ia_vazia()
+    else:
+        resposta_ia = obter_dados_extraidos_ia(texto)
+
+    intencao_ia = resposta_ia.get("intencao", "")
+    dados_extraidos_ia = resposta_ia.get("dados_extraidos", {}) or {}
 
     etapa = clientes[telefone]["etapa"]
 
