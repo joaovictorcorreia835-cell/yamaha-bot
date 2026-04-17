@@ -2844,6 +2844,7 @@ def webhook():
     message_id = extrair_message_id(payload)
     telefone = extrair_telefone(payload)
     texto = extrair_texto(payload)
+    tipo_mensagem = extrair_tipo_mensagem(payload)
 
     if not telefone:
         return jsonify({"status": "ignorado", "motivo": "sem telefone"}), 200
@@ -2889,7 +2890,8 @@ def webhook():
         clientes[telefone]["etapa"] = "atendimento_humano"
         definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
 
-        if texto_normalizado not in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
+        # em atendimento humano o bot só volta se o cliente mandar menu
+        if texto_normalizado != "menu":
             return jsonify({"status": "ok", "modo": "atendimento_humano"}), 200
 
     if texto_normalizado in ["menu", "oi", "olá", "ola", "bom dia", "boa tarde", "boa noite"]:
@@ -2897,6 +2899,16 @@ def webhook():
         resetar_cliente(telefone)
         enviar_menu(telefone)
         return jsonify({"status": "ok"}), 200
+
+    # tratamento de áudio fora do atendimento humano
+    if tipo_mensagem == "audio":
+        enviar_mensagem(
+            telefone,
+            "🎤 Recebi seu áudio.\n\n"
+            "No momento, para eu seguir corretamente no atendimento automático, peço que envie sua mensagem em *texto*.\n\n"
+            "Se preferir, digite *7* para falar com *atendimento humano*."
+        )
+        return jsonify({"status": "ok", "modo": "audio_recebido"}), 200
 
     etapa = clientes[telefone]["etapa"]
 
@@ -2931,6 +2943,7 @@ def webhook():
     # texto
     # texto_opcao
     # texto_normalizado
+
     # ==========================================
     # INTENÇÕES GERAIS
     # ==========================================
