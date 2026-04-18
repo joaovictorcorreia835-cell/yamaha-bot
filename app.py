@@ -1809,6 +1809,16 @@ def salvar_agendamento(telefone, dados):
             dados.get("venda_adicional", "")
         )
 
+        if limpar_texto(itens_formatados).upper() in ["", "NENHUM", "NAO", "NÃO", "2"]:
+            itens_formatados = ""
+
+        if limpar_texto(venda_formatada).upper() in ["", "NENHUM", "NAO", "NÃO", "2"]:
+            venda_formatada = "Nenhum"
+
+        observacao = limpar_texto(dados.get("observacao", ""))
+        if observacao.strip().upper() in ["", "NENHUMA", "NENHUM", "NAO", "NÃO", "2"]:
+            observacao = "Nenhuma"
+
         agendamento = AgendamentoRevisao(
             protocolo=protocolo,
             telefone=limpar_telefone(telefone),
@@ -1823,7 +1833,7 @@ def salvar_agendamento(telefone, dados):
             itens=itens_formatados,
             venda_adicional=venda_formatada,
             status=normalizar_status(STATUS_AGENDADO),
-            observacoes=limpar_texto(dados.get("observacao", "")),
+            observacoes=observacao,
             origem="BOT",
             sances_status=SANCES_STATUS_PENDENTE,
             sances_enviado=False,
@@ -1836,16 +1846,20 @@ def salvar_agendamento(telefone, dados):
         db.commit()
         db.refresh(agendamento)
 
+        try:
+            salvar_atendimento_dashboard(telefone, dados)
+        except Exception as e:
+            log_erro("Erro ao salvar atendimento no dashboard:", repr(e))
+
         log_info("Agendamento salvo:", protocolo)
-        return protocolo
+        return True, protocolo
 
     except Exception as e:
         db.rollback()
         import traceback
-
         traceback.print_exc()
         log_erro("Erro salvar agendamento:", repr(e))
-        return None
+        return False, ""
 
     finally:
         db.close()
@@ -1861,7 +1875,6 @@ def salvar_atendimento_dashboard(telefone, dados):
         atendimento_humano=False,
         concluido=True,
     )
-
 
 # ==========================================
 # CONSULTA / CANCELAMENTO / REAGENDAMENTO
@@ -3548,9 +3561,9 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_venda":
-                resposta = texto_normalizado.strip()
+                resposta_venda = texto_normalizado.strip()
 
-                if resposta in ["2", "nao", "não", "nenhum", "nenhuma"]:
+                if resposta_venda in ["2", "nao", "não", "nenhum", "nenhuma"]:
                     clientes[telefone]["venda_adicional"] = "Nenhum"
                     clientes[telefone]["itens"] = ""
                 else:
@@ -3561,9 +3574,9 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_observacao":
-                resposta = texto_normalizado.strip()
+                resposta_observacao = texto_normalizado.strip()
 
-                if resposta in ["2", "nao", "não", "nenhuma", "nenhum", "sem observacao", "sem observação"]:
+                if resposta_observacao in ["2", "nao", "não", "nenhuma", "nenhum", "sem observacao", "sem observação"]:
                     clientes[telefone]["observacao"] = "Nenhuma"
                 else:
                     clientes[telefone]["observacao"] = texto.strip()
@@ -3576,47 +3589,76 @@ def webhook():
 
                 if resposta in ["1", "sim", "confirmar", "confirmo"]:
                     try:
-                        sucesso, protocolo = salvar_agendamento(telefone, clientes[telefone])
+                        resultado_salvamento = salvar_agendamento(telefone, clientes[telefone])
+
+                        sucesso = False
+                        protocolo = ""
+
+                        if isinstance(resultado_salvamento, tuple):
+                            if len(resultado_salvamento) >= 2:
+                                sucesso = bool(resultado_salvamento[0])
+                                protocolo = str(resultado_salvamento[1] or "")
+                            elif len(resultado_salvamento) == 1:
+                                sucesso = True
+                                protocolo = str(resultado_salvamento[0] or "")
+                        elif isinstance(resultado_salvamento, str):
+                            sucesso = True
+                            protocolo = resultado_salvamento
+                        elif resultado_salvamento is True:
+                            sucesso = True
 
                         if sucesso:
-                            enviar_mensagem(
-                                telefone,
-                                f"✅ Agendamento confirmado com sucesso!\n\n📌 Protocolo: *{protocolo}*"
-                            )
+                            if protocolo:
+                                enviar_mensagem(
+                                    telefone,
+                                    f"✅ Agendamento confirmado com sucesso!\n\n📌 Protocolo: *{protocolo}*"
+                                )
+                            else:
+                                enviar_mensagem(
+                                    telefone,
+                                    "✅ Agendamento confirmado com sucesso!"
+                                )
                             resetar_cliente(telefone)
                         else:
                             enviar_mensagem(
                                 telefone,
                                 "❌ Erro ao salvar agendamento.\n\nTente novamente em instantes."
                             )
-                            log_erro("Falha no salvar_agendamento sem exceção explícita.", clientes[telefone])
+                            log_erro(
+                                "Falha no retorno do salvar_agendamento:",
+                                repr(resultado_salvamento)
+                            )
+
                     except Exception as e:
                         log_erro("ERRO AO CONFIRMAR AGENDAMENTO:", repr(e))
                         enviar_mensagem(
                             telefone,
                             "❌ Ocorreu um erro ao concluir seu agendamento.\n\nTente novamente em instantes."
                         )
-                return jsonify({"status": "ok"}), 200
 
-            elif resposta in ["2", "nao", "não", "cancelar", "corrigir"]:
-                clientes[telefone]["horario"] = ""
-                clientes[telefone]["horarios_disponiveis"] = []
-                clientes[telefone]["tipo_atendimento"] = ""
-                clientes[telefone]["venda_adicional"] = ""
-                clientes[telefone]["observacao"] = ""
-                enviar_mensagem(
-                    telefone,
-                    "🔄 Tudo bem. Vamos ajustar as informações finais do agendamento."
-                )
-                enviar_proxima_etapa_revisao(telefone)
-                return jsonify({"status": "ok"}), 200
+                    return jsonify({"status": "ok"}), 200
 
-            else:
-                enviar_mensagem(
-                    telefone,
-                    "Para confirmar, responda com *1*.\nSe quiser corrigir, responda com *2*."
-                )
-                return jsonify({"status": "ok"}), 200
+                elif resposta in ["2", "nao", "não", "cancelar", "corrigir"]:
+                    clientes[telefone]["horario"] = ""
+                    clientes[telefone]["horarios_disponiveis"] = []
+                    clientes[telefone]["tipo_atendimento"] = ""
+                    clientes[telefone]["venda_adicional"] = ""
+                    clientes[telefone]["observacao"] = ""
+                    enviar_mensagem(
+                        telefone,
+                        "🔄 Tudo bem. Vamos ajustar as informações finais do agendamento."
+                    )
+                    enviar_proxima_etapa_revisao(telefone)
+                    return jsonify({"status": "ok"}), 200
+
+                else:
+                    enviar_mensagem(
+                        telefone,
+                        "Para confirmar, responda com *1*.\nSe quiser corrigir, responda com *2*."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+            return jsonify({"status": "ok"}), 200
 
         # ==========================================
         # DÚVIDAS
@@ -3654,13 +3696,13 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         if etapa == "duvida_revisoes":
-            resposta = responder_duvida_por_tabela(
+            resposta_duvida = responder_duvida_por_tabela(
                 categoria="revisoes",
                 pergunta_cliente=texto,
                 modelo=clientes[telefone].get("modelo", ""),
                 revisao=clientes[telefone].get("revisao", ""),
             )
-            enviar_mensagem(telefone, resposta or "Não encontrei essa informação no momento.")
+            enviar_mensagem(telefone, resposta_duvida or "Não encontrei essa informação no momento.")
             enviar_mensagem(
                 telefone,
                 "Se quiser fazer outra pergunta, pode me enviar agora.\n\n"
@@ -3669,13 +3711,13 @@ def webhook():
             return jsonify({"status": "ok"}), 200
 
         if etapa == "duvida_garantia":
-            resposta = responder_duvida_por_tabela(
+            resposta_duvida = responder_duvida_por_tabela(
                 categoria="garantia",
                 pergunta_cliente=texto,
                 modelo=clientes[telefone].get("modelo", ""),
                 revisao=clientes[telefone].get("revisao", ""),
             )
-            enviar_mensagem(telefone, resposta or "Não encontrei essa informação no momento.")
+            enviar_mensagem(telefone, resposta_duvida or "Não encontrei essa informação no momento.")
             enviar_mensagem(
                 telefone,
                 "Se quiser fazer outra pergunta, pode me enviar agora.\n\n"
