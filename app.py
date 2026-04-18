@@ -3496,10 +3496,10 @@ def webhook():
             elif etapa == "revisao_revisao":
                 revisao = re.sub(r"\D", "", texto)
 
-                if not revisao:
+                if revisao not in ["1", "2", "3", "4", "5"]:
                     enviar_mensagem(
                         telefone,
-                        "⚠️ Revisão inválida.\n\nInforme o número da revisão.\nExemplo: *1*, *2*, *3*"
+                        "⚠️ Opção inválida.\n\nDigite um número de *1 a 5* para escolher a revisão."
                     )
                     return jsonify({"status": "ok"}), 200
 
@@ -3509,19 +3509,46 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_dia":
-                clientes[telefone]["dia"] = texto_opcao or texto.strip()
+                dia = texto_opcao.strip()
+
+                if dia not in ["1", "2", "3", "4", "5", "6"]:
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Dia inválido.\n\nEscolha uma opção de *1 a 6*."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["dia"] = dia
                 clientes[telefone]["etapa"] = "revisao_data"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_data":
-                clientes[telefone]["data"] = texto.strip()
+                data = texto.strip()
+
+                if not re.match(r"^\d{2}/\d{2}/\d{4}$", data):
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Data inválida.\n\nEnvie no formato *DD/MM/AAAA*.\nExemplo: *25/04/2026*"
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["data"] = data
                 clientes[telefone]["etapa"] = "revisao_horario"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_horario":
-                clientes[telefone]["horario"] = texto.strip()
+                horario = texto.strip()
+
+                if not re.match(r"^\d{2}:\d{2}$", horario):
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Horário inválido.\n\nEnvie no formato *HH:MM*.\nExemplo: *08:00*"
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["horario"] = horario
                 clientes[telefone]["etapa"] = "revisao_venda"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
@@ -3533,22 +3560,39 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_confirmacao":
-                if texto.strip() == "1":
+                resposta = texto.strip().lower()
+
+                if resposta in ["1", "sim", "confirmar", "confirmo"]:
                     sucesso, protocolo = salvar_agendamento(telefone, clientes[telefone])
+
                     if sucesso:
                         enviar_mensagem(
                             telefone,
-                            f"✅ Agendamento confirmado!\nProtocolo: {protocolo}"
+                            f"✅ Agendamento confirmado com sucesso!\n\n📌 Protocolo: *{protocolo}*"
                         )
                         resetar_cliente(telefone)
                     else:
-                        enviar_mensagem(telefone, "❌ Erro ao salvar agendamento.")
+                        enviar_mensagem(
+                            telefone,
+                            "❌ Erro ao salvar agendamento.\n\nTente novamente em instantes."
+                        )
+
+                    return jsonify({"status": "ok"}), 200
+
+                elif resposta in ["2", "nao", "não", "cancelar"]:
+                    enviar_mensagem(
+                        telefone,
+                        "❌ Agendamento não confirmado.\n\nDigite *menu* para voltar ao início."
+                    )
+                    resetar_cliente(telefone)
+                    return jsonify({"status": "ok"}), 200
+
                 else:
                     enviar_mensagem(
                         telefone,
-                        "Para confirmar, digite *1*."
+                        "Para confirmar, responda com *1*.\nSe quiser cancelar, responda com *2*."
                     )
-                return jsonify({"status": "ok"}), 200
+                    return jsonify({"status": "ok"}), 200
 
             return jsonify({"status": "ok"}), 200
 
