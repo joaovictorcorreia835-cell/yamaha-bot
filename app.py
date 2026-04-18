@@ -1607,63 +1607,128 @@ def montar_resumo_dados_ia_revisao(telefone):
     return "Já identifiquei estas informações do seu pedido:\n\n" + "\n".join(partes)
 
 
-def enviar_proxima_etapa_com_contexto_ia(telefone):
-    iniciar_cliente(telefone)
+def enviar_proxima_etapa_revisao(telefone):
+    etapa = clientes.get(telefone, {}).get("etapa", "")
 
-    etapa = primeira_etapa_pendente_revisao(telefone)
-    clientes[telefone]["etapa"] = etapa
-
-    resumo = montar_resumo_dados_ia_revisao(telefone)
-
-    if etapa != "revisao_horario":
-        clientes[telefone]["horarios_disponiveis"] = []
-
-    if etapa == "revisao_horario":
-        revisao = limpar_texto(clientes[telefone].get("revisao", ""))
-        dia = limpar_texto(clientes[telefone].get("dia", ""))
-
-        horarios = horarios_por_revisao(revisao, dia)
-
-        if not horarios:
-            clientes[telefone]["etapa"] = "revisao_dia"
-            clientes[telefone]["horarios_disponiveis"] = []
-
-            mensagem = (
-                "⚠️ Não encontrei horários disponíveis para esse tipo de revisão nesse dia.\n\n"
-                "Vamos escolher outro dia."
-            )
-
-            if resumo:
-                mensagem = f"{resumo}\n\n{mensagem}"
-
-            enviar_mensagem(telefone, mensagem)
-            enviar_mensagem(
-                telefone,
-                mensagem_por_etapa_revisao(telefone, "revisao_dia"),
-            )
-            return
-
-        clientes[telefone]["horarios_disponiveis"] = horarios
-
-        if resumo:
-            enviar_mensagem(
-                telefone,
-                f"{resumo}\n\nPerfeito 👍 Agora só falta você escolher um horário.",
-            )
-
-        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
-        return
-
-    mensagem_etapa = mensagem_por_etapa_revisao(telefone, etapa)
-
-    if resumo:
+    if etapa == "revisao_modelo":
         enviar_mensagem(
             telefone,
-            f"{resumo}\n\nPerfeito 👍 Agora só preciso de mais uma informação para continuar.",
+            "🔧 *Agendamento de Revisão*\n\n"
+            "Perfeito 👍\n"
+            "Para eu seguir com seu atendimento, me informe o *modelo da sua moto*."
+        )
+        return
+
+    if etapa == "revisao_nome":
+        modelo = clientes[telefone].get("modelo", "")
+        enviar_mensagem(
+            telefone,
+            f"🏍️ Modelo: {modelo}\n\n"
+            "Ótimo 😊\n\n"
+            "Agora me informe seu *nome completo*."
+        )
+        return
+
+    if etapa == "revisao_cpf":
+        enviar_mensagem(
+            telefone,
+            "Perfeito.\n\n"
+            "Agora preciso do seu *CPF com 11 números* para continuar o agendamento."
+        )
+        return
+
+    if etapa == "revisao_ano":
+        enviar_mensagem(
+            telefone,
+            "Certo 👍\n\n"
+            "Me informe agora o *ano da sua moto*."
+        )
+        return
+
+    if etapa == "revisao_km":
+        enviar_mensagem(
+            telefone,
+            "Ótimo.\n\n"
+            "Me informe a *quilometragem atual da moto*."
+        )
+        return
+
+    if etapa == "revisao_revisao":
+        enviar_mensagem(
+            telefone,
+            "🛠️ *Qual revisão você deseja agendar?*\n\n"
+            "1 - 1ª Revisão\n"
+            "2 - 2ª Revisão\n"
+            "3 - 3ª Revisão\n"
+            "4 - 4ª Revisão\n"
+            "5 - 5ª Revisão ou acima"
+        )
+        return
+
+    if etapa == "revisao_dia":
+        enviar_mensagem(
+            telefone,
+            "📅 *Escolha o dia da semana desejado:*\n\n"
+            "1 - Segunda-feira\n"
+            "2 - Terça-feira\n"
+            "3 - Quarta-feira\n"
+            "4 - Quinta-feira\n"
+            "5 - Sexta-feira\n"
+            "6 - Sábado"
+        )
+        return
+
+    if etapa == "revisao_data":
+        enviar_mensagem(
+            telefone,
+            "📆 Agora me informe a *data desejada* no formato:\n\n"
+            "*DD/MM/AAAA*\n"
+            "Exemplo: *25/04/2026*"
+        )
+        return
+
+    if etapa == "revisao_horario":
+        enviar_mensagem(
+            telefone,
+            "⏰ Agora me informe o *horário desejado* no formato:\n\n"
+            "*HH:MM*\n"
+            "Exemplo: *08:00*"
+        )
+        return
+
+    if etapa == "revisao_venda":
+        enviar_mensagem(
+            telefone,
+            "🛍️ Deseja incluir algum item adicional?\n\n"
+            "Exemplo:\n"
+            "• Troca de óleo\n"
+            "• Pastilha de freio\n"
+            "• Filtro de ar\n\n"
+            "Se não quiser, responda: *não*"
+        )
+        return
+
+    if etapa == "revisao_confirmacao":
+        dados = clientes.get(telefone, {})
+
+        resumo = (
+            "✅ *Confirme seu agendamento:*\n\n"
+            f"👤 Nome: {dados.get('nome', '')}\n"
+            f"🏍️ Modelo: {dados.get('modelo', '')}\n"
+            f"🪪 CPF: {dados.get('cpf', '')}\n"
+            f"📅 Dia: {dados.get('dia', '')}\n"
+            f"📆 Data: {dados.get('data', '')}\n"
+            f"⏰ Horário: {dados.get('horario', '')}\n"
+            f"🔧 Revisão: {dados.get('revisao', '')}ª\n"
+            f"🛣️ KM: {dados.get('km_atual', '')}\n"
+            f"🛍️ Adicional: {dados.get('venda_adicional', '')}\n\n"
+            "Responda com:\n"
+            "*1* para confirmar\n"
+            "*2* para cancelar"
         )
 
-    enviar_mensagem(telefone, mensagem_etapa)
-
+        enviar_mensagem(telefone, resumo)
+        return
 
 # ==========================================
 # FLUXO REVISÃO
