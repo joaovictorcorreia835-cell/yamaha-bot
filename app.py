@@ -3356,7 +3356,6 @@ def webhook():
 
         # ==========================================
         # TRAVA DE ATENDIMENTO HUMANO
-        # Se estiver em atendimento humano, o bot só libera se o cliente digitar "menu"
         # ==========================================
         if clientes[telefone].get("atendimento_humano", False):
             atualizar_interacao(telefone)
@@ -3436,18 +3435,105 @@ def webhook():
         # FLUXO REVISÃO
         # ==========================================
         if etapa.startswith("revisao"):
+
             if etapa == "revisao_modelo":
-                clientes[telefone]["modelo"] = texto.upper()
+                clientes[telefone]["modelo"] = texto.upper().strip()
+                clientes[telefone]["etapa"] = "revisao_nome"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_nome":
-                clientes[telefone]["nome"] = texto.upper()
+                clientes[telefone]["nome"] = texto.upper().strip()
+                clientes[telefone]["etapa"] = "revisao_cpf"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_cpf":
+                cpf = limpar_cpf(texto)
+
+                if len(cpf) != 11:
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ CPF inválido.\n\nEnvie apenas os *11 números do CPF* para continuar."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["cpf"] = cpf
+                clientes[telefone]["etapa"] = "revisao_ano"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_ano":
+                ano = re.sub(r"\D", "", texto)
+
+                if len(ano) != 4:
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Ano inválido.\n\nInforme o *ano da moto* com 4 números.\nExemplo: *2024*"
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["ano"] = ano
+                clientes[telefone]["etapa"] = "revisao_km"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_km":
+                km = re.sub(r"\D", "", texto)
+
+                if not km:
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Quilometragem inválida.\n\nInforme apenas números.\nExemplo: *6000*"
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["km_atual"] = km
+                clientes[telefone]["etapa"] = "revisao_revisao"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_revisao":
+                revisao = re.sub(r"\D", "", texto)
+
+                if not revisao:
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Revisão inválida.\n\nInforme o número da revisão.\nExemplo: *1*, *2*, *3*"
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["revisao"] = revisao
+                clientes[telefone]["etapa"] = "revisao_dia"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_dia":
+                clientes[telefone]["dia"] = texto_opcao or texto.strip()
+                clientes[telefone]["etapa"] = "revisao_data"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_data":
+                clientes[telefone]["data"] = texto.strip()
+                clientes[telefone]["etapa"] = "revisao_horario"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_horario":
+                clientes[telefone]["horario"] = texto.strip()
+                clientes[telefone]["etapa"] = "revisao_venda"
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_venda":
+                clientes[telefone]["venda_adicional"] = texto.strip()
+                clientes[telefone]["etapa"] = "revisao_confirmacao"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_confirmacao":
-                if texto == "1":
+                if texto.strip() == "1":
                     sucesso, protocolo = salvar_agendamento(telefone, clientes[telefone])
                     if sucesso:
                         enviar_mensagem(
@@ -3456,9 +3542,12 @@ def webhook():
                         )
                         resetar_cliente(telefone)
                     else:
-                        enviar_mensagem(telefone, "Erro ao salvar agendamento.")
+                        enviar_mensagem(telefone, "❌ Erro ao salvar agendamento.")
                 else:
-                    enviar_mensagem(telefone, "Digite 1 para confirmar.")
+                    enviar_mensagem(
+                        telefone,
+                        "Para confirmar, digite *1*."
+                    )
                 return jsonify({"status": "ok"}), 200
 
             return jsonify({"status": "ok"}), 200
@@ -3494,7 +3583,6 @@ def webhook():
             "status": "erro",
             "detalhe": "falha interna no webhook"
         }), 200
-
 # ==========================================
 # INICIAR WORKER
 # ==========================================
