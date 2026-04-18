@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from flask import Flask, request, jsonify, send_from_directory, render_template
 import requests
 import os
@@ -3589,7 +3590,8 @@ def webhook():
 
                 if resposta in ["1", "sim", "confirmar", "confirmo"]:
                     try:
-                        resultado_salvamento = salvar_agendamento(telefone, clientes[telefone])
+                        dados = clientes[telefone]
+                        resultado_salvamento = salvar_agendamento(telefone, dados)
 
                         sucesso = False
                         protocolo = ""
@@ -3611,14 +3613,23 @@ def webhook():
                             if protocolo:
                                 enviar_mensagem(
                                     telefone,
-                                    f"✅ Agendamento confirmado com sucesso!\n\n📌 Protocolo: *{protocolo}*"
+                                    "✅ *Agendamento confirmado com sucesso*\n\n"
+                                    f"👤 {dados.get('nome', '').upper()}\n"
+                                    f"🏍️ {dados.get('modelo', '').upper()}\n"
+                                    f"📅 {dados.get('data', '')}\n"
+                                    f"⏰ {dados.get('horario', '')}\n"
+                                    f"📌 Protocolo: {protocolo}\n\n"
+                                    "📖 Lembrando de trazer o manual no momento da revisão para facilitar o atendimento.\n\n"
+                                    "🙏 Agradecemos por escolher a *Motoshow Yamaha* 🏍️"
                                 )
                             else:
                                 enviar_mensagem(
                                     telefone,
-                                    "✅ Agendamento confirmado com sucesso!"
+                                    "✅ *Agendamento confirmado com sucesso!*"
                                 )
+
                             resetar_cliente(telefone)
+
                         else:
                             enviar_mensagem(
                                 telefone,
@@ -3689,6 +3700,7 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_opcao == "3":
+                clientes[telefone]["etapa"] = "menu"
                 enviar_menu(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3756,6 +3768,7 @@ def webhook():
             "status": "erro",
             "detalhe": "falha interna no webhook"
         }), 200
+
 # ==========================================
 # INICIAR WORKER
 # ==========================================
