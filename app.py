@@ -1330,10 +1330,11 @@ def montar_resumo_confirmacao(telefone):
         "NÃO",
         "SEM ITEM",
         "SEM ITENS",
+        "2",
     ]:
         itens = "Nenhum"
 
-    if not limpar_texto(observacao):
+    if not limpar_texto(observacao) or limpar_texto(observacao) == "2":
         observacao = "Nenhuma"
 
     revisao = limpar_texto(dados.get("revisao", "-"))
@@ -1345,6 +1346,7 @@ def montar_resumo_confirmacao(telefone):
         f"📄 *CPF:* {dados.get('cpf', '-')}\n"
         f"🏍️ *Modelo:* {dados.get('modelo', '-')}\n"
         f"📅 *Ano:* {dados.get('ano', '-')}\n"
+        f"🔢 *KM:* {dados.get('km_atual', '-')}\n"
         f"🔧 *Revisão:* {revisao_formatada}\n"
         f"📍 *Dia:* {dados.get('dia_texto', '-')}\n"
         f"📆 *Data:* {dados.get('data', '-')}\n"
@@ -1395,7 +1397,7 @@ def mensagem_por_etapa_revisao(telefone, etapa):
             "Me informe a *quilometragem atual da moto*."
         )
 
-    if etapa == "revisao_tipo":
+    if etapa == "revisao_revisao":
         return (
             "🛠️ *Qual revisão você deseja agendar?*\n\n"
             "1 - 1ª Revisão\n"
@@ -1607,129 +1609,6 @@ def montar_resumo_dados_ia_revisao(telefone):
     return "Já identifiquei estas informações do seu pedido:\n\n" + "\n".join(partes)
 
 
-def enviar_proxima_etapa_revisao(telefone):
-    etapa = clientes.get(telefone, {}).get("etapa", "")
-
-    if etapa == "revisao_modelo":
-        enviar_mensagem(
-            telefone,
-            "🔧 *Agendamento de Revisão*\n\n"
-            "Perfeito 👍\n"
-            "Para eu seguir com seu atendimento, me informe o *modelo da sua moto*."
-        )
-        return
-
-    if etapa == "revisao_nome":
-        modelo = clientes[telefone].get("modelo", "")
-        enviar_mensagem(
-            telefone,
-            f"🏍️ Modelo: {modelo}\n\n"
-            "Ótimo 😊\n\n"
-            "Agora me informe seu *nome completo*."
-        )
-        return
-
-    if etapa == "revisao_cpf":
-        enviar_mensagem(
-            telefone,
-            "Perfeito.\n\n"
-            "Agora preciso do seu *CPF com 11 números* para continuar o agendamento."
-        )
-        return
-
-    if etapa == "revisao_ano":
-        enviar_mensagem(
-            telefone,
-            "Certo 👍\n\n"
-            "Me informe agora o *ano da sua moto*."
-        )
-        return
-
-    if etapa == "revisao_km":
-        enviar_mensagem(
-            telefone,
-            "Ótimo.\n\n"
-            "Me informe a *quilometragem atual da moto*."
-        )
-        return
-
-    if etapa == "revisao_revisao":
-        enviar_mensagem(
-            telefone,
-            "🛠️ *Qual revisão você deseja agendar?*\n\n"
-            "1 - 1ª Revisão\n"
-            "2 - 2ª Revisão\n"
-            "3 - 3ª Revisão\n"
-            "4 - 4ª Revisão\n"
-            "5 - 5ª Revisão ou acima"
-        )
-        return
-
-    if etapa == "revisao_dia":
-        enviar_mensagem(
-            telefone,
-            "📅 *Escolha o dia da semana desejado:*\n\n"
-            "1 - Segunda-feira\n"
-            "2 - Terça-feira\n"
-            "3 - Quarta-feira\n"
-            "4 - Quinta-feira\n"
-            "5 - Sexta-feira\n"
-            "6 - Sábado"
-        )
-        return
-
-    if etapa == "revisao_data":
-        enviar_mensagem(
-            telefone,
-            "📆 Agora me informe a *data desejada* no formato:\n\n"
-            "*DD/MM/AAAA*\n"
-            "Exemplo: *25/04/2026*"
-        )
-        return
-
-    if etapa == "revisao_horario":
-        enviar_mensagem(
-            telefone,
-            "⏰ Agora me informe o *horário desejado* no formato:\n\n"
-            "*HH:MM*\n"
-            "Exemplo: *08:00*"
-        )
-        return
-
-    if etapa == "revisao_venda":
-        enviar_mensagem(
-            telefone,
-            "🛍️ Deseja incluir algum item adicional?\n\n"
-            "Exemplo:\n"
-            "• Troca de óleo\n"
-            "• Pastilha de freio\n"
-            "• Filtro de ar\n\n"
-            "Se não quiser, responda: *não*"
-        )
-        return
-
-    if etapa == "revisao_confirmacao":
-        dados = clientes.get(telefone, {})
-
-        resumo = (
-            "✅ *Confirme seu agendamento:*\n\n"
-            f"👤 Nome: {dados.get('nome', '')}\n"
-            f"🏍️ Modelo: {dados.get('modelo', '')}\n"
-            f"🪪 CPF: {dados.get('cpf', '')}\n"
-            f"📅 Dia: {dados.get('dia', '')}\n"
-            f"📆 Data: {dados.get('data', '')}\n"
-            f"⏰ Horário: {dados.get('horario', '')}\n"
-            f"🔧 Revisão: {dados.get('revisao', '')}ª\n"
-            f"🛣️ KM: {dados.get('km_atual', '')}\n"
-            f"🛍️ Adicional: {dados.get('venda_adicional', '')}\n\n"
-            "Responda com:\n"
-            "*1* para confirmar\n"
-            "*2* para cancelar"
-        )
-
-        enviar_mensagem(telefone, resumo)
-        return
-
 # ==========================================
 # FLUXO REVISÃO
 # ==========================================
@@ -1748,7 +1627,7 @@ def primeira_etapa_pendente_revisao(telefone):
     if not dados.get("km_atual"):
         return "revisao_km"
     if not dados.get("revisao"):
-        return "revisao_tipo"
+        return "revisao_revisao"
     if not dados.get("dia"):
         return "revisao_dia"
     if not dados.get("data"):
@@ -3493,6 +3372,22 @@ def webhook():
                 enviar_mensagem(telefone, "Digite sua solicitação de atacado:")
                 return jsonify({"status": "ok"}), 200
 
+            elif texto_opcao == "6":
+                clientes[telefone]["etapa"] = "menu_duvidas"
+                enviar_mensagem(telefone, menu_duvidas())
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "7":
+                clientes[telefone]["etapa"] = "menu"
+                clientes[telefone]["atendimento_humano"] = True
+                definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
+                enviar_mensagem(
+                    telefone,
+                    "👨‍💼 Perfeito. Vou te direcionar para *Atendimento Humano*.\n\n"
+                    "Enquanto isso, se quiser voltar ao bot automático, digite *menu*."
+                )
+                return jsonify({"status": "ok"}), 200
+
             enviar_menu(telefone)
             return jsonify({"status": "ok"}), 200
 
@@ -3503,13 +3398,11 @@ def webhook():
 
             if etapa == "revisao_modelo":
                 clientes[telefone]["modelo"] = texto.upper().strip()
-                clientes[telefone]["etapa"] = "revisao_nome"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_nome":
                 clientes[telefone]["nome"] = texto.upper().strip()
-                clientes[telefone]["etapa"] = "revisao_cpf"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3524,7 +3417,6 @@ def webhook():
                     return jsonify({"status": "ok"}), 200
 
                 clientes[telefone]["cpf"] = cpf
-                clientes[telefone]["etapa"] = "revisao_ano"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3539,7 +3431,6 @@ def webhook():
                     return jsonify({"status": "ok"}), 200
 
                 clientes[telefone]["ano"] = ano
-                clientes[telefone]["etapa"] = "revisao_km"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3554,7 +3445,6 @@ def webhook():
                     return jsonify({"status": "ok"}), 200
 
                 clientes[telefone]["km_atual"] = km
-                clientes[telefone]["etapa"] = "revisao_revisao"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3569,7 +3459,6 @@ def webhook():
                     return jsonify({"status": "ok"}), 200
 
                 clientes[telefone]["revisao"] = revisao
-                clientes[telefone]["etapa"] = "revisao_dia"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3584,7 +3473,7 @@ def webhook():
                     return jsonify({"status": "ok"}), 200
 
                 clientes[telefone]["dia"] = dia
-                clientes[telefone]["etapa"] = "revisao_data"
+                clientes[telefone]["dia_texto"] = nome_dia(dia)
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3599,28 +3488,86 @@ def webhook():
                     return jsonify({"status": "ok"}), 200
 
                 clientes[telefone]["data"] = data
-                clientes[telefone]["etapa"] = "revisao_horario"
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_horario":
-                horario = texto.strip()
+                horarios_disponiveis = clientes[telefone].get("horarios_disponiveis", [])
 
-                if not re.match(r"^\d{2}:\d{2}$", horario):
+                if not horarios_disponiveis:
                     enviar_mensagem(
                         telefone,
-                        "⚠️ Horário inválido.\n\nEnvie no formato *HH:MM*.\nExemplo: *08:00*"
+                        "⚠️ Não encontrei horários disponíveis para essa escolha.\n\n"
+                        "Vamos selecionar o dia novamente."
+                    )
+                    clientes[telefone]["dia"] = ""
+                    clientes[telefone]["dia_texto"] = ""
+                    clientes[telefone]["data"] = ""
+                    clientes[telefone]["horarios_disponiveis"] = []
+                    enviar_proxima_etapa_revisao(telefone)
+                    return jsonify({"status": "ok"}), 200
+
+                indice = re.sub(r"\D", "", texto_opcao)
+
+                if not indice or not indice.isdigit():
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Opção inválida.\n\nResponda com o *número do horário* desejado."
                     )
                     return jsonify({"status": "ok"}), 200
 
-                clientes[telefone]["horario"] = horario
-                clientes[telefone]["etapa"] = "revisao_venda"
+                indice = int(indice)
+
+                if indice < 1 or indice > len(horarios_disponiveis):
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Opção inválida.\n\nEscolha um número da lista de horários disponíveis."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["horario"] = horarios_disponiveis[indice - 1]
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_tipo_atendimento":
+                opcao = texto_opcao.strip()
+
+                if opcao == "1":
+                    clientes[telefone]["tipo_atendimento"] = "AGUARDAR NA CONCESSIONÁRIA"
+                elif opcao == "2":
+                    clientes[telefone]["tipo_atendimento"] = "DEIXAR A MOTO E RETIRAR DEPOIS"
+                else:
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Opção inválida.\n\n"
+                        "Digite *1* para aguardar na concessionária ou *2* para deixar a moto e retirar depois."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_venda":
-                clientes[telefone]["venda_adicional"] = texto.strip()
-                clientes[telefone]["etapa"] = "revisao_confirmacao"
+                resposta = texto_normalizado.strip()
+
+                if resposta in ["2", "nao", "não", "nenhum", "nenhuma"]:
+                    clientes[telefone]["venda_adicional"] = "Nenhum"
+                    clientes[telefone]["itens"] = ""
+                else:
+                    clientes[telefone]["venda_adicional"] = texto.strip()
+                    clientes[telefone]["itens"] = texto.strip()
+
+                enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            elif etapa == "revisao_observacao":
+                resposta = texto_normalizado.strip()
+
+                if resposta in ["2", "nao", "não", "nenhuma", "nenhum", "sem observacao", "sem observação"]:
+                    clientes[telefone]["observacao"] = "Nenhuma"
+                else:
+                    clientes[telefone]["observacao"] = texto.strip()
+
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3644,21 +3591,91 @@ def webhook():
 
                     return jsonify({"status": "ok"}), 200
 
-                elif resposta in ["2", "nao", "não", "cancelar"]:
+                elif resposta in ["2", "nao", "não", "cancelar", "corrigir"]:
+                    clientes[telefone]["horario"] = ""
+                    clientes[telefone]["horarios_disponiveis"] = []
+                    clientes[telefone]["tipo_atendimento"] = ""
+                    clientes[telefone]["venda_adicional"] = ""
+                    clientes[telefone]["observacao"] = ""
                     enviar_mensagem(
                         telefone,
-                        "❌ Agendamento não confirmado.\n\nDigite *menu* para voltar ao início."
+                        "🔄 Tudo bem. Vamos ajustar as informações finais do agendamento."
                     )
-                    resetar_cliente(telefone)
+                    enviar_proxima_etapa_revisao(telefone)
                     return jsonify({"status": "ok"}), 200
 
                 else:
                     enviar_mensagem(
                         telefone,
-                        "Para confirmar, responda com *1*.\nSe quiser cancelar, responda com *2*."
+                        "Para confirmar, responda com *1*.\nSe quiser corrigir, responda com *2*."
                     )
                     return jsonify({"status": "ok"}), 200
 
+            return jsonify({"status": "ok"}), 200
+
+        # ==========================================
+        # DÚVIDAS
+        # ==========================================
+        if etapa == "menu_duvidas":
+            if texto_opcao == "1":
+                clientes[telefone]["categoria_duvida"] = "revisoes"
+                clientes[telefone]["etapa"] = "duvida_revisoes"
+                enviar_mensagem(
+                    telefone,
+                    "📘 *Dúvidas sobre Revisões*\n\n"
+                    "Envie sua dúvida em texto livre.\n\n"
+                    "Exemplos:\n"
+                    "• Qual o valor da revisão?\n"
+                    "• O que troca na 2ª revisão?\n"
+                    "• Quanto tempo demora?"
+                )
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "2":
+                clientes[telefone]["categoria_duvida"] = "garantia"
+                clientes[telefone]["etapa"] = "duvida_garantia"
+                enviar_mensagem(
+                    telefone,
+                    "📘 *Dúvidas sobre Garantia*\n\n"
+                    "Envie sua dúvida em texto livre."
+                )
+                return jsonify({"status": "ok"}), 200
+
+            elif texto_opcao == "3":
+                enviar_menu(telefone)
+                return jsonify({"status": "ok"}), 200
+
+            enviar_mensagem(telefone, menu_duvidas())
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "duvida_revisoes":
+            resposta = responder_duvida_por_tabela(
+                categoria="revisoes",
+                pergunta_cliente=texto,
+                modelo=clientes[telefone].get("modelo", ""),
+                revisao=clientes[telefone].get("revisao", ""),
+            )
+            enviar_mensagem(telefone, resposta or "Não encontrei essa informação no momento.")
+            enviar_mensagem(
+                telefone,
+                "Se quiser fazer outra pergunta, pode me enviar agora.\n\n"
+                "Para voltar ao menu principal, digite *menu*."
+            )
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "duvida_garantia":
+            resposta = responder_duvida_por_tabela(
+                categoria="garantia",
+                pergunta_cliente=texto,
+                modelo=clientes[telefone].get("modelo", ""),
+                revisao=clientes[telefone].get("revisao", ""),
+            )
+            enviar_mensagem(telefone, resposta or "Não encontrei essa informação no momento.")
+            enviar_mensagem(
+                telefone,
+                "Se quiser fazer outra pergunta, pode me enviar agora.\n\n"
+                "Para voltar ao menu principal, digite *menu*."
+            )
             return jsonify({"status": "ok"}), 200
 
         # ==========================================
