@@ -681,8 +681,18 @@ def iniciar_cliente(telefone):
         clientes[telefone] = estado_padrao_cliente()
 
 
-def resetar_cliente(telefone):
+def resetar_cliente(telefone, preservar_humano=False):
+    atendimento_humano = False
+
+    if telefone in clientes:
+        atendimento_humano = clientes[telefone].get("atendimento_humano", False)
+
     clientes[telefone] = estado_padrao_cliente()
+
+    if preservar_humano and atendimento_humano:
+        clientes[telefone]["atendimento_humano"] = True
+        clientes[telefone]["etapa"] = "atendimento_humano"
+        clientes[telefone]["ultima_interacao"] = agora()
 
 
 def atualizar_interacao(telefone):
@@ -751,6 +761,10 @@ def atualizar_ultima_mensagem_cliente(telefone):
 def limpar_dados_fluxo_revisao(telefone):
     iniciar_cliente(telefone)
 
+    # 🔒 Preserva estado do atendimento humano
+    atendimento_humano_ativo = clientes[telefone].get("atendimento_humano", False)
+    etapa_atual = clientes[telefone].get("etapa", "")
+
     clientes[telefone]["modelo"] = ""
     clientes[telefone]["nome"] = ""
     clientes[telefone]["cpf"] = ""
@@ -772,7 +786,10 @@ def limpar_dados_fluxo_revisao(telefone):
     dados_cliente["origem_etapa"] = ""
     dados_cliente["categoria_duvida"] = ""
     dados_cliente["etapa_retorno_duvida"] = ""
-    dados_cliente["atendimento_humano"] = False
+
+    # 🔥 NÃO destravar atendimento humano sem querer
+    if not atendimento_humano_ativo and etapa_atual != "atendimento_humano":
+        dados_cliente["atendimento_humano"] = False
 
     dados_cliente["sances_enviado"] = False
     dados_cliente["sances_status"] = SANCES_STATUS_PENDENTE
@@ -785,9 +802,11 @@ def limpar_dados_fluxo_revisao(telefone):
 
 def ativar_atendimento_humano(telefone):
     iniciar_cliente(telefone)
+
     clientes[telefone]["atendimento_humano"] = True
     clientes[telefone]["etapa"] = "atendimento_humano"
     clientes[telefone]["ultima_interacao"] = agora()
+
     definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
 
     salvar_evento_atendimento(
@@ -816,7 +835,7 @@ def processar_inatividade():
             dados = clientes.get(telefone, {})
             ultima = dados.get("ultima_interacao", agora_atual)
 
-            # não encerrar automaticamente atendimento humano
+            # 🔒 NÃO encerrar atendimento humano
             if (
                 dados.get("atendimento_humano") is True
                 or dados.get("etapa") == "atendimento_humano"
@@ -3335,6 +3354,36 @@ def webhook():
 
         iniciar_cliente(telefone)
 
+        # ==========================================
+        # TRAVA DE ATENDIMENTO HUMANO
+        # Se estiver em atendimento humano, o bot só libera se o cliente digitar "menu"
+        # ==========================================
+        if clientes[telefone].get("atendimento_humano", False):
+            atualizar_interacao(telefone)
+            atualizar_ultima_mensagem_cliente(telefone)
+            resetar_followups_do_cliente(telefone)
+            atualizar_retorno_na_planilha(telefone, texto)
+
+            if texto_normalizado == "menu":
+                clientes[telefone]["atendimento_humano"] = False
+                clientes[telefone]["etapa"] = "menu"
+
+                enviar_mensagem(
+                    telefone,
+                    "✅ Atendimento automático reativado.\n\nVoltando ao menu principal."
+                )
+                enviar_menu(telefone)
+                return jsonify({"status": "ok", "motivo": "retorno_menu"}), 200
+
+            log_info(
+                f"Cliente {telefone} está em atendimento humano. "
+                f"Mensagem ignorada pelo bot. Tipo: {tipo_mensagem}"
+            )
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "atendimento_humano_ativo"
+            }), 200
+
         ultima_interacao = clientes[telefone].get("ultima_interacao", agora())
         if (
             clientes[telefone].get("etapa", "menu") != "menu"
@@ -3390,10 +3439,12 @@ def webhook():
             if etapa == "revisao_modelo":
                 clientes[telefone]["modelo"] = texto.upper()
                 enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_nome":
                 clientes[telefone]["nome"] = texto.upper()
                 enviar_proxima_etapa_revisao(telefone)
+                return jsonify({"status": "ok"}), 200
 
             elif etapa == "revisao_confirmacao":
                 if texto == "1":
