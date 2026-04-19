@@ -3273,6 +3273,151 @@ def processar_followup_inteligente():
 
     finally:
         db.close()
+
+# ==========================================
+# CONTROLE SEGURO DA IA NO WEBHOOK
+# ==========================================
+def etapa_permite_ia_livre(etapa):
+    etapas_bloqueadas = [
+        "revisao_modelo",
+        "revisao_nome",
+        "revisao_cpf",
+        "revisao_ano",
+        "revisao_km",
+        "revisao_revisao",
+        "revisao_dia",
+        "revisao_data",
+        "revisao_horario",
+        "revisao_tipo_atendimento",
+        "revisao_venda",
+        "revisao_observacao",
+        "revisao_confirmacao",
+        "atendimento_humano",
+    ]
+    return etapa not in etapas_bloqueadas
+
+
+def texto_parece_menu_ou_saudacao(texto_normalizado):
+    return texto_normalizado in [
+        "menu",
+        "inicio",
+        "início",
+        "voltar",
+        "oi",
+        "ola",
+        "olá",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+    ]
+
+
+def tentar_interpretar_ia_no_menu(telefone, texto):
+    """
+    Usa IA apenas em contexto seguro:
+    - cliente está no menu
+    - ou em etapa livre
+    - nunca durante coleta rígida da revisão
+    """
+    iniciar_cliente(telefone)
+
+    resposta_ia = obter_dados_extraidos_ia(texto)
+
+    intencao = limpar_texto(resposta_ia.get("intencao", "")).lower()
+    confianca = float(resposta_ia.get("confianca", 0.0) or 0.0)
+    resposta_texto = limpar_texto(resposta_ia.get("resposta", ""))
+    dados_extraidos = resposta_ia.get("dados_extraidos", {}) or {}
+
+    log_info(
+        "IA WEBHOOK:",
+        {
+            "telefone": telefone,
+            "intencao": intencao,
+            "confianca": confianca,
+            "dados_extraidos": dados_extraidos,
+        },
+    )
+
+    # segurança mínima
+    if confianca < 0.55 and intencao not in [
+        "agendar_revisao",
+        "valor_revisao",
+        "pecas",
+        "acessorios",
+        "garantia",
+        "atacado",
+        "humano",
+        "duvidas",
+    ]:
+        return False
+
+    if intencao == "agendar_revisao":
+        iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos)
+
+        resumo = montar_resumo_dados_ia_revisao(telefone)
+        if resumo:
+            enviar_mensagem(telefone, resumo)
+
+        enviar_proxima_etapa_revisao(telefone)
+        return True
+
+    elif intencao == "valor_revisao":
+        clientes[telefone]["etapa"] = "menu_duvidas"
+        clientes[telefone]["categoria_duvida"] = "revisoes"
+
+        if resposta_texto:
+            enviar_mensagem(telefone, resposta_texto)
+        else:
+            resposta_duvida = responder_duvida_por_tabela(
+                categoria="revisoes",
+                pergunta_cliente=texto,
+                modelo=dados_extraidos.get("modelo", ""),
+                revisao=dados_extraidos.get("revisao", ""),
+            )
+            enviar_mensagem(
+                telefone,
+                resposta_duvida or "Não encontrei essa informação no momento."
+            )
+
+        enviar_mensagem(
+            telefone,
+            "Se quiser agendar sua revisão, me envie a mensagem em texto livre ou digite *1* no menu."
+        )
+        return True
+
+    elif intencao == "pecas":
+        iniciar_fluxo_pecas(telefone)
+        return True
+
+    elif intencao == "acessorios":
+        iniciar_fluxo_acessorios(telefone)
+        return True
+
+    elif intencao == "garantia":
+        clientes[telefone]["etapa"] = "garantia"
+        if resposta_texto:
+            enviar_mensagem(telefone, resposta_texto)
+        enviar_mensagem(telefone, "Descreva sua solicitação de garantia:")
+        return True
+
+    elif intencao == "atacado":
+        clientes[telefone]["etapa"] = "atacado"
+        if resposta_texto:
+            enviar_mensagem(telefone, resposta_texto)
+        enviar_mensagem(telefone, "Digite sua solicitação de atacado:")
+        return True
+
+    elif intencao in ["duvidas", "duvida", "dúvidas", "dúvida"]:
+        clientes[telefone]["etapa"] = "menu_duvidas"
+        enviar_mensagem(telefone, menu_duvidas())
+        return True
+
+    elif intencao == "humano":
+        ativar_atendimento_humano(telefone)
+        return True
+
+    return False
+        
 # ==========================================
 # WEBHOOK
 # ==========================================
@@ -3360,6 +3505,22 @@ def webhook():
         etapa = clientes[telefone].get("etapa", "menu")
 
         # ==========================================
+        # RETORNO GLOBAL PARA MENU
+        # ==========================================
+        if texto_parece_menu_ou_saudacao(texto_normalizado):
+            resetar_cliente(telefone)
+            enviar_menu(telefone)
+            return jsonify({"status": "ok", "motivo": "menu_global"}), 200
+
+        # ==========================================
+        # IA LIVRE SOMENTE EM CONTEXTO SEGURO
+        # ==========================================
+        if etapa_permite_ia_livre(etapa):
+            interpretado = tentar_interpretar_ia_no_menu(telefone, texto)
+            if interpretado:
+                return jsonify({"status": "ok", "motivo": "ia_menu"}), 200
+
+        # ==========================================
         # MENU PRINCIPAL
         # ==========================================
         if etapa == "menu":
@@ -3392,19 +3553,11 @@ def webhook():
                 return jsonify({"status": "ok"}), 200
 
             elif texto_opcao == "7":
-                clientes[telefone]["etapa"] = "menu"
-                clientes[telefone]["atendimento_humano"] = True
-                definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
-                enviar_mensagem(
-                    telefone,
-                    "👨‍💼 Perfeito. Vou te direcionar para *Atendimento Humano*.\n\n"
-                    "Enquanto isso, se quiser voltar ao bot automático, digite *menu*."
-                )
+                ativar_atendimento_humano(telefone)
                 return jsonify({"status": "ok"}), 200
 
             enviar_menu(telefone)
             return jsonify({"status": "ok"}), 200
-
         # ==========================================
         # FLUXO REVISÃO
         # ==========================================
@@ -3623,10 +3776,7 @@ def webhook():
                                     "🙏 Agradecemos por escolher a *Motoshow Yamaha* 🏍️"
                                 )
                             else:
-                                enviar_mensagem(
-                                    telefone,
-                                    "✅ *Agendamento confirmado com sucesso!*"
-                                )
+                                enviar_mensagem(telefone, "✅ *Agendamento confirmado com sucesso!*")
 
                             resetar_cliente(telefone)
 
