@@ -3373,6 +3373,8 @@ def etapa_permite_ia_livre(etapa):
         "revisao_venda",
         "revisao_observacao",
         "revisao_confirmacao",
+        "acessorios_modelo",
+        "acessorios_orcamento",
         "atendimento_humano",
     ]
     return etapa not in etapas_bloqueadas
@@ -3543,6 +3545,20 @@ def webhook():
         iniciar_cliente(telefone)
 
         # ==========================================
+        # IGNORA EVENTOS SEM TEXTO ÚTIL
+        # Evita voltar menu após envio de PDF/documento
+        # ==========================================
+        if not texto.strip() and tipo_mensagem != "text":
+            log_info(
+                f"Evento ignorado por não conter texto útil. "
+                f"Telefone={telefone} Tipo={tipo_mensagem}"
+            )
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "evento_sem_texto_util"
+            }), 200
+
+        # ==========================================
         # TRAVA DE ATENDIMENTO HUMANO
         # ==========================================
         if clientes[telefone].get("atendimento_humano", False):
@@ -3580,7 +3596,7 @@ def webhook():
             resetar_cliente(telefone)
             enviar_mensagem(telefone, "Olá 👋\n\nVoltando ao menu principal.")
             enviar_menu(telefone)
-            return jsonify({"status": "ok"}), 200
+            return jsonify({"status": "ok", "motivo": "timeout_retorno_menu"}), 200
 
         atualizar_interacao(telefone)
         atualizar_ultima_mensagem_cliente(telefone)
@@ -3588,6 +3604,16 @@ def webhook():
         atualizar_retorno_na_planilha(telefone, texto)
 
         etapa = clientes[telefone].get("etapa", "menu")
+
+        log_info(
+            "CONTEXTO WEBHOOK:",
+            {
+                "telefone": telefone,
+                "etapa": etapa,
+                "texto": texto,
+                "tipo_mensagem": tipo_mensagem,
+            },
+        )
 
         # ==========================================
         # RETORNO GLOBAL PARA MENU
@@ -3600,7 +3626,7 @@ def webhook():
         # ==========================================
         # IA LIVRE SOMENTE EM CONTEXTO SEGURO
         # ==========================================
-        if etapa_permite_ia_livre(etapa):
+        if etapa in ["menu", "menu_duvidas"]:
             interpretado = tentar_interpretar_ia_no_menu(telefone, texto)
             if interpretado:
                 return jsonify({"status": "ok", "motivo": "ia_menu"}), 200
@@ -3612,37 +3638,42 @@ def webhook():
             if texto_opcao == "1":
                 iniciar_fluxo_revisao_por_intencao(telefone, {})
                 enviar_proxima_etapa_revisao(telefone)
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_revisao"}), 200
 
             elif texto_opcao == "2":
                 iniciar_fluxo_pecas(telefone)
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_pecas"}), 200
 
             elif texto_opcao == "3":
                 iniciar_fluxo_acessorios(telefone)
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_acessorios"}), 200
 
             elif texto_opcao == "4":
                 clientes[telefone]["etapa"] = "garantia"
                 enviar_mensagem(telefone, "Descreva sua solicitação de garantia:")
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_garantia"}), 200
 
             elif texto_opcao == "5":
                 clientes[telefone]["etapa"] = "atacado"
                 enviar_mensagem(telefone, "Digite sua solicitação de atacado:")
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_atacado"}), 200
 
             elif texto_opcao == "6":
                 clientes[telefone]["etapa"] = "menu_duvidas"
                 enviar_mensagem(telefone, menu_duvidas())
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_duvidas"}), 200
 
             elif texto_opcao == "7":
                 ativar_atendimento_humano(telefone)
-                return jsonify({"status": "ok"}), 200
+                return jsonify({"status": "ok", "motivo": "menu_humano"}), 200
 
-            enviar_menu(telefone)
-            return jsonify({"status": "ok"}), 200
+            enviar_mensagem(
+                telefone,
+                "⚠️ Opção inválida.\n\n"
+                "Escolha uma opção de *1 a 7* ou me escreva o que precisa."
+            )
+            return jsonify({"status": "ok", "motivo": "menu_opcao_invalida"}), 200
+
         # ==========================================
         # FLUXO REVISÃO
         # ==========================================
@@ -4084,7 +4115,6 @@ def webhook():
             "status": "erro",
             "detalhe": "falha interna no webhook"
         }), 200
-
 # ==========================================
 # INICIAR WORKER
 # ==========================================
