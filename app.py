@@ -3789,9 +3789,9 @@ def webhook():
 
         # ==========================================
         # IGNORA EVENTOS SEM TEXTO ÚTIL
-        # Evita voltar menu após envio de PDF/documento
+        # Evita quebrar fluxo após envio de PDF/documento
         # ==========================================
-        if not texto.strip() and tipo_mensagem != "text":
+        if not texto.strip():
             log_info(
                 f"Evento ignorado por não conter texto útil. "
                 f"Telefone={telefone} Tipo={tipo_mensagem}"
@@ -4363,6 +4363,9 @@ def webhook():
                 "📎 Segue o catálogo de acessórios para sua moto."
             )
 
+            # reforça a etapa DEPOIS do envio do PDF
+            clientes[telefone]["etapa"] = "acessorios_orcamento"
+
             if not enviado:
                 enviar_mensagem(
                     telefone,
@@ -4380,6 +4383,12 @@ def webhook():
 
         if etapa == "acessorios_orcamento":
             acessorio_desejado = texto.strip()
+
+            log_info(
+                f"Recebendo acessório para orçamento | "
+                f"Telefone={telefone} Etapa={clientes[telefone].get('etapa')} "
+                f"Texto={acessorio_desejado}"
+            )
 
             if not acessorio_desejado:
                 enviar_mensagem(
