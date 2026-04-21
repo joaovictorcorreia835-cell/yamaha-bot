@@ -46,13 +46,18 @@ MAPA_PDF_ACESSORIOS = {
     "lander 250": "acessorios_lander.pdf",
 
     "tenere": "acessorios_tenere700.pdf",
+    "teneré": "acessorios_tenere700.pdf",
     "tenere 700": "acessorios_tenere700.pdf",
+    "teneré 700": "acessorios_tenere700.pdf",
     "tenere700": "acessorios_tenere700.pdf",
+    "teneré700": "acessorios_tenere700.pdf",
+    "t7": "acessorios_tenere700.pdf",
 
     "aerox": "acessorios_aerox.pdf",
 
     "factor": "acessorios_factor.pdf",
 }
+
 PDF_ACESSORIOS_GERAL = "acessorios.pdf"
 
 # Evita erro se vier vazio ou inválido
@@ -105,7 +110,6 @@ SANCES_STATUS_NAO_CONFIGURADO = "NAO_CONFIGURADO"
 # ==========================================
 # URLs Z-API
 # ==========================================
-# Proteção caso alguma env não esteja definida
 if ZAPI_INSTANCE_ID and ZAPI_TOKEN:
     url_envio = (
         f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
@@ -119,7 +123,7 @@ else:
 
 clientes = {}
 mensagens_processadas = set()
-fila_mensagens = deque(maxlen=2000)
+fila_mensagens = deque(maxlen=5000)  # AUMENTADO PARA EVITAR DUPLICIDADE
 
 followup_lock = threading.Lock()
 worker_followup_iniciado = False
@@ -150,6 +154,11 @@ def log_erro(*args):
 def servir_pdf(arquivo):
     try:
         pasta_pdfs = os.path.join(app.root_path, "static", "pdfs")
+
+        arquivo = os.path.basename(str(arquivo or "").strip())
+        if not arquivo:
+            return "Arquivo inválido", 400
+
         caminho_arquivo = os.path.join(pasta_pdfs, arquivo)
 
         if not os.path.exists(caminho_arquivo):
@@ -176,11 +185,25 @@ def limpar_texto(texto):
 def normalizar_texto(texto):
     return limpar_texto(texto).lower()
 
+
 # ==========================================
 # 🔧 NOVO - APOIO ACESSÓRIOS
 # ==========================================
+def remover_acentos(texto):
+    try:
+        import unicodedata
+        texto = str(texto or "")
+        return "".join(
+            c for c in unicodedata.normalize("NFD", texto)
+            if unicodedata.category(c) != "Mn"
+        )
+    except Exception:
+        return str(texto or "")
+
+
 def normalizar_modelo_acessorio(texto):
     texto = normalizar_texto(texto)
+    texto = remover_acentos(texto)
     texto = re.sub(r"[^a-zA-Z0-9\s]", "", texto)
     texto = re.sub(r"\s+", " ", texto).strip()
     return texto
@@ -193,7 +216,8 @@ def obter_pdf_acessorios_por_modelo(modelo):
         return PDF_ACESSORIOS_GERAL
 
     for chave, arquivo in MAPA_PDF_ACESSORIOS.items():
-        if chave in modelo_norm:
+        chave_norm = normalizar_modelo_acessorio(chave)
+        if chave_norm in modelo_norm:
             return arquivo
 
     return PDF_ACESSORIOS_GERAL
@@ -743,6 +767,7 @@ def resetar_cliente(telefone, preservar_humano=False):
         clientes[telefone]["atendimento_humano"] = True
         clientes[telefone]["etapa"] = "atendimento_humano"
         clientes[telefone]["ultima_interacao"] = agora()
+        definir_status_cliente(telefone, STATUS_ATENDIMENTO_HUMANO)
 
 
 def atualizar_interacao(telefone):
@@ -1004,6 +1029,9 @@ def registrar_mensagem_processada(message_id):
     if not message_id:
         return
 
+    if message_id in mensagens_processadas:
+        return
+
     if len(fila_mensagens) >= fila_mensagens.maxlen:
         antigo = fila_mensagens.popleft()
         mensagens_processadas.discard(antigo)
@@ -1030,6 +1058,8 @@ def evento_eh_do_proprio_bot(payload):
     except Exception as e:
         log_erro("Erro ao validar evento do próprio bot:", repr(e))
         return False
+
+
 def extrair_tipo_mensagem(payload):
     try:
         data = payload.get("data", {}) or {}
@@ -1096,11 +1126,17 @@ def enviar_mensagem(telefone, mensagem):
             timeout=30,
         )
 
+        try:
+            resposta_json = response.json()
+        except Exception:
+            resposta_json = response.text
+
         if response.status_code not in [200, 201]:
-            log_erro("Falha envio mensagem:", response.status_code, response.text)
+            log_erro("Falha envio mensagem:", response.status_code, resposta_json)
+            return False
 
         log_info("Mensagem enviada:", telefone, response.status_code)
-        return response.status_code in [200, 201]
+        return True
 
     except Exception as e:
         log_erro("Erro envio mensagem:", repr(e))
@@ -1119,6 +1155,11 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             log_erro("Z-API/BASE_URL não configurada corretamente para envio de PDF.")
             return False
 
+        # 🔥 VALIDAÇÃO IMPORTANTE
+        if not arquivo:
+            log_erro("Arquivo PDF não informado.")
+            return False
+
         headers = {
             "Client-Token": ZAPI_CLIENT_TOKEN,
             "Content-Type": "application/json",
@@ -1130,8 +1171,10 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             "phone": telefone,
             "document": url_pdf,
             "fileName": arquivo,
-            "caption": legenda,
+            "caption": legenda or "",
         }
+
+        log_info("Enviando PDF:", url_pdf)
 
         response = requests.post(
             url_documento,
@@ -1140,8 +1183,13 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             timeout=30,
         )
 
+        try:
+            resposta_json = response.json()
+        except Exception:
+            resposta_json = response.text
+
         if response.status_code not in [200, 201]:
-            log_erro("Falha envio PDF:", response.status_code, response.text)
+            log_erro("Falha envio PDF:", response.status_code, resposta_json)
             return False
 
         log_info("PDF enviado:", telefone, response.status_code)
@@ -1191,6 +1239,7 @@ def salvar_evento_atendimento(
             base.get("itens", venda_adicional)
         )
 
+        # 🔥 limpeza extra
         if venda_adicional.strip().upper() == "NENHUM":
             venda_adicional = ""
         if itens.strip().upper() == "NENHUM":
@@ -1223,6 +1272,8 @@ def salvar_evento_atendimento(
 
         db.add(atendimento)
         db.commit()
+
+        log_info("Evento salvo:", telefone, setor, etapa)
         return True
 
     except Exception as e:
@@ -1241,6 +1292,7 @@ def enviar_menu(telefone):
     iniciar_cliente(telefone)
     clientes[telefone]["etapa"] = "menu"
     clientes[telefone]["atendimento_humano"] = False
+    clientes[telefone]["ultima_interacao"] = agora()
     definir_status_cliente(telefone, STATUS_NOVO_ATENDIMENTO)
 
     mensagem = (
@@ -1265,6 +1317,7 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
     clientes[telefone]["etapa"] = "pecas"
     clientes[telefone]["atendimento_humano"] = False
     clientes[telefone]["observacao"] = limpar_texto(texto_inicial)
+    clientes[telefone]["ultima_interacao"] = agora()
     definir_status_cliente(telefone, STATUS_NOVO_ATENDIMENTO)
 
     salvar_evento_atendimento(
@@ -1286,13 +1339,13 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
             "Se quiser complementar, pode me enviar:\n"
             "• modelo da moto\n"
             "• ano\n"
-            "• peça desejada",
+            "• peça desejada"
         )
     else:
         enviar_mensagem(
             telefone,
             "🔩 *Peças*\n\n"
-            "Me informe a *peça desejada* para eu registrar sua solicitação.",
+            "Me informe a *peça desejada* para eu registrar sua solicitação."
         )
 
 
@@ -1300,6 +1353,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     iniciar_cliente(telefone)
     clientes[telefone]["etapa"] = "acessorios_modelo"
     clientes[telefone]["atendimento_humano"] = False
+    clientes[telefone]["ultima_interacao"] = agora()
     clientes[telefone]["observacao"] = ""
     clientes[telefone]["modelo"] = ""
     clientes[telefone]["itens"] = ""
@@ -1319,6 +1373,11 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     if limpar_texto(texto_inicial):
         clientes[telefone]["modelo"] = limpar_texto(texto_inicial).upper()
         clientes[telefone]["etapa"] = "acessorios_orcamento"
+
+        log_info(
+            f"Fluxo acessórios iniciado via IA | "
+            f"Telefone={telefone} Modelo={clientes[telefone]['modelo']}"
+        )
 
         arquivo_pdf = obter_pdf_acessorios_por_modelo(texto_inicial)
 
@@ -1342,6 +1401,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
 
         enviar_mensagem(
             telefone,
+            "Perfeito 👍\n\n"
             "Agora me informe *qual acessório você deseja para orçamento*."
         )
         return
@@ -1359,6 +1419,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         "• Tenere 700\n"
         "• Aerox"
     )
+
 
 def menu_duvidas():
     return (
@@ -1568,6 +1629,16 @@ def obter_dados_extraidos_ia(texto):
         return resposta_ia_vazia()
 
 
+def normalizar_data_para_fluxo(data):
+    try:
+        data_obj = parse_data_hora(data)
+        if not data_obj:
+            return ""
+        return data_obj.strftime("%d/%m/%Y")
+    except Exception:
+        return ""
+
+
 def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     if not dados_extraidos or not isinstance(dados_extraidos, dict):
         return
@@ -1589,6 +1660,8 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     dia_texto = limpar_texto(dados_extraidos.get("dia"))
     horario = limpar_texto(dados_extraidos.get("horario"))
     data = limpar_texto(dados_extraidos.get("data"))
+    data_normalizada = normalizar_data_para_fluxo(data)
+
     item_adicional = formatar_itens_adicionais_para_salvar(
         dados_extraidos.get("item_adicional", "")
     )
@@ -1635,12 +1708,14 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         dados["dia"] = dia_numero
         dados["dia_texto"] = nome_dia(dia_numero)
 
-    if data and not dados.get("data") and data_texto_valida(data):
-        dados["data"] = data
+    if data_normalizada and not dados.get("data"):
+        dados["data"] = data_normalizada
 
     if horario and not dados.get("horario"):
         horario_limpo = horario.strip()
         if re.match(r"^\d{1,2}:\d{2}$", horario_limpo):
+            if len(horario_limpo.split(":")[0]) == 1:
+                horario_limpo = f"0{horario_limpo}"
             dados["horario"] = horario_limpo
 
     if (
@@ -1882,6 +1957,23 @@ def salvar_agendamento(telefone, dados):
     db = SessionLocal()
 
     try:
+        data_agendada = limpar_texto(dados.get("data", ""))
+        horario = limpar_texto(dados.get("horario", ""))
+        revisao = limpar_texto(dados.get("revisao", ""))
+
+        if not validar_data(data_agendada):
+            log_erro("Data inválida ao salvar agendamento:", data_agendada)
+            return False, ""
+
+        if not verificar_capacidade(data_agendada, horario, revisao):
+            log_erro(
+                "Sem capacidade para salvar agendamento:",
+                data_agendada,
+                horario,
+                revisao,
+            )
+            return False, ""
+
         protocolo = gerar_protocolo()
 
         itens_formatados = formatar_itens_adicionais_para_salvar(
@@ -1908,10 +2000,10 @@ def salvar_agendamento(telefone, dados):
             cpf=limpar_cpf(dados.get("cpf", "")),
             modelo=limpar_texto(dados.get("modelo", "")).upper(),
             ano=limpar_texto(dados.get("ano", "")),
-            revisao=limpar_texto(dados.get("revisao", "")),
+            revisao=revisao,
             dia_semana=nome_dia(dados.get("dia", "")),
-            data_agendada=limpar_texto(dados.get("data", "")),
-            horario=limpar_texto(dados.get("horario", "")),
+            data_agendada=data_agendada,
+            horario=horario,
             itens=itens_formatados,
             venda_adicional=venda_formatada,
             status=normalizar_status(STATUS_AGENDADO),
@@ -1958,6 +2050,7 @@ def salvar_atendimento_dashboard(telefone, dados):
         concluido=True,
     )
 
+
 # ==========================================
 # CONSULTA / CANCELAMENTO / REAGENDAMENTO
 # ==========================================
@@ -1976,6 +2069,7 @@ def buscar_agendamento_ativo(cpf):
                 AgendamentoRevisao.cpf == cpf_limpo,
                 AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
             )
+            .order_by(AgendamentoRevisao.id.desc())
             .first()
         )
 
@@ -2008,6 +2102,7 @@ def cancelar_agendamento(cpf, novo_status=STATUS_CANCELADO):
                 AgendamentoRevisao.cpf == cpf_limpo,
                 AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO),
             )
+            .order_by(AgendamentoRevisao.id.desc())
             .first()
         )
 
@@ -2291,6 +2386,10 @@ def iniciar_reagendamento(telefone, cpf):
 # ==========================================
 def atualizar_retorno_na_planilha(telefone, texto):
     try:
+        texto = limpar_texto(texto)
+        if not texto:
+            return
+
         with followup_lock:
             if not os.path.exists(ARQUIVO_FOLLOWUP):
                 return
@@ -2329,7 +2428,7 @@ def atualizar_retorno_na_planilha(telefone, texto):
             for idx in df.index:
                 tel_planilha = limpar_telefone(df.at[idx, coluna_telefone])
                 if tel_planilha == telefone_limpo:
-                    df.at[idx, coluna_retorno] = limpar_texto(texto)
+                    df.at[idx, coluna_retorno] = texto
                     df.at[idx, coluna_data_retorno] = formatar_data_hora()
                     encontrou = True
                     break
@@ -2418,9 +2517,12 @@ def processar_followup_inteligente():
         if agora_time.hour < 6 or agora_time.hour >= 22:
             return
 
-        atendimentos = db.query(Atendimento).filter(
-            Atendimento.concluido == False
-        ).order_by(Atendimento.id.desc()).all()
+        atendimentos = (
+            db.query(Atendimento)
+            .filter(Atendimento.concluido == False)
+            .order_by(Atendimento.id.desc())
+            .all()
+        )
 
         telefones_processados = set()
         houve_alteracao = False
@@ -2443,6 +2545,8 @@ def processar_followup_inteligente():
                 if telefone in telefones_processados:
                     continue
 
+                status_atual = normalizar_status(getattr(at, "status", ""))
+
                 # não envia se estiver em atendimento humano
                 if bool(getattr(at, "atendimento_humano", False)):
                     telefones_processados.add(telefone)
@@ -2453,9 +2557,12 @@ def processar_followup_inteligente():
                     telefones_processados.add(telefone)
                     continue
 
-                # não envia se já estiver agendado
-                status_atual = normalizar_status(getattr(at, "status", ""))
-                if status_atual == normalizar_status(STATUS_AGENDADO):
+                # não envia se já estiver agendado/cancelado/finalizado
+                if status_atual in [
+                    normalizar_status(STATUS_AGENDADO),
+                    normalizar_status(STATUS_CANCELADO),
+                    normalizar_status(STATUS_FINALIZADO),
+                ]:
                     telefones_processados.add(telefone)
                     continue
 
@@ -2503,7 +2610,7 @@ def processar_followup_inteligente():
                     enviado = enviar_mensagem(
                         telefone,
                         "⏰ Só passando pra te lembrar da sua solicitação.\n\n"
-                        "Se quiser, posso finalizar seu agendamento agora 👍",
+                        "Se quiser, posso finalizar seu atendimento agora 👍",
                     )
                     if enviado:
                         at.followup_2 = True
@@ -2519,8 +2626,8 @@ def processar_followup_inteligente():
                     enviado = enviar_mensagem(
                         telefone,
                         "🚨 Última chamada!\n\n"
-                        "Ainda quer agendar sua revisão?\n"
-                        "Temos horários disponíveis essa semana 🏍️",
+                        "Ainda quer continuar seu atendimento?\n"
+                        "Estou por aqui para te ajudar 🏍️",
                     )
                     if enviado:
                         at.followup_3 = True
@@ -2610,9 +2717,12 @@ def buscar_agendamento_por_protocolo(protocolo):
         if not protocolo_limpo:
             return None
 
-        ag = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.protocolo == protocolo_limpo
-        ).first()
+        ag = (
+            db.query(AgendamentoRevisao)
+            .filter(AgendamentoRevisao.protocolo == protocolo_limpo)
+            .order_by(AgendamentoRevisao.id.desc())
+            .first()
+        )
 
         return ag
 
@@ -2632,19 +2742,21 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
         if not protocolo_limpo:
             return False
 
-        ag = db.query(AgendamentoRevisao).filter(
-            AgendamentoRevisao.protocolo == protocolo_limpo
-        ).first()
+        ag = (
+            db.query(AgendamentoRevisao)
+            .filter(AgendamentoRevisao.protocolo == protocolo_limpo)
+            .order_by(AgendamentoRevisao.id.desc())
+            .first()
+        )
 
         if not ag:
             return False
 
         agora_time = datetime.now()
         sucesso = bool(retorno_sances.get("sucesso", False))
-        status = (
-            limpar_texto(retorno_sances.get("status", ""))
-            or SANCES_STATUS_ERRO
-        )
+        status = normalizar_texto(
+            limpar_texto(retorno_sances.get("status", "")) or SANCES_STATUS_ERRO
+        ).upper()
 
         ag.sances_status = status
         ag.sances_enviado = sucesso
@@ -2732,7 +2844,7 @@ def etapa_revisao_permite_ir_para_duvidas(etapa):
         "revisao_cpf",
         "revisao_ano",
         "revisao_km",
-        "revisao_tipo",
+        "revisao_revisao",
     }
     return etapa in etapas_permitidas
 
@@ -2823,9 +2935,25 @@ def processar_fila_sances():
                         continue
 
                 dados = montar_dados_agendamento_para_reenvio(ag)
-                retorno = enviar_agendamento_para_sances(dados)
+                if not dados or not dados.get("telefone"):
+                    log_erro(
+                        "Dados inválidos para reenvio Sances:",
+                        getattr(ag, "protocolo", ""),
+                    )
+                    continue
 
-                ag.sances_status = retorno.get("status", SANCES_STATUS_ERRO)
+                retorno = enviar_agendamento_para_sances(dados)
+                if not isinstance(retorno, dict):
+                    retorno = {
+                        "sucesso": False,
+                        "status": SANCES_STATUS_ERRO,
+                        "protocolo_sances": "",
+                        "erro": "Retorno inválido da integração Sances",
+                    }
+
+                ag.sances_status = limpar_texto(
+                    retorno.get("status", SANCES_STATUS_ERRO)
+                ).upper() or SANCES_STATUS_ERRO
                 ag.sances_enviado = bool(retorno.get("sucesso", False))
                 ag.sances_protocolo = retorno.get("protocolo_sances", "") or ""
                 ag.sances_erro = retorno.get("erro", "") or ""
@@ -2900,7 +3028,6 @@ def iniciar_worker():
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
     log_info("Worker iniciado com sucesso.")
-
 # ==========================================
 # DASHBOARD
 # ==========================================
@@ -2935,6 +3062,9 @@ def dashboard():
 
         total = query.count()
         total_revisoes = query.filter(Atendimento.setor == "Revisão").count()
+        total_acessorios = query.filter(Atendimento.setor == "Acessórios").count()
+        total_pecas = query.filter(Atendimento.setor == "Peças").count()
+        total_garantia = query.filter(Atendimento.setor == "Garantia").count()
         revisao = total_revisoes
 
         total_duvidas_revisoes = query.filter(
@@ -2999,6 +3129,9 @@ def dashboard():
             Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"]),
         ).count()
 
+        # ==========================================
+        # RANKING ITENS DE REVISÃO
+        # ==========================================
         contador_itens = Counter()
         registros_itens = query.filter(
             Atendimento.setor == "Revisão"
@@ -3016,6 +3149,95 @@ def dashboard():
         ranking_itens = contador_itens.most_common(20)
         total_itens_vendidos = sum(contador_itens.values())
 
+        # ==========================================
+        # ACESSÓRIOS - RANKING GERAL
+        # ==========================================
+        contador_acessorios = Counter()
+        registros_acessorios = query.filter(
+            Atendimento.setor == "Acessórios"
+        ).with_entities(
+            Atendimento.itens,
+            Atendimento.venda_adicional,
+            Atendimento.observacao if hasattr(Atendimento, "observacao") else Atendimento.etapa,
+        ).all()
+
+        for registro in registros_acessorios:
+            itens_valor = registro[0] if len(registro) > 0 else ""
+            venda_valor = registro[1] if len(registro) > 1 else ""
+            obs_valor = registro[2] if len(registro) > 2 else ""
+
+            bruto = (
+                limpar_texto(itens_valor)
+                or limpar_texto(venda_valor)
+                or limpar_texto(obs_valor)
+            )
+
+            if not bruto:
+                continue
+
+            bruto = bruto.replace("Solicitação de acessório:", "").strip()
+            lista = extrair_lista_itens_adicionais(bruto)
+
+            for item in lista:
+                if item_adicional_valido(item):
+                    contador_acessorios[item] += 1
+
+        ranking_acessorios = contador_acessorios.most_common(20)
+        total_acessorios_solicitados = sum(contador_acessorios.values())
+
+        # ==========================================
+        # ACESSÓRIOS POR MODELO
+        # ==========================================
+        contador_acessorios_por_modelo = {}
+
+        registros_acessorios_modelo = query.filter(
+            Atendimento.setor == "Acessórios"
+        ).with_entities(
+            Atendimento.modelo,
+            Atendimento.itens,
+            Atendimento.venda_adicional,
+            Atendimento.observacao if hasattr(Atendimento, "observacao") else Atendimento.etapa,
+        ).all()
+
+        for registro in registros_acessorios_modelo:
+            modelo = limpar_texto(registro[0]).upper() or "NÃO INFORMADO"
+            itens_valor = registro[1] if len(registro) > 1 else ""
+            venda_valor = registro[2] if len(registro) > 2 else ""
+            obs_valor = registro[3] if len(registro) > 3 else ""
+
+            bruto = (
+                limpar_texto(itens_valor)
+                or limpar_texto(venda_valor)
+                or limpar_texto(obs_valor)
+            )
+
+            if not bruto:
+                continue
+
+            bruto = bruto.replace("Solicitação de acessório:", "").strip()
+            lista = extrair_lista_itens_adicionais(bruto)
+
+            if modelo not in contador_acessorios_por_modelo:
+                contador_acessorios_por_modelo[modelo] = Counter()
+
+            for item in lista:
+                if item_adicional_valido(item):
+                    contador_acessorios_por_modelo[modelo][item] += 1
+
+        ranking_acessorios_por_modelo = []
+        for modelo, contador in contador_acessorios_por_modelo.items():
+            ranking_acessorios_por_modelo.append({
+                "modelo": modelo,
+                "total": sum(contador.values()),
+                "itens": contador.most_common(10),
+            })
+
+        ranking_acessorios_por_modelo = sorted(
+            ranking_acessorios_por_modelo,
+            key=lambda x: x["total"],
+            reverse=True
+        )
+
         agendamentos = query_ag.order_by(
             AgendamentoRevisao.criado_em.desc()
         ).limit(20).all()
@@ -3028,6 +3250,9 @@ def dashboard():
             total=total or 0,
             revisao=revisao or 0,
             total_revisoes=total_revisoes or 0,
+            total_acessorios=total_acessorios or 0,
+            total_pecas=total_pecas or 0,
+            total_garantia=total_garantia or 0,
             total_duvidas=total_duvidas or 0,
             total_duvidas_revisoes=total_duvidas_revisoes or 0,
             total_duvidas_garantia=total_duvidas_garantia or 0,
@@ -3045,6 +3270,9 @@ def dashboard():
             quinta=quinta or 0,
             total_itens_vendidos=total_itens_vendidos or 0,
             ranking_itens=ranking_itens or [],
+            total_acessorios_solicitados=total_acessorios_solicitados or 0,
+            ranking_acessorios=ranking_acessorios or [],
+            ranking_acessorios_por_modelo=ranking_acessorios_por_modelo or [],
             agendamentos=agendamentos or [],
             sances_pendentes=sances_pendentes or 0,
             sances_enviados=sances_enviados or 0,
@@ -3114,7 +3342,6 @@ def reenvio_sances(protocolo):
 # ==========================================
 # FOLLOW-UP INTELIGENTE (V2)
 # ==========================================
-
 def identificar_contexto_followup(at):
     setor = limpar_texto(getattr(at, "setor", "")).lower()
     etapa = limpar_texto(getattr(at, "etapa", "")).lower()
@@ -3126,16 +3353,24 @@ def identificar_contexto_followup(at):
     if "revisao_confirmacao" in etapa:
         return "fechamento_revisao"
 
-    if "revisao_horario" in etapa or "revisao_data" in etapa or "revisao_dia" in etapa:
+    if (
+        "revisao_horario" in etapa
+        or "revisao_data" in etapa
+        or "revisao_dia" in etapa
+    ):
         return "agenda_revisao"
 
     if etapa.startswith("revisao") or setor in ["revisão", "revisao"]:
         return "revisao"
 
-    if setor in ["peças", "pecas"] or etapa == "pecas":
+    if setor in ["peças", "pecas"] or etapa in ["pecas"]:
         return "pecas"
 
-    if setor in ["acessórios", "acessorios"] or etapa == "acessorios":
+    if setor in ["acessórios", "acessorios"] or etapa in [
+        "acessorios",
+        "acessorios_modelo",
+        "acessorios_orcamento",
+    ]:
         return "acessorios"
 
     if setor == "garantia" or etapa == "garantia":
@@ -3156,6 +3391,9 @@ def obter_tempos_followup_por_contexto(contexto):
 
     if contexto == "agenda_revisao":
         return 4 * 3600, 24 * 3600, 4 * 24 * 3600
+
+    if contexto == "acessorios":
+        return 3 * 3600, 24 * 3600, 3 * 24 * 3600
 
     return 6 * 3600, 24 * 3600, 5 * 24 * 3600
 
@@ -3188,9 +3426,9 @@ def montar_mensagem_followup_inteligente(at, nivel):
             3: saudacao + "ainda precisa das peças?\n\nMe chama aqui 🔧",
         },
         "acessorios": {
-            1: saudacao + "vi que você buscou acessórios.\n\nQuer continuar?",
-            2: saudacao + "posso te ajudar com acessórios agora 👍",
-            3: saudacao + "ainda quer ver acessórios?\n\nEstou aqui 🏍️",
+            1: saudacao + "vi que você buscou acessórios para sua moto.\n\nQuer continuar?",
+            2: saudacao + "posso te ajudar com os acessórios agora 👍",
+            3: saudacao + "ainda quer ver acessórios ou pedir orçamento?\n\nEstou por aqui 🏍️",
         },
         "garantia": {
             1: saudacao + "vi sua solicitação de garantia.\n\nQuer continuar?",
@@ -3209,7 +3447,9 @@ def montar_mensagem_followup_inteligente(at, nivel):
         },
     }
 
-    return mensagens.get(contexto, mensagens["geral"]).get(nivel, mensagens["geral"][1])
+    return mensagens.get(contexto, mensagens["geral"]).get(
+        nivel, mensagens["geral"][1]
+    )
 
 
 def resetar_followups_do_cliente(telefone):
@@ -3292,17 +3532,16 @@ def processar_followup_inteligente():
 
                 status = normalizar_status(getattr(at, "status", ""))
 
-                if status == normalizar_status(STATUS_AGENDADO):
-                    continue
-
                 if status in [
-                    normalizar_status("CANCELADO"),
-                    normalizar_status("CANCELADA"),
-                    normalizar_status(STATUS_CANCELADO) if "STATUS_CANCELADO" in globals() else "cancelado",
+                    normalizar_status(STATUS_AGENDADO),
+                    normalizar_status(STATUS_CANCELADO),
+                    normalizar_status(STATUS_FINALIZADO),
                 ]:
                     continue
 
-                ultima = getattr(at, "ultima_mensagem_cliente", None) or getattr(at, "ultima_interacao", None)
+                ultima = getattr(at, "ultima_mensagem_cliente", None) or getattr(
+                    at, "ultima_interacao", None
+                )
                 if not ultima:
                     continue
 
@@ -3354,6 +3593,7 @@ def processar_followup_inteligente():
 
     finally:
         db.close()
+
 
 # ==========================================
 # CONTROLE SEGURO DA IA NO WEBHOOK
@@ -3477,9 +3717,12 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         if isinstance(dados_extraidos, dict):
             modelo_ia = limpar_texto(dados_extraidos.get("modelo", ""))
 
-        iniciar_fluxo_acessorios(telefone, modelo_ia)
+        if modelo_ia:
+            iniciar_fluxo_acessorios(telefone, modelo_ia)
+        else:
+            iniciar_fluxo_acessorios(telefone)
         return True
-    
+
     elif intencao == "garantia":
         clientes[telefone]["etapa"] = "garantia"
         if resposta_texto:
@@ -3667,12 +3910,13 @@ def webhook():
                 ativar_atendimento_humano(telefone)
                 return jsonify({"status": "ok", "motivo": "menu_humano"}), 200
 
-            enviar_mensagem(
-                telefone,
-                "⚠️ Opção inválida.\n\n"
-                "Escolha uma opção de *1 a 7* ou me escreva o que precisa."
+            log_info(
+                f"Texto não tratado no menu principal. Telefone={telefone} Texto={texto}"
             )
-            return jsonify({"status": "ok", "motivo": "menu_opcao_invalida"}), 200
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "texto_livre_menu_sem_acao"
+            }), 200
 
         # ==========================================
         # FLUXO REVISÃO
@@ -3770,6 +4014,24 @@ def webhook():
                     )
                     return jsonify({"status": "ok"}), 200
 
+                if not validar_data(data):
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Data inválida.\n\nEscolha uma data futura e que não seja domingo."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
+                if not data_corresponde_ao_dia_escolhido(
+                    data,
+                    clientes[telefone].get("dia", "")
+                ):
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ A data informada não corresponde ao dia da semana escolhido.\n\n"
+                        "Informe uma data compatível com o dia selecionado."
+                    )
+                    return jsonify({"status": "ok"}), 200
+
                 clientes[telefone]["data"] = data
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
@@ -3808,7 +4070,45 @@ def webhook():
                     )
                     return jsonify({"status": "ok"}), 200
 
-                clientes[telefone]["horario"] = horarios_disponiveis[indice - 1]
+                horario_escolhido = horarios_disponiveis[indice - 1]
+
+                if not verificar_capacidade(
+                    clientes[telefone].get("data", ""),
+                    horario_escolhido,
+                    clientes[telefone].get("revisao", "")
+                ):
+                    enviar_mensagem(
+                        telefone,
+                        "⚠️ Esse horário acabou de ficar indisponível.\n\n"
+                        "Escolha outro horário."
+                    )
+                    clientes[telefone]["horarios_disponiveis"] = [
+                        h for h in horarios_disponiveis if h != horario_escolhido
+                    ]
+
+                    if clientes[telefone]["horarios_disponiveis"]:
+                        enviar_mensagem(
+                            telefone,
+                            montar_mensagem_horarios(
+                                clientes[telefone]["horarios_disponiveis"]
+                            ),
+                        )
+                    else:
+                        clientes[telefone]["horario"] = ""
+                        clientes[telefone]["horarios_disponiveis"] = []
+                        enviar_mensagem(
+                            telefone,
+                            "⚠️ Não há mais horários disponíveis para essa data.\n\n"
+                            "Vamos escolher outro dia."
+                        )
+                        clientes[telefone]["dia"] = ""
+                        clientes[telefone]["dia_texto"] = ""
+                        clientes[telefone]["data"] = ""
+                        enviar_proxima_etapa_revisao(telefone)
+
+                    return jsonify({"status": "ok"}), 200
+
+                clientes[telefone]["horario"] = horario_escolhido
                 enviar_proxima_etapa_revisao(telefone)
                 return jsonify({"status": "ok"}), 200
 
@@ -3846,7 +4146,10 @@ def webhook():
             elif etapa == "revisao_observacao":
                 resposta_observacao = texto_normalizado.strip()
 
-                if resposta_observacao in ["2", "nao", "não", "nenhuma", "nenhum", "sem observacao", "sem observação"]:
+                if resposta_observacao in [
+                    "2", "nao", "não", "nenhuma", "nenhum",
+                    "sem observacao", "sem observação"
+                ]:
                     clientes[telefone]["observacao"] = "Nenhuma"
                 else:
                     clientes[telefone]["observacao"] = texto.strip()
@@ -3892,14 +4195,18 @@ def webhook():
                                     "🙏 Agradecemos por escolher a *Motoshow Yamaha* 🏍️"
                                 )
                             else:
-                                enviar_mensagem(telefone, "✅ *Agendamento confirmado com sucesso!*")
+                                enviar_mensagem(
+                                    telefone,
+                                    "✅ *Agendamento confirmado com sucesso!*"
+                                )
 
                             resetar_cliente(telefone)
 
                         else:
                             enviar_mensagem(
                                 telefone,
-                                "❌ Erro ao salvar agendamento.\n\nTente novamente em instantes."
+                                "❌ Erro ao salvar agendamento.\n\n"
+                                "Verifique se o horário ainda está disponível e tente novamente."
                             )
                             log_erro(
                                 "Falha no retorno do salvar_agendamento:",
@@ -3980,7 +4287,10 @@ def webhook():
                 modelo=clientes[telefone].get("modelo", ""),
                 revisao=clientes[telefone].get("revisao", ""),
             )
-            enviar_mensagem(telefone, resposta_duvida or "Não encontrei essa informação no momento.")
+            enviar_mensagem(
+                telefone,
+                resposta_duvida or "Não encontrei essa informação no momento."
+            )
             enviar_mensagem(
                 telefone,
                 "Se quiser fazer outra pergunta, pode me enviar agora.\n\n"
@@ -3995,7 +4305,10 @@ def webhook():
                 modelo=clientes[telefone].get("modelo", ""),
                 revisao=clientes[telefone].get("revisao", ""),
             )
-            enviar_mensagem(telefone, resposta_duvida or "Não encontrei essa informação no momento.")
+            enviar_mensagem(
+                telefone,
+                resposta_duvida or "Não encontrei essa informação no momento."
+            )
             enviar_mensagem(
                 telefone,
                 "Se quiser fazer outra pergunta, pode me enviar agora.\n\n"
@@ -4026,6 +4339,11 @@ def webhook():
 
             arquivo_pdf = obter_pdf_acessorios_por_modelo(modelo_informado)
             clientes[telefone]["etapa"] = "acessorios_orcamento"
+
+            log_info(
+                f"Fluxo acessórios avançado para acessorios_orcamento | "
+                f"Telefone={telefone} Modelo={clientes[telefone]['modelo']}"
+            )
 
             if arquivo_pdf == PDF_ACESSORIOS_GERAL:
                 enviar_mensagem(
@@ -4107,7 +4425,7 @@ def webhook():
             resetar_cliente(telefone)
             return jsonify({"status": "ok"}), 200
 
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok", "motivo": "nenhuma_acao_aplicada"}), 200
 
     except Exception as e:
         log_erro("ERRO NO WEBHOOK:", repr(e))
@@ -4115,6 +4433,8 @@ def webhook():
             "status": "erro",
             "detalhe": "falha interna no webhook"
         }), 200
+
+
 # ==========================================
 # INICIAR WORKER
 # ==========================================

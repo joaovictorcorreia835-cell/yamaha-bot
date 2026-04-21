@@ -18,13 +18,14 @@ if DATABASE_URL.startswith("postgres://"):
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    future=True,
 )
 
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
-    autocommit=False
+    autocommit=False,
 )
 
 Base = declarative_base()
@@ -39,24 +40,25 @@ class Atendimento(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     telefone = Column(String, index=True)
-    nome = Column(String)
-    setor = Column(String)
+    nome = Column(String, nullable=True)
+    setor = Column(String, index=True, nullable=True)
 
-    modelo = Column(String)
-    ano = Column(String)
-    revisao = Column(String)
-    cpf = Column(String)
+    modelo = Column(String, index=True, nullable=True)
+    ano = Column(String, nullable=True)
+    revisao = Column(String, index=True, nullable=True)
+    cpf = Column(String, index=True, nullable=True)
 
-    dia_semana = Column(String)
-    data_agendada = Column(String)
-    horario = Column(String)
+    dia_semana = Column(String, nullable=True)
+    data_agendada = Column(String, index=True, nullable=True)
+    horario = Column(String, index=True, nullable=True)
 
-    itens = Column(Text)
-    venda_adicional = Column(Text)
+    itens = Column(Text, nullable=True)
+    venda_adicional = Column(Text, nullable=True)
+    observacao = Column(Text, nullable=True)
 
-    origem = Column(String)
-    status = Column(String)
-    etapa = Column(String)
+    origem = Column(String, nullable=True)
+    status = Column(String, index=True, nullable=True)
+    etapa = Column(String, index=True, nullable=True)
 
     atendimento_humano = Column(Boolean, default=False)
     concluido = Column(Boolean, default=False)
@@ -70,7 +72,8 @@ class Atendimento(Base):
     ultima_interacao = Column(DateTime, default=datetime.now)
     ultima_mensagem_cliente = Column(DateTime, nullable=True)
 
-    data = Column(DateTime, default=datetime.now)
+    data = Column(DateTime, default=datetime.now, index=True)
+
 
 # ==========================================
 # TABELA DISPAROS
@@ -81,15 +84,15 @@ class Disparo(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     telefone = Column(String, index=True)
-    nome = Column(String)
-    modelo = Column(String)
-    periodo = Column(String)
+    nome = Column(String, nullable=True)
+    modelo = Column(String, nullable=True)
+    periodo = Column(String, nullable=True)
 
-    cpf = Column(String)
-    chassi = Column(String)
+    cpf = Column(String, nullable=True)
+    chassi = Column(String, nullable=True)
 
-    status = Column(String, default="pendente")
-    data_envio = Column(DateTime)
+    status = Column(String, default="pendente", index=True)
+    data_envio = Column(DateTime, nullable=True)
 
 
 # ==========================================
@@ -101,14 +104,14 @@ class LeadAtacado(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     telefone = Column(String, index=True)
-    empresa = Column(String)
-    cnpj = Column(String)
-    cidade = Column(String)
-    responsavel = Column(String)
-    interesse = Column(Text)
+    empresa = Column(String, nullable=True)
+    cnpj = Column(String, index=True, nullable=True)
+    cidade = Column(String, nullable=True)
+    responsavel = Column(String, nullable=True)
+    interesse = Column(Text, nullable=True)
 
-    status = Column(String, default="novo")
-    data = Column(DateTime, default=datetime.now)
+    status = Column(String, default="novo", index=True)
+    data = Column(DateTime, default=datetime.now, index=True)
 
 
 # ==========================================
@@ -124,22 +127,22 @@ class AgendamentoRevisao(Base):
 
     protocolo = Column(String, unique=True, index=True)
     telefone = Column(String, index=True)
-    nome = Column(String)
+    nome = Column(String, nullable=True)
     cpf = Column(String, index=True)
 
-    modelo = Column(String)
-    ano = Column(String)
-    revisao = Column(String)
+    modelo = Column(String, index=True, nullable=True)
+    ano = Column(String, nullable=True)
+    revisao = Column(String, index=True, nullable=True)
 
-    dia_semana = Column(String)
+    dia_semana = Column(String, nullable=True)
     data_agendada = Column(String, index=True)
     horario = Column(String, index=True)
 
-    itens = Column(Text)
-    venda_adicional = Column(Text)
+    itens = Column(Text, nullable=True)
+    venda_adicional = Column(Text, nullable=True)
 
-    status = Column(String, default="AGENDADO")
-    observacoes = Column(Text)
+    status = Column(String, default="AGENDADO", index=True)
+    observacoes = Column(Text, nullable=True)
 
     origem = Column(String, default="BOT")
     lembrete_enviado = Column(Boolean, default=False)
@@ -160,7 +163,7 @@ class AgendamentoRevisao(Base):
     sances_ultima_tentativa = Column(DateTime, nullable=True)
     sances_ultimo_retorno = Column(Text, default="")
 
-    criado_em = Column(DateTime, default=datetime.now)
+    criado_em = Column(DateTime, default=datetime.now, index=True)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
@@ -176,15 +179,15 @@ class RevisaoCatalogo(Base):
     modelo = Column(String, index=True, nullable=False)
     revisao_numero = Column(String, index=True, nullable=False)
 
-    valor = Column(Float)
-    tempo_estimado = Column(String)
+    valor = Column(Float, nullable=True)
+    tempo_estimado = Column(String, nullable=True)
 
-    itens_trocados = Column(Text)
-    itens_verificados = Column(Text)
-    descricao_servico = Column(Text)
-    observacoes = Column(Text)
+    itens_trocados = Column(Text, nullable=True)
+    itens_verificados = Column(Text, nullable=True)
+    descricao_servico = Column(Text, nullable=True)
+    observacoes = Column(Text, nullable=True)
 
-    ativo = Column(Boolean, default=True)
+    ativo = Column(Boolean, default=True, index=True)
 
     criado_em = Column(DateTime, default=datetime.now)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -201,9 +204,9 @@ class FaqRevisao(Base):
 
     categoria = Column(String, index=True)
     pergunta_chave = Column(String, index=True)
-    resposta_base = Column(Text)
+    resposta_base = Column(Text, nullable=True)
 
-    ativo = Column(Boolean, default=True)
+    ativo = Column(Boolean, default=True, index=True)
 
     criado_em = Column(DateTime, default=datetime.now)
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
