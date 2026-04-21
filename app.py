@@ -3791,7 +3791,7 @@ def webhook():
         # IGNORA EVENTOS SEM TEXTO ÚTIL
         # Evita quebrar fluxo após envio de PDF/documento
         # ==========================================
-        if not texto.strip():
+        if (not texto or not texto.strip()) and tipo_mensagem not in ["chat", "conversation", "extendedTextMessage"]:
             log_info(
                 f"Evento ignorado por não conter texto útil. "
                 f"Telefone={telefone} Tipo={tipo_mensagem}"
