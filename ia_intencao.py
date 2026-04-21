@@ -19,6 +19,7 @@ CAMINHO_PLANILHA_REVISOES = "templates/data/revisoes_yamaha.xlsx"
 MODELOS_YAMAHA = [
     "FAZER 250",
     "FZ15",
+    "FZ25",
     "CROSSER",
     "LANDER",
     "MT03",
@@ -29,7 +30,8 @@ MODELOS_YAMAHA = [
     "NEO",
     "NMAX",
     "TENERE 700",
-    "AEROX"
+    "AEROX",
+    "FACTOR",
 ]
 
 BASE_DUVIDAS = {
@@ -245,7 +247,7 @@ def frase_parece_duvida(texto):
         "qual", "quais", "quanto", "como", "o que", "me explica", "explica"
     ]
 
-    if any(gatilho in texto_norm for gatilhos in [gatilhos_duvida] for gatilho in gatilhos):
+    if any(gatilho in texto_norm for gatilho in gatilhos_duvida):
         return True
 
     if "?" in str(texto):
@@ -258,16 +260,18 @@ def frase_parece_duvida(texto):
 
 
 def extrair_modelo(texto):
-    texto_upper = str(texto or "").upper()
+    texto_upper = remover_acentos(str(texto or "").upper())
 
     for modelo in sorted(MODELOS_YAMAHA, key=len, reverse=True):
-        if modelo in texto_upper:
+        if remover_acentos(modelo) in texto_upper:
             return modelo
 
     aliases = {
         "FAZER": "FAZER 250",
         "FZ 15": "FZ15",
         "FZ-15": "FZ15",
+        "FZ 25": "FZ25",
+        "FZ-25": "FZ25",
         "MT 03": "MT03",
         "MT-03": "MT03",
         "MT 07": "MT07",
@@ -277,6 +281,10 @@ def extrair_modelo(texto):
         "R 3": "R3",
         "R-3": "R3",
         "TENERE": "TENERE 700",
+        "TENERE 700": "TENERE 700",
+        "T7": "TENERE 700",
+        "BAU": "",
+        "SLIDER": "",
     }
 
     for alias, modelo in aliases.items():
@@ -365,7 +373,7 @@ def extrair_horario(texto):
         if 0 <= hora <= 23:
             return f"{hora:02d}:00"
 
-    match = re.search(r"\b(?:as)\s*(\d{1,2})\b", texto)
+    match = re.search(r"\b(?:as|às)\s*(\d{1,2})\b", texto)
     if match:
         hora = int(match.group(1))
         if 0 <= hora <= 23:
@@ -476,6 +484,7 @@ def extrair_item_adicional(texto):
         "suporte celular",
         "suporte para celular",
         "protetor motor",
+        "protetor de motor",
         "vela",
         "vela de ignicao",
         "vela de ignição",
@@ -502,6 +511,27 @@ def extrair_item_adicional(texto):
                 encontrados.append(item_formatado)
 
     return ", ".join(encontrados)
+
+
+def extrair_observacao(texto):
+    texto_limpo = limpar_texto(texto)
+    if not texto_limpo:
+        return ""
+    if len(texto_limpo) < 8:
+        return ""
+    return texto_limpo
+
+
+def extrair_tipo_atendimento(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if "aguardar" in texto_norm:
+        return "AGUARDAR NA CONCESSIONÁRIA"
+
+    if "deixar" in texto_norm or "retirar depois" in texto_norm:
+        return "DEIXAR A MOTO E RETIRAR DEPOIS"
+
+    return ""
 
 
 def texto_parece_dado_de_fluxo(texto):
@@ -597,8 +627,10 @@ def detectar_intencao_regras(texto_normalizado):
     if any(p in texto_normalizado for p in [
         "peca",
         "pecas",
+        "peça",
+        "peças",
         "orcamento",
-        "orcamento de peca",
+        "orçamento",
         "valor do filtro",
         "preco do filtro",
         "preço do filtro",
@@ -624,6 +656,8 @@ def detectar_intencao_regras(texto_normalizado):
     if any(p in texto_normalizado for p in [
         "acessorio",
         "acessorios",
+        "acessório",
+        "acessórios",
         "slider",
         "bau",
         "baú",
@@ -631,16 +665,14 @@ def detectar_intencao_regras(texto_normalizado):
         "suporte para celular",
         "protetor de motor"
     ]):
-        return "acessorios", 0.94
+        return "acessorios", 0.95
 
-# PRIORIDADE: dúvidas sobre garantia primeiro
     if frase_parece_duvida(texto_normalizado) and "garantia" in texto_normalizado:
         return "duvidas", 0.95
 
-# GARANTIA REAL (problema técnico)
     if any(p in texto_normalizado for p in [
         "defeito", "problema", "nao funciona", "não funciona", "quebrou"
-    ]   ) and "garantia" in texto_normalizado:
+    ]) and "garantia" in texto_normalizado:
         return "garantia", 0.94
 
     if any(p in texto_normalizado for p in [
@@ -664,8 +696,11 @@ def detectar_intencao_regras(texto_normalizado):
 
     if any(p in texto_normalizado for p in [
         "duvida",
+        "dúvida",
         "tenho uma duvida",
+        "tenho uma dúvida",
         "tenho duvida",
+        "tenho dúvida",
         "pergunta",
         "informacao",
         "informação",
@@ -698,8 +733,10 @@ def sugerir_proxima_etapa(intencao, dados):
             return "revisao_cpf"
         if not dados["ano"]:
             return "revisao_ano"
+        if not dados["km"]:
+            return "revisao_km"
         if not dados["revisao"]:
-            return "revisao_tipo"
+            return "revisao_revisao"
         if not dados["dia"]:
             return "revisao_dia"
         if not dados["data"]:
@@ -727,13 +764,13 @@ def sugerir_proxima_etapa(intencao, dados):
         return "pecas"
 
     if intencao == "acessorios":
-        return "acessorios"
+        return "acessorios_modelo"
 
     if intencao == "garantia":
         return "garantia"
 
     if intencao == "atacado":
-        return "submenu_atacado"
+        return "atacado"
 
     if intencao == "humano":
         return "atendimento_humano"
@@ -820,6 +857,7 @@ def classificar_com_ia(texto):
                         "Use valor_revisao apenas quando a pessoa quiser saber preço, valor ou custo da revisão. "
                         "Use pecas quando a pessoa perguntar valor, preço, orçamento ou disponibilidade de peça avulsa "
                         "como filtro, pastilha, vela, bateria, óleo, relação ou itens similares. "
+                        "Use acessorios quando a pessoa mencionar acessórios como slider, baú, suporte, protetor ou catálogo de acessórios. "
                         "Use duvidas quando a pessoa quiser apenas tirar uma dúvida sobre revisão ou garantia, "
                         "sem pedir agendamento e sem pedir preço de peça. "
                         "Se houver intenção clara de agendar ou marcar horário, sempre responda agendar_revisao. "
@@ -1053,6 +1091,9 @@ def classificar_intencao(texto):
             "cpf": "",
             "item_adicional": "",
             "km": "",
+            "km_atual": "",
+            "observacao": "",
+            "tipo_atendimento": "",
         }
         return {
             "intencao": "menu",
@@ -1080,6 +1121,9 @@ def classificar_intencao(texto):
         "cpf": extrair_cpf(texto),
         "item_adicional": extrair_item_adicional(texto),
         "km": extrair_km(texto),
+        "km_atual": extrair_km(texto),
+        "observacao": extrair_observacao(texto),
+        "tipo_atendimento": extrair_tipo_atendimento(texto),
     }
 
     if not dados["revisao"] and dados["km"]:
@@ -1101,8 +1145,12 @@ def classificar_intencao(texto):
             confianca = 0.92
 
         elif dados["modelo"] and dados["item_adicional"]:
-            intencao = "pecas"
-            confianca = 0.88
+            intencao = "acessorios"
+            confianca = 0.90
+
+        elif dados["item_adicional"]:
+            intencao = "acessorios"
+            confianca = 0.80
 
         elif frase_parece_duvida(texto):
             intencao = "duvidas"
