@@ -28,6 +28,33 @@ ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "")
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "")
 BASE_URL = os.getenv("BASE_URL", "")
 
+# ==========================================
+# PDFS DE ACESSÓRIOS POR MODELO
+# ==========================================
+MAPA_PDF_ACESSORIOS = {
+    "fz15": "acessorios_fz15.pdf",
+    "f z 15": "acessorios_fz15.pdf",
+
+    "fz25": "acessorios_fz25.pdf",
+    "fazer 250": "acessorios_fz25.pdf",
+    "fazer250": "acessorios_fz25.pdf",
+    "fazer": "acessorios_fz25.pdf",
+
+    "crosser": "acessorios_crosser.pdf",
+
+    "lander": "acessorios_lander.pdf",
+    "lander 250": "acessorios_lander.pdf",
+
+    "tenere": "acessorios_tenere700.pdf",
+    "tenere 700": "acessorios_tenere700.pdf",
+    "tenere700": "acessorios_tenere700.pdf",
+
+    "aerox": "acessorios_aerox.pdf",
+
+    "factor": "acessorios_factor.pdf",
+}
+PDF_ACESSORIOS_GERAL = "acessorios.pdf"
+
 # Evita erro se vier vazio ou inválido
 TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "43200") or 43200)
 
@@ -148,6 +175,28 @@ def limpar_texto(texto):
 
 def normalizar_texto(texto):
     return limpar_texto(texto).lower()
+
+# ==========================================
+# 🔧 NOVO - APOIO ACESSÓRIOS
+# ==========================================
+def normalizar_modelo_acessorio(texto):
+    texto = normalizar_texto(texto)
+    texto = re.sub(r"[^a-zA-Z0-9\s]", "", texto)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto
+
+
+def obter_pdf_acessorios_por_modelo(modelo):
+    modelo_norm = normalizar_modelo_acessorio(modelo)
+
+    if not modelo_norm:
+        return PDF_ACESSORIOS_GERAL
+
+    for chave, arquivo in MAPA_PDF_ACESSORIOS.items():
+        if chave in modelo_norm:
+            return arquivo
+
+    return PDF_ACESSORIOS_GERAL
 
 
 def limpar_telefone(telefone):
@@ -1249,9 +1298,12 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
 
 def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     iniciar_cliente(telefone)
-    clientes[telefone]["etapa"] = "acessorios"
+    clientes[telefone]["etapa"] = "acessorios_modelo"
     clientes[telefone]["atendimento_humano"] = False
-    clientes[telefone]["observacao"] = limpar_texto(texto_inicial)
+    clientes[telefone]["observacao"] = ""
+    clientes[telefone]["modelo"] = ""
+    clientes[telefone]["itens"] = ""
+    clientes[telefone]["venda_adicional"] = ""
     definir_status_cliente(telefone, STATUS_NOVO_ATENDIMENTO)
 
     salvar_evento_atendimento(
@@ -1265,19 +1317,48 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     )
 
     if limpar_texto(texto_inicial):
+        clientes[telefone]["modelo"] = limpar_texto(texto_inicial).upper()
+        clientes[telefone]["etapa"] = "acessorios_orcamento"
+
+        arquivo_pdf = obter_pdf_acessorios_por_modelo(texto_inicial)
+
         enviar_mensagem(
             telefone,
-            "🛵 *Acessórios*\n\n"
-            "Perfeito, recebi sua solicitação 👍\n"
-            "Se quiser, pode me enviar mais detalhes do acessório que procura.",
-        )
-    else:
-        enviar_mensagem(
-            telefone,
-            "🛵 *Acessórios*\n\n"
-            "Me informe qual *acessório desejado* você procura.",
+            f"🛵 *Acessórios Yamaha*\n\n"
+            f"Perfeito. Identifiquei o modelo como *{clientes[telefone]['modelo']}*."
         )
 
+        enviado = enviar_pdf(
+            telefone,
+            arquivo_pdf,
+            "📎 Segue o catálogo de acessórios do modelo informado."
+        )
+
+        if not enviado:
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não consegui enviar o catálogo agora, mas vamos continuar seu atendimento."
+            )
+
+        enviar_mensagem(
+            telefone,
+            "Agora me informe *qual acessório você deseja para orçamento*."
+        )
+        return
+
+    enviar_mensagem(
+        telefone,
+        "🛵 *Acessórios*\n\n"
+        "Para eu te enviar o catálogo correto, me informe o *modelo da sua moto*.\n\n"
+        "Exemplos:\n"
+        "• FZ15\n"
+        "• FZ25\n"
+        "• Crosser\n"
+        "• Lander\n"
+        "• Factor\n"
+        "• Tenere 700\n"
+        "• Aerox"
+    )
 
 def menu_duvidas():
     return (
@@ -3390,9 +3471,13 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     elif intencao == "acessorios":
-        iniciar_fluxo_acessorios(telefone)
-        return True
+        modelo_ia = ""
+        if isinstance(dados_extraidos, dict):
+            modelo_ia = limpar_texto(dados_extraidos.get("modelo", ""))
 
+        iniciar_fluxo_acessorios(telefone, modelo_ia)
+        return True
+    
     elif intencao == "garantia":
         clientes[telefone]["etapa"] = "garantia"
         if resposta_texto:
@@ -3895,8 +3980,89 @@ def webhook():
             resetar_cliente(telefone)
             return jsonify({"status": "ok"}), 200
 
-        if etapa == "acessorios":
-            enviar_mensagem(telefone, "Solicitação de acessórios registrada.")
+        if etapa == "acessorios_modelo":
+            modelo_informado = texto.strip()
+
+            if not modelo_informado:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não consegui identificar o modelo.\n\n"
+                    "Me informe o *modelo da sua moto* para eu enviar o catálogo correto."
+                )
+                return jsonify({"status": "ok"}), 200
+
+            clientes[telefone]["modelo"] = modelo_informado.upper()
+
+            arquivo_pdf = obter_pdf_acessorios_por_modelo(modelo_informado)
+            clientes[telefone]["etapa"] = "acessorios_orcamento"
+
+            if arquivo_pdf == PDF_ACESSORIOS_GERAL:
+                enviar_mensagem(
+                    telefone,
+                    "📎 Não identifiquei com total certeza o modelo informado.\n"
+                    "Vou te enviar o *catálogo geral de acessórios* para seguir com o atendimento."
+                )
+            else:
+                enviar_mensagem(
+                    telefone,
+                    f"✅ Modelo identificado: *{clientes[telefone]['modelo']}*"
+                )
+
+            enviado = enviar_pdf(
+                telefone,
+                arquivo_pdf,
+                "📎 Segue o catálogo de acessórios para sua moto."
+            )
+
+            if not enviado:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não consegui enviar o catálogo agora.\n\n"
+                    "Mas pode me informar mesmo assim *qual acessório você deseja para orçamento*."
+                )
+            else:
+                enviar_mensagem(
+                    telefone,
+                    "Perfeito 👍\n\n"
+                    "Agora me informe *qual acessório você deseja para orçamento*."
+                )
+
+            return jsonify({"status": "ok"}), 200
+
+        if etapa == "acessorios_orcamento":
+            acessorio_desejado = texto.strip()
+
+            if not acessorio_desejado:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Me informe qual *acessório* você deseja para orçamento."
+                )
+                return jsonify({"status": "ok"}), 200
+
+            clientes[telefone]["itens"] = acessorio_desejado
+            clientes[telefone]["venda_adicional"] = acessorio_desejado
+            clientes[telefone]["observacao"] = (
+                f"Solicitação de acessório: {acessorio_desejado}"
+            )
+
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Acessórios",
+                status=STATUS_NOVO_ATENDIMENTO,
+                etapa="acessorios_orcamento_registrado",
+                dados=clientes[telefone],
+                atendimento_humano=False,
+                concluido=True,
+            )
+
+            enviar_mensagem(
+                telefone,
+                "✅ *Solicitação de acessórios registrada com sucesso*\n\n"
+                f"🏍️ *Modelo:* {clientes[telefone].get('modelo', '-')}\n"
+                f"🛠️ *Acessório desejado:* {acessorio_desejado}\n\n"
+                "Nossa equipe vai analisar e retornar com o orçamento."
+            )
+
             resetar_cliente(telefone)
             return jsonify({"status": "ok"}), 200
 
