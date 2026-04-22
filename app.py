@@ -3387,69 +3387,59 @@ def identificar_contexto_followup(at):
 
 def obter_tempos_followup_por_contexto(contexto):
     if contexto == "fechamento_revisao":
-        return 2 * 3600, 20 * 3600, 72 * 3600
-
-    if contexto == "agenda_revisao":
-        return 4 * 3600, 24 * 3600, 4 * 24 * 3600
-
-    if contexto == "acessorios":
-        return 3 * 3600, 24 * 3600, 3 * 24 * 3600
-
-    return 6 * 3600, 24 * 3600, 5 * 24 * 3600
+        return 90 *60
 
 
-def montar_mensagem_followup_inteligente(at, nivel):
+def montar_mensagem_followup_inteligente(at):
     contexto = identificar_contexto_followup(at)
     nome = limpar_texto(getattr(at, "nome", "")).title()
 
     saudacao = f"Oi, {nome}! " if nome else "Oi! "
 
     mensagens = {
-        "fechamento_revisao": {
-            1: saudacao + "vi que seu agendamento de revisão ficou quase finalizado.\n\nFalta só concluir para garantir seu horário 🛠️🏍️",
-            2: saudacao + "ainda dá tempo de garantir seu horário de revisão.\n\nSe quiser, finalizo com você agora 👍",
-            3: saudacao + "última mensagem sobre seu agendamento.\n\nSe quiser reservar um horário, me chama aqui 🏍️",
-        },
-        "agenda_revisao": {
-            1: saudacao + "vi que você começou seu agendamento de revisão.\n\nPosso te ajudar a concluir? 🚀",
-            2: saudacao + "só lembrando da sua revisão.\n\nPosso continuar agora 👍",
-            3: saudacao + "ainda quer agendar sua revisão?\n\nMe chama aqui 🏍️",
-        },
-        "revisao": {
-            1: saudacao + "vi que você iniciou um atendimento de revisão.\n\nQuer continuar?",
-            2: saudacao + "posso continuar seu atendimento de revisão agora 👍",
-            3: saudacao + "ainda quer seguir com sua revisão?\n\nEstou por aqui 🏍️",
-        },
-        "pecas": {
-            1: saudacao + "vi que você solicitou peças.\n\nQuer continuar?",
-            2: saudacao + "posso te ajudar com as peças agora 👍",
-            3: saudacao + "ainda precisa das peças?\n\nMe chama aqui 🔧",
-        },
-        "acessorios": {
-            1: saudacao + "vi que você buscou acessórios para sua moto.\n\nQuer continuar?",
-            2: saudacao + "posso te ajudar com os acessórios agora 👍",
-            3: saudacao + "ainda quer ver acessórios ou pedir orçamento?\n\nEstou por aqui 🏍️",
-        },
-        "garantia": {
-            1: saudacao + "vi sua solicitação de garantia.\n\nQuer continuar?",
-            2: saudacao + "posso te ajudar com a garantia agora 👍",
-            3: saudacao + "ainda precisa de ajuda com garantia?\n\nEstou aqui.",
-        },
-        "atacado": {
-            1: saudacao + "vi sua solicitação comercial.\n\nQuer continuar?",
-            2: saudacao + "posso seguir com seu atendimento agora 👍",
-            3: saudacao + "ainda quer continuar?\n\nMe chama aqui.",
-        },
-        "geral": {
-            1: saudacao + "vi que você começou um atendimento.\n\nPosso te ajudar a concluir?",
-            2: saudacao + "posso continuar seu atendimento agora 👍",
-            3: saudacao + "ainda quer continuar?\n\nMe chama aqui.",
-        },
+        "fechamento_revisao": (
+            saudacao +
+            "vi que seu agendamento de revisão não foi finalizado.\n\n"
+            "Se quiser, posso continuar de onde parou para concluir seu atendimento 🛠️🏍️"
+        ),
+        "agenda_revisao": (
+            saudacao +
+            "vi que você começou seu agendamento de revisão e não concluiu.\n\n"
+            "Posso continuar com você agora? 🚀"
+        ),
+        "revisao": (
+            saudacao +
+            "vi que você iniciou um atendimento de revisão e não finalizou.\n\n"
+            "Quer continuar agora?"
+        ),
+        "pecas": (
+            saudacao +
+            "vi que você iniciou uma solicitação de peças e não finalizou.\n\n"
+            "Se quiser, posso continuar seu atendimento agora 🔧"
+        ),
+        "acessorios": (
+            saudacao +
+            "vi que você iniciou uma solicitação de acessórios e não finalizou.\n\n"
+            "Se quiser, posso continuar seu atendimento agora 🏍️"
+        ),
+        "garantia": (
+            saudacao +
+            "vi que você iniciou uma solicitação de garantia e não finalizou.\n\n"
+            "Se quiser, posso continuar seu atendimento agora."
+        ),
+        "atacado": (
+            saudacao +
+            "vi que você iniciou uma solicitação comercial e não finalizou.\n\n"
+            "Se quiser, posso continuar seu atendimento agora."
+        ),
+        "geral": (
+            saudacao +
+            "vi que você começou um atendimento e não finalizou.\n\n"
+            "Posso te ajudar a concluir agora?"
+        ),
     }
 
-    return mensagens.get(contexto, mensagens["geral"]).get(
-        nivel, mensagens["geral"][1]
-    )
+    return mensagens.get(contexto, mensagens["geral"])
 
 
 def resetar_followups_do_cliente(telefone):
@@ -3471,8 +3461,13 @@ def resetar_followups_do_cliente(telefone):
 
         if atendimento:
             atendimento.followup_1 = False
-            atendimento.followup_2 = False
-            atendimento.followup_3 = False
+
+            if hasattr(atendimento, "followup_2"):
+                atendimento.followup_2 = False
+
+            if hasattr(atendimento, "followup_3"):
+                atendimento.followup_3 = False
+
             atendimento.ultima_interacao = agora_datetime()
 
             if hasattr(atendimento, "ultima_mensagem_cliente"):
@@ -3545,40 +3540,26 @@ def processar_followup_inteligente():
                 if not ultima:
                     continue
 
-                contexto = identificar_contexto_followup(at)
-                t1, t2, t3 = obter_tempos_followup_por_contexto(contexto)
+                tempo_followup = obter_tempos_followup_por_contexto(
+                    identificar_contexto_followup(at)
+                )
 
                 tempo_parado = (agora_time - ultima).total_seconds()
 
                 followup_1 = bool(getattr(at, "followup_1", False))
-                followup_2 = bool(getattr(at, "followup_2", False))
-                followup_3 = bool(getattr(at, "followup_3", False))
 
-                if tempo_parado >= t1 and not followup_1:
+                # envia apenas 1 follow-up após 90 minutos
+                if tempo_parado >= tempo_followup and not followup_1:
                     enviado = enviar_mensagem(
                         telefone,
-                        montar_mensagem_followup_inteligente(at, 1)
+                        montar_mensagem_followup_inteligente(at)
                     )
                     if enviado:
                         at.followup_1 = True
-                        houve_alteracao = True
-
-                elif tempo_parado >= t2 and followup_1 and not followup_2:
-                    enviado = enviar_mensagem(
-                        telefone,
-                        montar_mensagem_followup_inteligente(at, 2)
-                    )
-                    if enviado:
-                        at.followup_2 = True
-                        houve_alteracao = True
-
-                elif tempo_parado >= t3 and followup_1 and followup_2 and not followup_3:
-                    enviado = enviar_mensagem(
-                        telefone,
-                        montar_mensagem_followup_inteligente(at, 3)
-                    )
-                    if enviado:
-                        at.followup_3 = True
+                        if hasattr(at, "followup_2"):
+                            at.followup_2 = False
+                        if hasattr(at, "followup_3"):
+                            at.followup_3 = False
                         houve_alteracao = True
 
             except Exception as e:
