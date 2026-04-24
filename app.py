@@ -1095,8 +1095,17 @@ def extrair_tipo_mensagem(payload):
         return "text"
 
 # ==========================================
-# ENVIO
+# ENVIO - META WHATSAPP CLOUD API
 # ==========================================
+META_API_VERSION = os.getenv("META_API_VERSION", "v19.0")
+META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "")
+META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID", "")
+
+
+def url_envio_meta():
+    return f"https://graph.facebook.com/{META_API_VERSION}/{META_PHONE_NUMBER_ID}/messages"
+
+
 def enviar_mensagem(telefone, mensagem):
     try:
         telefone = limpar_telefone(telefone)
@@ -1105,22 +1114,27 @@ def enviar_mensagem(telefone, mensagem):
             log_erro("Telefone inválido para envio de mensagem.")
             return False
 
-        if not url_envio or not ZAPI_CLIENT_TOKEN:
-            log_erro("Z-API não configurada corretamente para envio de mensagem.")
+        if not META_ACCESS_TOKEN or not META_PHONE_NUMBER_ID:
+            log_erro("Meta Cloud API não configurada corretamente.")
             return False
 
         headers = {
-            "Client-Token": ZAPI_CLIENT_TOKEN,
+            "Authorization": f"Bearer {META_ACCESS_TOKEN}",
             "Content-Type": "application/json",
         }
 
         payload = {
-            "phone": telefone,
-            "message": mensagem,
+            "messaging_product": "whatsapp",
+            "to": telefone,
+            "type": "text",
+            "text": {
+                "preview_url": False,
+                "body": mensagem,
+            },
         }
 
         response = requests.post(
-            url_envio,
+            url_envio_meta(),
             json=payload,
             headers=headers,
             timeout=30,
@@ -1132,14 +1146,14 @@ def enviar_mensagem(telefone, mensagem):
             resposta_json = response.text
 
         if response.status_code not in [200, 201]:
-            log_erro("Falha envio mensagem:", response.status_code, resposta_json)
+            log_erro("Falha envio mensagem Meta:", response.status_code, resposta_json)
             return False
 
-        log_info("Mensagem enviada:", telefone, response.status_code)
+        log_info("Mensagem enviada Meta:", telefone, response.status_code)
         return True
 
     except Exception as e:
-        log_erro("Erro envio mensagem:", repr(e))
+        log_erro("Erro envio mensagem Meta:", repr(e))
         return False
 
 
@@ -1151,33 +1165,36 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             log_erro("Telefone inválido para envio de PDF.")
             return False
 
-        if not url_documento or not ZAPI_CLIENT_TOKEN or not BASE_URL:
-            log_erro("Z-API/BASE_URL não configurada corretamente para envio de PDF.")
+        if not META_ACCESS_TOKEN or not META_PHONE_NUMBER_ID or not BASE_URL:
+            log_erro("Meta Cloud API/BASE_URL não configurada corretamente para envio de PDF.")
             return False
 
-        # 🔥 VALIDAÇÃO IMPORTANTE
         if not arquivo:
             log_erro("Arquivo PDF não informado.")
             return False
 
+        url_pdf = f"{BASE_URL}/pdf/{arquivo}"
+
         headers = {
-            "Client-Token": ZAPI_CLIENT_TOKEN,
+            "Authorization": f"Bearer {META_ACCESS_TOKEN}",
             "Content-Type": "application/json",
         }
 
-        url_pdf = f"{BASE_URL}/pdf/{arquivo}"
-
         payload = {
-            "phone": telefone,
-            "document": url_pdf,
-            "fileName": arquivo,
-            "caption": legenda or "",
+            "messaging_product": "whatsapp",
+            "to": telefone,
+            "type": "document",
+            "document": {
+                "link": url_pdf,
+                "filename": arquivo,
+                "caption": legenda or "",
+            },
         }
 
-        log_info("Enviando PDF:", url_pdf)
+        log_info("Enviando PDF Meta:", url_pdf)
 
         response = requests.post(
-            url_documento,
+            url_envio_meta(),
             json=payload,
             headers=headers,
             timeout=30,
@@ -1189,14 +1206,14 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             resposta_json = response.text
 
         if response.status_code not in [200, 201]:
-            log_erro("Falha envio PDF:", response.status_code, resposta_json)
+            log_erro("Falha envio PDF Meta:", response.status_code, resposta_json)
             return False
 
-        log_info("PDF enviado:", telefone, response.status_code)
+        log_info("PDF enviado Meta:", telefone, response.status_code)
         return True
 
     except Exception as e:
-        log_erro("Erro enviar PDF:", repr(e))
+        log_erro("Erro enviar PDF Meta:", repr(e))
         return False
 
 
@@ -3730,36 +3747,100 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
     return False
         
 # ==========================================
-# WEBHOOK
+# META WEBHOOK CONFIG
+# ==========================================
+META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "yamaha_bot_verify_token")
+
+
+def extrair_dados_meta(payload):
+    try:
+        entry = payload.get("entry", [])[0]
+        change = entry.get("changes", [])[0]
+        value = change.get("value", {})
+
+        messages = value.get("messages", [])
+        if not messages:
+            return None, None, "", ""
+
+        msg = messages[0]
+
+        message_id = msg.get("id", "")
+        telefone = msg.get("from", "")
+        tipo_mensagem = msg.get("type", "")
+        texto = ""
+
+        if tipo_mensagem == "text":
+            texto = msg.get("text", {}).get("body", "")
+
+        elif tipo_mensagem == "button":
+            texto = msg.get("button", {}).get("text", "")
+
+        elif tipo_mensagem == "interactive":
+            interactive = msg.get("interactive", {})
+            if interactive.get("type") == "button_reply":
+                texto = interactive.get("button_reply", {}).get("title", "")
+            elif interactive.get("type") == "list_reply":
+                texto = interactive.get("list_reply", {}).get("title", "")
+
+        return message_id, telefone, texto or "", tipo_mensagem
+
+    except Exception as e:
+        log_erro("Erro ao extrair dados Meta:", repr(e))
+        return None, None, "", ""
+
+
+# ==========================================
+# WEBHOOK - META CLOUD API
 # ==========================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    # ==========================================
+    # VERIFICAÇÃO DO WEBHOOK PELA META
+    # ==========================================
     if request.method == "GET":
-        return jsonify({"status": "ok", "message": "Webhook ativo"}), 200
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
 
+        log_info("VALIDAÇÃO WEBHOOK META:", {
+            "mode": mode,
+            "token_recebido": token,
+            "token_esperado": META_VERIFY_TOKEN,
+            "challenge": challenge,
+        })
+
+        if mode == "subscribe" and token == META_VERIFY_TOKEN:
+            log_info("Webhook Meta verificado com sucesso.")
+            return challenge, 200
+
+        log_erro("Falha na verificação do webhook Meta.")
+        return "Token inválido", 403
+
+    # ==========================================
+    # RECEBIMENTO DE MENSAGENS
+    # ==========================================
     try:
         payload = request.get_json(silent=True) or {}
-        log_info("PAYLOAD RECEBIDO:", payload)
+        log_info("PAYLOAD META RECEBIDO:", payload)
 
-        if evento_eh_do_proprio_bot(payload):
-            return jsonify({"status": "ignorado", "motivo": "proprio_bot"}), 200
+        message_id, telefone, texto, tipo_mensagem = extrair_dados_meta(payload)
 
-        message_id = extrair_message_id(payload)
-        telefone = extrair_telefone(payload)
-        texto = extrair_texto(payload) or ""
-        tipo_mensagem = extrair_tipo_mensagem(payload)
-
+        # A Meta também envia eventos de status sem mensagem
         if not telefone:
-            return jsonify({"status": "ignorado", "motivo": "sem telefone"}), 200
-
-        if telefone_eh_grupo(telefone):
-            return jsonify({"status": "ignorado", "motivo": "grupo"}), 200
+            log_info("Evento Meta ignorado: sem mensagem de cliente.")
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "evento_sem_mensagem_meta"
+            }), 200
 
         if message_id and mensagem_ja_processada(message_id):
-            return jsonify({"status": "ignorado", "motivo": "duplicado"}), 200
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "duplicado"
+            }), 200
 
         telefone = limpar_telefone(telefone)
-        texto = limpar_texto(texto)
+        texto = limpar_texto(texto or "")
         texto_normalizado = normalizar_texto(texto)
         texto_opcao = limpar_opcao(texto)
 
@@ -3770,9 +3851,8 @@ def webhook():
 
         # ==========================================
         # IGNORA EVENTOS SEM TEXTO ÚTIL
-        # Evita quebrar fluxo após envio de PDF/documento
         # ==========================================
-        if (not texto or not texto.strip()) and tipo_mensagem not in ["chat", "conversation", "extendedTextMessage"]:
+        if not texto.strip() and tipo_mensagem not in ["text", "button", "interactive"]:
             log_info(
                 f"Evento ignorado por não conter texto útil. "
                 f"Telefone={telefone} Tipo={tipo_mensagem}"
@@ -3812,6 +3892,7 @@ def webhook():
             }), 200
 
         ultima_interacao = clientes[telefone].get("ultima_interacao", agora())
+
         if (
             clientes[telefone].get("etapa", "menu") != "menu"
             and not clientes[telefone].get("atendimento_humano", False)
@@ -3830,7 +3911,7 @@ def webhook():
         etapa = clientes[telefone].get("etapa", "menu")
 
         log_info(
-            "CONTEXTO WEBHOOK:",
+            "CONTEXTO WEBHOOK META:",
             {
                 "telefone": telefone,
                 "etapa": etapa,
@@ -4216,12 +4297,11 @@ def webhook():
                     enviar_proxima_etapa_revisao(telefone)
                     return jsonify({"status": "ok"}), 200
 
-                else:
-                    enviar_mensagem(
-                        telefone,
-                        "Para confirmar, responda com *1*.\nSe quiser corrigir, responda com *2*."
-                    )
-                    return jsonify({"status": "ok"}), 200
+                enviar_mensagem(
+                    telefone,
+                    "Para confirmar, responda com *1*.\nSe quiser corrigir, responda com *2*."
+                )
+                return jsonify({"status": "ok"}), 200
 
             return jsonify({"status": "ok"}), 200
 
@@ -4321,11 +4401,6 @@ def webhook():
             arquivo_pdf = obter_pdf_acessorios_por_modelo(modelo_informado)
             clientes[telefone]["etapa"] = "acessorios_orcamento"
 
-            log_info(
-                f"Fluxo acessórios avançado para acessorios_orcamento | "
-                f"Telefone={telefone} Modelo={clientes[telefone]['modelo']}"
-            )
-
             if arquivo_pdf == PDF_ACESSORIOS_GERAL:
                 enviar_mensagem(
                     telefone,
@@ -4344,7 +4419,6 @@ def webhook():
                 "📎 Segue o catálogo de acessórios para sua moto."
             )
 
-            # reforça a etapa DEPOIS do envio do PDF
             clientes[telefone]["etapa"] = "acessorios_orcamento"
 
             if not enviado:
@@ -4364,12 +4438,6 @@ def webhook():
 
         if etapa == "acessorios_orcamento":
             acessorio_desejado = texto.strip()
-
-            log_info(
-                f"Recebendo acessório para orçamento | "
-                f"Telefone={telefone} Etapa={clientes[telefone].get('etapa')} "
-                f"Texto={acessorio_desejado}"
-            )
 
             if not acessorio_desejado:
                 enviar_mensagem(
@@ -4418,12 +4486,11 @@ def webhook():
         return jsonify({"status": "ok", "motivo": "nenhuma_acao_aplicada"}), 200
 
     except Exception as e:
-        log_erro("ERRO NO WEBHOOK:", repr(e))
+        log_erro("ERRO NO WEBHOOK META:", repr(e))
         return jsonify({
             "status": "erro",
             "detalhe": "falha interna no webhook"
         }), 200
-
 
 # ==========================================
 # INICIAR WORKER
