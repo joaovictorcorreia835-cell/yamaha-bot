@@ -142,11 +142,10 @@
             </div>
         </div>
 
+        <!-- REMOVIDO duvidas_ia -->
         <div class="card">
-            <h3>Com Dúvidas IA</h3>
-            <div class="numero">
-                {{ atendimentos | selectattr('duvidas_ia') | list | length }}
-            </div>
+            <h3>Interações</h3>
+            <div class="numero">{{ atendimentos|length }}</div>
         </div>
     </div>
 
@@ -161,7 +160,6 @@
                     <th>Status</th>
                     <th>Última Interação</th>
                     <th>Humano</th>
-                    <th>Dúvidas IA</th>
                     <th>Origem</th>
                 </tr>
             </thead>
@@ -188,14 +186,6 @@
                     <td>
                         {% if c.atendimento_humano %}
                             <span class="badge">Sim</span>
-                        {% else %}
-                            —
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        {% if c.duvidas_ia > 0 %}
-                            <span class="badge">{{ c.duvidas_ia }}</span>
                         {% else %}
                             —
                         {% endif %}
