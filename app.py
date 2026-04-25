@@ -3096,279 +3096,173 @@ def iniciar_worker():
     log_info("Worker iniciado com sucesso.")
 
 
-# ==========================================
-# DASHBOARD
-# ==========================================
 @app.route("/dashboard")
 def dashboard():
     db = SessionLocal()
 
     try:
         filtro = request.args.get("filtro", "hoje")
-
         hoje = datetime.now().date()
-        inicio_semana = hoje - timedelta(days=hoje.weekday())
-        inicio_mes = hoje.replace(day=1)
 
-        query = db.query(Atendimento)
-        query_ag = db.query(AgendamentoRevisao)
-
-        campo_data_agendamento = (
-            AgendamentoRevisao.criado_em
-            if hasattr(AgendamentoRevisao, "criado_em")
-            else AgendamentoRevisao.data
-        )
-
-        campo_obs_atendimento = (
-            Atendimento.observacao
-            if hasattr(Atendimento, "observacao")
-            else Atendimento.observacoes
-            if hasattr(Atendimento, "observacoes")
-            else Atendimento.etapa
-        )
+        query_atendimentos = db.query(Atendimento)
+        query_agendamentos = db.query(AgendamentoRevisao)
 
         if filtro == "hoje":
-            data_base = datetime.combine(hoje, datetime.min.time())
-            query = query.filter(Atendimento.data >= data_base)
-            query_ag = query_ag.filter(campo_data_agendamento >= data_base)
+            inicio = datetime.combine(hoje, datetime.min.time())
+            fim = datetime.combine(hoje, datetime.max.time())
+            query_atendimentos = query_atendimentos.filter(
+                Atendimento.data >= inicio,
+                Atendimento.data <= fim
+            )
 
         elif filtro == "semana":
-            data_base = datetime.combine(inicio_semana, datetime.min.time())
-            query = query.filter(Atendimento.data >= data_base)
-            query_ag = query_ag.filter(campo_data_agendamento >= data_base)
+            inicio = datetime.combine(hoje - timedelta(days=7), datetime.min.time())
+            fim = datetime.combine(hoje, datetime.max.time())
+            query_atendimentos = query_atendimentos.filter(
+                Atendimento.data >= inicio,
+                Atendimento.data <= fim
+            )
 
         elif filtro == "mes":
-            data_base = datetime.combine(inicio_mes, datetime.min.time())
-            query = query.filter(Atendimento.data >= data_base)
-            query_ag = query_ag.filter(campo_data_agendamento >= data_base)
-
-        total = query.count()
-        total_revisoes = query.filter(Atendimento.setor == "Revisão").count()
-        total_acessorios = query.filter(Atendimento.setor == "Acessórios").count()
-        total_pecas = query.filter(Atendimento.setor == "Peças").count()
-        total_garantia = query.filter(Atendimento.setor == "Garantia").count()
-        revisao = total_revisoes
-
-        total_duvidas_revisoes = query.filter(
-            Atendimento.setor.in_(["Dúvidas Revisões", "Dúvidas Revisoes"])
-        ).count()
-        total_duvidas_garantia = query.filter(
-            Atendimento.setor == "Dúvidas Garantia"
-        ).count()
-        total_duvidas = total_duvidas_revisoes + total_duvidas_garantia
-
-        agendados = query_ag.filter(
-            AgendamentoRevisao.status == normalizar_status(STATUS_AGENDADO)
-        ).count()
-
-        concluidos = query_ag.filter(
-            AgendamentoRevisao.status.in_([
-                "CONCLUIDO",
-                "CONCLUÍDO",
-                "Concluído",
-                STATUS_FINALIZADO,
-                normalizar_status(STATUS_FINALIZADO),
-            ])
-        ).count()
-
-        atendimento_humano = query.filter(
-            Atendimento.atendimento_humano == True
-        ).count()
-
-        cancelados = query_ag.filter(
-            AgendamentoRevisao.status == normalizar_status(STATUS_CANCELADO)
-        ).count()
-
-        reagendados = query_ag.filter(
-            AgendamentoRevisao.status == normalizar_status(STATUS_REAGENDADO)
-        ).count()
-
-        total_agendamentos_periodo = query_ag.count()
-
-        sances_pendentes = query_ag.filter(
-            AgendamentoRevisao.sances_status == SANCES_STATUS_PENDENTE
-        ).count()
-        sances_enviados = query_ag.filter(
-            AgendamentoRevisao.sances_status == SANCES_STATUS_ENVIADO
-        ).count()
-        sances_erros = query_ag.filter(
-            AgendamentoRevisao.sances_status == SANCES_STATUS_ERRO
-        ).count()
-        sances_nao_configurado = query_ag.filter(
-            AgendamentoRevisao.sances_status == SANCES_STATUS_NAO_CONFIGURADO
-        ).count()
-
-        primeira = query.filter(
-            Atendimento.setor == "Revisão",
-            Atendimento.revisao == "1",
-        ).count()
-        segunda = query.filter(
-            Atendimento.setor == "Revisão",
-            Atendimento.revisao == "2",
-        ).count()
-        terceira = query.filter(
-            Atendimento.setor == "Revisão",
-            Atendimento.revisao == "3",
-        ).count()
-        quarta = query.filter(
-            Atendimento.setor == "Revisão",
-            Atendimento.revisao == "4",
-        ).count()
-        quinta = query.filter(
-            Atendimento.setor == "Revisão",
-            Atendimento.revisao.in_(["5", "6", "7", "8", "9", "10"]),
-        ).count()
-
-        contador_itens = Counter()
-        registros_itens = query.filter(
-            Atendimento.setor == "Revisão"
-        ).with_entities(Atendimento.venda_adicional).all()
-
-        for item in registros_itens:
-            valor = item[0] if isinstance(item, tuple) else item
-            if not valor:
-                continue
-
-            lista_itens = extrair_itens_venda_real(valor)
-            for i in lista_itens:
-                contador_itens[i] += 1
-
-        ranking_itens = contador_itens.most_common(20)
-        total_itens_vendidos = sum(contador_itens.values())
-
-        contador_acessorios = Counter()
-        registros_acessorios = query.filter(
-            Atendimento.setor == "Acessórios"
-        ).with_entities(
-            Atendimento.itens,
-            Atendimento.venda_adicional,
-            campo_obs_atendimento,
-        ).all()
-
-        for registro in registros_acessorios:
-            itens_valor = registro[0] if len(registro) > 0 else ""
-            venda_valor = registro[1] if len(registro) > 1 else ""
-            obs_valor = registro[2] if len(registro) > 2 else ""
-
-            bruto = (
-                limpar_texto(itens_valor)
-                or limpar_texto(venda_valor)
-                or limpar_texto(obs_valor)
+            inicio = datetime.combine(hoje.replace(day=1), datetime.min.time())
+            fim = datetime.combine(hoje, datetime.max.time())
+            query_atendimentos = query_atendimentos.filter(
+                Atendimento.data >= inicio,
+                Atendimento.data <= fim
             )
 
-            if not bruto:
-                continue
+        atendimentos = query_atendimentos.all()
 
-            bruto = bruto.replace("Solicitação de acessório:", "").strip()
-            lista = extrair_lista_itens_adicionais(bruto)
+        agendamentos_lista = query_agendamentos.order_by(
+            AgendamentoRevisao.id.desc()
+        ).limit(50).all()
 
-            for item in lista:
-                if item_adicional_valido(item):
-                    contador_acessorios[item] += 1
+        total = len(atendimentos)
 
-        ranking_acessorios = contador_acessorios.most_common(20)
-        total_acessorios_solicitados = sum(contador_acessorios.values())
-
-        contador_acessorios_por_modelo = {}
-
-        registros_acessorios_modelo = query.filter(
-            Atendimento.setor == "Acessórios"
-        ).with_entities(
-            Atendimento.modelo,
-            Atendimento.itens,
-            Atendimento.venda_adicional,
-            campo_obs_atendimento,
-        ).all()
-
-        for registro in registros_acessorios_modelo:
-            modelo = limpar_texto(registro[0]).upper() or "NÃO INFORMADO"
-            itens_valor = registro[1] if len(registro) > 1 else ""
-            venda_valor = registro[2] if len(registro) > 2 else ""
-            obs_valor = registro[3] if len(registro) > 3 else ""
-
-            bruto = (
-                limpar_texto(itens_valor)
-                or limpar_texto(venda_valor)
-                or limpar_texto(obs_valor)
-            )
-
-            if not bruto:
-                continue
-
-            bruto = bruto.replace("Solicitação de acessório:", "").strip()
-            lista = extrair_lista_itens_adicionais(bruto)
-
-            if modelo not in contador_acessorios_por_modelo:
-                contador_acessorios_por_modelo[modelo] = Counter()
-
-            for item in lista:
-                if item_adicional_valido(item):
-                    contador_acessorios_por_modelo[modelo][item] += 1
-
-        ranking_acessorios_por_modelo = []
-
-        for modelo, contador in contador_acessorios_por_modelo.items():
-            ranking_acessorios_por_modelo.append({
-                "modelo": modelo,
-                "total": sum(contador.values()),
-                "itens": contador.most_common(10),
-            })
-
-        ranking_acessorios_por_modelo = sorted(
-            ranking_acessorios_por_modelo,
-            key=lambda x: x["total"],
-            reverse=True,
+        total_revisoes = sum(
+            1 for a in atendimentos
+            if str(getattr(a, "setor", "") or "").lower() in ["revisão", "revisao"]
         )
 
-        agendamentos = query_ag.order_by(
-            campo_data_agendamento.desc()
-        ).limit(20).all()
+        agendados = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "status", "") or "").upper() == "AGENDADO"
+        )
 
-        duvidas_ia = total_duvidas
+        concluidos = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "status", "") or "").upper() in ["CONCLUIDO", "CONCLUÍDO", "FINALIZADO"]
+        )
+
+        cancelados = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "status", "") or "").upper() == "CANCELADO"
+        )
+
+        reagendados = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "status", "") or "").upper() == "REAGENDADO"
+        )
+
+        atendimento_humano = sum(
+            1 for a in atendimentos
+            if bool(getattr(a, "atendimento_humano", False))
+        )
+
+        duvidas_ia = sum(
+            int(getattr(a, "duvidas_ia", 0) or 0)
+            for a in atendimentos
+        )
+
+        sances_pendentes = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "sances_status", "") or "").upper() == "PENDENTE"
+        )
+
+        sances_enviados = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "sances_status", "") or "").upper() == "ENVIADO"
+        )
+
+        sances_erros = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "sances_status", "") or "").upper() == "ERRO"
+        )
+
+        sances_nao_configurado = sum(
+            1 for ag in agendamentos_lista
+            if str(getattr(ag, "sances_status", "") or "").upper() == "NAO_CONFIGURADO"
+        )
+
+        primeira = segunda = terceira = quarta = quinta = 0
+
+        for ag in agendamentos_lista:
+            rev = str(getattr(ag, "revisao", "") or "").strip()
+
+            if rev == "1":
+                primeira += 1
+            elif rev == "2":
+                segunda += 1
+            elif rev == "3":
+                terceira += 1
+            elif rev == "4":
+                quarta += 1
+            elif rev:
+                quinta += 1
+
+        contador_itens = Counter()
+
+        for ag in agendamentos_lista:
+            itens = getattr(ag, "itens", "") or getattr(ag, "venda_adicional", "") or ""
+
+            if not itens:
+                continue
+
+            partes = re.split(r",|;|\n|\+", str(itens))
+
+            for item in partes:
+                item_limpo = item.strip()
+
+                if item_limpo and item_limpo.lower() not in ["nenhum", "não", "nao", "sem interesse"]:
+                    contador_itens[item_limpo] += 1
+
+        ranking_itens = contador_itens.most_common(10)
+        total_itens_vendidos = sum(contador_itens.values())
+        total_agendamentos_periodo = len(agendamentos_lista)
 
         return render_template(
             "dashboard.html",
             filtro_ativo=filtro,
-            total=total or 0,
-            revisao=revisao or 0,
-            total_revisoes=total_revisoes or 0,
-            total_acessorios=total_acessorios or 0,
-            total_pecas=total_pecas or 0,
-            total_garantia=total_garantia or 0,
-            total_duvidas=total_duvidas or 0,
-            total_duvidas_revisoes=total_duvidas_revisoes or 0,
-            total_duvidas_garantia=total_duvidas_garantia or 0,
-            agendados=agendados or 0,
-            cancelados=cancelados or 0,
-            reagendados=reagendados or 0,
-            concluidos=concluidos or 0,
-            atendimento_humano=atendimento_humano or 0,
-            duvidas_ia=duvidas_ia or 0,
-            total_agendamentos_periodo=total_agendamentos_periodo or 0,
-            primeira=primeira or 0,
-            segunda=segunda or 0,
-            terceira=terceira or 0,
-            quarta=quarta or 0,
-            quinta=quinta or 0,
-            total_itens_vendidos=total_itens_vendidos or 0,
-            ranking_itens=ranking_itens or [],
-            total_acessorios_solicitados=total_acessorios_solicitados or 0,
-            ranking_acessorios=ranking_acessorios or [],
-            ranking_acessorios_por_modelo=ranking_acessorios_por_modelo or [],
-            agendamentos=agendamentos or [],
-            sances_pendentes=sances_pendentes or 0,
-            sances_enviados=sances_enviados or 0,
-            sances_erros=sances_erros or 0,
-            sances_nao_configurado=sances_nao_configurado or 0,
+            total=total,
+            total_revisoes=total_revisoes,
+            revisao=total_revisoes,
+            sances_pendentes=sances_pendentes,
+            sances_enviados=sances_enviados,
+            sances_erros=sances_erros,
+            sances_nao_configurado=sances_nao_configurado,
+            agendados=agendados,
+            concluidos=concluidos,
+            cancelados=cancelados,
+            reagendados=reagendados,
+            atendimento_humano=atendimento_humano,
+            duvidas_ia=duvidas_ia,
+            total_itens_vendidos=total_itens_vendidos,
+            total_agendamentos_periodo=total_agendamentos_periodo,
+            primeira=primeira,
+            segunda=segunda,
+            terceira=terceira,
+            quarta=quarta,
+            quinta=quinta,
+            ranking_itens=ranking_itens,
+            agendamentos=agendamentos_lista
         )
 
     except Exception as e:
-        log_erro("Dashboard erro:", repr(e))
-        return "Erro dashboard", 500
+        log_erro("Erro no dashboard:", repr(e))
+        return f"Erro ao carregar dashboard: {e}", 500
 
     finally:
         db.close()
-
 # ==========================================
 # REENVIO MANUAL SANCES
 # ==========================================
