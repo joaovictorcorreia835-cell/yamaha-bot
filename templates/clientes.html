@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Clientes CRM</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        body {
+            background: #f4f7fb;
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            color: #1f2937;
+        }
+
+        .topbar {
+            background: linear-gradient(90deg, #0b1f4d, #163b8c);
+            color: white;
+            padding: 20px 30px;
+        }
+
+        .topbar h1 {
+            margin: 0;
+        }
+
+        .container {
+            padding: 25px;
+        }
+
+        .nav {
+            margin-bottom: 20px;
+        }
+
+        .nav a {
+            background: white;
+            padding: 10px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #163b8c;
+            font-weight: bold;
+            border: 2px solid #163b8c;
+        }
+
+        .nav a:hover {
+            background: #163b8c;
+            color: white;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background: white;
+            padding: 18px;
+            border-radius: 12px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            border-left: 5px solid #163b8c;
+        }
+
+        .card h3 {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .card .numero {
+            font-size: 26px;
+            font-weight: bold;
+        }
+
+        .table-section {
+            background: white;
+            padding: 20px;
+            border-radius: 14px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #163b8c;
+            color: white;
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .status {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .novo { background: #e0f2fe; color: #0369a1; }
+        .andamento { background: #fef3c7; color: #92400e; }
+        .agendado { background: #dcfce7; color: #166534; }
+        .humano { background: #ede9fe; color: #6d28d9; }
+
+        .badge {
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 8px;
+            background: #e5e7eb;
+        }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <h1>👥 Clientes CRM</h1>
+</div>
+
+<div class="container">
+
+    <div class="nav">
+        <a href="/dashboard">⬅ Voltar Dashboard</a>
+    </div>
+
+    <div class="cards">
+        <div class="card">
+            <h3>Total Clientes</h3>
+            <div class="numero">{{ atendimentos|length }}</div>
+        </div>
+
+        <div class="card">
+            <h3>Atendimento Humano</h3>
+            <div class="numero">
+                {{ atendimentos | selectattr('atendimento_humano') | list | length }}
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Com Dúvidas IA</h3>
+            <div class="numero">
+                {{ atendimentos | selectattr('duvidas_ia') | list | length }}
+            </div>
+        </div>
+    </div>
+
+    <div class="table-section">
+        <h2>📋 Lista de Clientes</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>Telefone</th>
+                    <th>Status</th>
+                    <th>Última Interação</th>
+                    <th>Humano</th>
+                    <th>Dúvidas IA</th>
+                    <th>Origem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in atendimentos %}
+                <tr>
+                    <td>{{ c.nome or '-' }}</td>
+                    <td>{{ c.telefone }}</td>
+
+                    <td>
+                        {% set status = (c.status or '').upper() %}
+                        <span class="status
+                            {% if status == 'NOVO_ATENDIMENTO' %}novo
+                            {% elif status == 'AGENDADO' %}agendado
+                            {% elif status == 'ATENDIMENTO_HUMANO' %}humano
+                            {% else %}andamento{% endif %}
+                        ">
+                            {{ status or 'EM ANDAMENTO' }}
+                        </span>
+                    </td>
+
+                    <td>{{ c.ultima_interacao }}</td>
+
+                    <td>
+                        {% if c.atendimento_humano %}
+                            <span class="badge">Sim</span>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if c.duvidas_ia > 0 %}
+                            <span class="badge">{{ c.duvidas_ia }}</span>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td>{{ c.origem or 'BOT' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+    </div>
+
+</div>
+
+</body>
+</html>

@@ -3263,6 +3263,30 @@ def dashboard():
 
     finally:
         db.close()
+
+@app.route("/clientes")
+def clientes():
+    db = SessionLocal()
+
+    try:
+        atendimentos = (
+            db.query(Atendimento)
+            .order_by(Atendimento.id.desc())
+            .limit(100)
+            .all()
+        )
+
+        return render_template(
+            "clientes.html",
+            atendimentos=atendimentos
+        )
+
+    except Exception as e:
+        log_erro("Erro na tela de clientes:", repr(e))
+        return f"Erro: {e}", 500
+
+    finally:
+        db.close()
 # ==========================================
 # REENVIO MANUAL SANCES
 # ==========================================
