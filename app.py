@@ -1247,6 +1247,9 @@ def enviar_mensagem(telefone, mensagem):
         except Exception:
             resposta_json = response.text
 
+        log_info("STATUS MENSAGEM WASENDER:", response.status_code)
+        log_info("RESPOSTA MENSAGEM WASENDER:", resposta_json)
+
         if response.status_code not in [200, 201]:
             log_erro(
                 "Falha envio mensagem WasenderAPI:",
@@ -1259,7 +1262,6 @@ def enviar_mensagem(telefone, mensagem):
             "Mensagem enviada WasenderAPI:",
             telefone,
             response.status_code,
-            resposta_json,
         )
         return True
 
@@ -1276,18 +1278,24 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             log_erro("Telefone inválido para envio de PDF.")
             return False
 
-        if not wasender_configurada() or not BASE_URL:
-            log_erro("WasenderAPI/BASE_URL não configurados corretamente para envio de PDF.")
+        if not wasender_configurada():
+            log_erro("WasenderAPI não configurada corretamente para envio de PDF.")
+            return False
+
+        if not BASE_URL:
+            log_erro("BASE_URL não configurada para envio de PDF.")
             return False
 
         if not arquivo:
             log_erro("Arquivo PDF não informado.")
             return False
 
+        arquivo = str(arquivo).strip().lstrip("/")
         url_pdf = f"{BASE_URL}/pdf/{arquivo}"
 
         payload = {
             "to": telefone,
+            "url": url_pdf,
             "documentUrl": url_pdf,
             "fileName": arquivo,
             "caption": legenda or "",
@@ -1307,6 +1315,9 @@ def enviar_pdf(telefone, arquivo, legenda=""):
         except Exception:
             resposta_json = response.text
 
+        log_info("STATUS PDF WASENDER:", response.status_code)
+        log_info("RESPOSTA PDF WASENDER:", resposta_json)
+
         if response.status_code not in [200, 201]:
             log_erro(
                 "Falha envio PDF WasenderAPI:",
@@ -1319,14 +1330,12 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             "PDF enviado WasenderAPI:",
             telefone,
             response.status_code,
-            resposta_json,
         )
         return True
 
     except Exception as e:
         log_erro("Erro enviar PDF WasenderAPI:", repr(e))
         return False
-
 
 # ==========================================
 # SALVAMENTO DE EVENTOS / DASHBOARD

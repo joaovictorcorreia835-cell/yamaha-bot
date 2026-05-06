@@ -3,412 +3,449 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>Dashboard Pós-Vendas Motoshow Yamaha</title>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial, Helvetica, sans-serif;
+
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+            font-family:Arial, Helvetica, sans-serif;
         }
 
-        body {
-            background: #f4f7fb;
-            color: #1f2937;
+        body{
+            background:#f4f7fb;
+            color:#1f2937;
         }
 
-        .topbar {
-            background: linear-gradient(90deg, #0b1f4d, #163b8c);
-            color: white;
-            padding: 24px 32px;
-            box-shadow: 0 4px 18px rgba(0,0,0,0.12);
+        .topbar{
+            background:linear-gradient(90deg,#0b1f4d,#163b8c);
+            color:white;
+            padding:24px 32px;
+            box-shadow:0 4px 18px rgba(0,0,0,0.12);
         }
 
-        .topbar h1 {
-            font-size: 28px;
-            margin-bottom: 6px;
+        .topbar h1{
+            font-size:28px;
+            margin-bottom:6px;
         }
 
-        .topbar p {
-            font-size: 14px;
-            opacity: 0.92;
+        .topbar p{
+            font-size:14px;
+            opacity:0.92;
         }
 
-        .container {
-            padding: 28px;
-            max-width: 1450px;
-            margin: 0 auto;
+        .container{
+            padding:28px;
+            max-width:1450px;
+            margin:0 auto;
         }
 
-        .filtros-dashboard {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
+        .filtros-dashboard{
+            display:flex;
+            gap:12px;
+            margin-bottom:24px;
+            flex-wrap:wrap;
         }
 
-        .filtro-btn {
-            background: white;
-            color: #163b8f;
-            padding: 10px 18px;
-            border-radius: 10px;
-            text-decoration: none;
-            font-weight: 700;
-            border: 2px solid #163b8f;
-            transition: 0.2s ease;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+        .filtro-btn{
+            background:white;
+            color:#163b8f;
+            padding:10px 18px;
+            border-radius:10px;
+            text-decoration:none;
+            font-weight:700;
+            border:2px solid #163b8f;
+            transition:0.2s ease;
+            box-shadow:0 4px 12px rgba(15,23,42,0.06);
         }
 
-        .filtro-btn:hover {
-            background: #163b8f;
-            color: white;
+        .filtro-btn:hover{
+            background:#163b8f;
+            color:white;
         }
 
-        .filtro-btn.ativo {
-            background: #163b8f;
-            color: white;
+        .filtro-btn.ativo{
+            background:#163b8f;
+            color:white;
         }
 
-        .cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-            gap: 18px;
-            margin-bottom: 28px;
+        .cards{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+            gap:18px;
+            margin-bottom:28px;
         }
 
-        .card {
-            background: white;
-            border-radius: 18px;
-            padding: 22px;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-            border-left: 6px solid #163b8c;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        .card{
+            background:white;
+            border-radius:18px;
+            padding:22px;
+            box-shadow:0 8px 24px rgba(15,23,42,0.08);
+            border-left:6px solid #163b8c;
+            transition:0.2s ease;
         }
 
-        .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+        .card:hover{
+            transform:translateY(-3px);
+            box-shadow:0 12px 26px rgba(15,23,42,0.12);
         }
 
-        .card h3 {
-            font-size: 13px;
-            color: #6b7280;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        .card h3{
+            font-size:13px;
+            color:#6b7280;
+            margin-bottom:10px;
+            text-transform:uppercase;
+            letter-spacing:0.5px;
         }
 
-        .card .numero {
-            font-size: 34px;
-            font-weight: bold;
-            color: #111827;
+        .card .numero{
+            font-size:34px;
+            font-weight:bold;
+            color:#111827;
         }
 
-        .card.azul { border-left-color: #163b8c; }
-        .card.verde { border-left-color: #15803d; }
-        .card.vermelho { border-left-color: #dc2626; }
-        .card.amarelo { border-left-color: #d97706; }
-        .card.roxo { border-left-color: #7c3aed; }
-        .card.ciano { border-left-color: #0891b2; }
-        .card.rosa { border-left-color: #be185d; }
-        .card.cinza { border-left-color: #475569; }
+        .card.azul{ border-left-color:#163b8c; }
+        .card.verde{ border-left-color:#15803d; }
+        .card.vermelho{ border-left-color:#dc2626; }
+        .card.amarelo{ border-left-color:#d97706; }
+        .card.roxo{ border-left-color:#7c3aed; }
+        .card.ciano{ border-left-color:#0891b2; }
+        .card.rosa{ border-left-color:#be185d; }
+        .card.cinza{ border-left-color:#475569; }
 
-        .grid {
-            display: grid;
-            grid-template-columns: 1.2fr 1fr;
-            gap: 22px;
-            margin-bottom: 24px;
+        .grid{
+            display:grid;
+            grid-template-columns:1.2fr 1fr;
+            gap:22px;
+            margin-bottom:24px;
         }
 
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 22px;
-            margin-bottom: 24px;
+        .grid-2{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:22px;
+            margin-bottom:24px;
         }
 
-        .panel {
-            background: white;
-            border-radius: 18px;
-            padding: 22px;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        .panel{
+            background:white;
+            border-radius:18px;
+            padding:22px;
+            box-shadow:0 8px 24px rgba(15,23,42,0.08);
         }
 
-        .panel h2 {
-            font-size: 18px;
-            margin-bottom: 16px;
-            color: #0f172a;
+        .panel h2{
+            font-size:18px;
+            margin-bottom:16px;
+            color:#0f172a;
         }
 
-        .chart-box {
-            position: relative;
-            width: 100%;
-            height: 340px;
+        .chart-box{
+            position:relative;
+            width:100%;
+            height:340px;
         }
 
-        .table-section {
-            background: white;
-            border-radius: 18px;
-            padding: 22px;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-            margin-bottom: 24px;
+        .table-section{
+            background:white;
+            border-radius:18px;
+            padding:22px;
+            box-shadow:0 8px 24px rgba(15,23,42,0.08);
+            margin-bottom:24px;
         }
 
-        .table-section h2 {
-            font-size: 18px;
-            margin-bottom: 16px;
+        .table-section h2{
+            font-size:18px;
+            margin-bottom:16px;
         }
 
-        .table-wrapper {
-            width: 100%;
-            overflow-x: auto;
+        .table-wrapper{
+            width:100%;
+            overflow-x:auto;
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            overflow: hidden;
-            border-radius: 12px;
-            min-width: 1100px;
+        table{
+            width:100%;
+            border-collapse:collapse;
+            overflow:hidden;
+            border-radius:12px;
+            min-width:1100px;
         }
 
-        thead {
-            background: #163b8c;
-            color: white;
+        thead{
+            background:#163b8c;
+            color:white;
         }
 
-        th, td {
-            padding: 14px 16px;
-            text-align: left;
-            border-bottom: 1px solid #e5e7eb;
-            white-space: nowrap;
-            vertical-align: top;
+        th,td{
+            padding:14px 16px;
+            text-align:left;
+            border-bottom:1px solid #e5e7eb;
+            white-space:nowrap;
+            vertical-align:top;
         }
 
-        tbody tr:hover {
-            background: #f9fafb;
+        tbody tr:hover{
+            background:#f9fafb;
         }
 
-        .vazio {
-            text-align: center;
-            color: #6b7280;
-            padding: 18px;
+        .vazio{
+            text-align:center;
+            color:#6b7280;
+            padding:18px;
         }
 
-        .status-badge {
-            display: inline-block;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 700;
-            background: #e5e7eb;
-            color: #111827;
+        .status-badge{
+            display:inline-block;
+            padding:6px 10px;
+            border-radius:999px;
+            font-size:12px;
+            font-weight:700;
+            background:#e5e7eb;
+            color:#111827;
         }
 
-        .status-agendado {
-            background: #dcfce7;
-            color: #166534;
+        .status-agendado{
+            background:#dcfce7;
+            color:#166534;
         }
 
-        .status-cancelado {
-            background: #fee2e2;
-            color: #991b1b;
+        .status-cancelado{
+            background:#fee2e2;
+            color:#991b1b;
         }
 
-        .status-reagendado {
-            background: #dbeafe;
-            color: #1d4ed8;
+        .status-reagendado{
+            background:#dbeafe;
+            color:#1d4ed8;
         }
 
-        .status-concluido {
-            background: #ede9fe;
-            color: #6d28d9;
+        .status-concluido{
+            background:#ede9fe;
+            color:#6d28d9;
         }
 
-        .status-confirmado {
-            background: #fef3c7;
-            color: #92400e;
+        .status-confirmado{
+            background:#fef3c7;
+            color:#92400e;
         }
 
-        .status-padrao {
-            background: #e5e7eb;
-            color: #334155;
+        .status-padrao{
+            background:#e5e7eb;
+            color:#334155;
         }
 
-        .info-lista {
-            display: grid;
-            gap: 12px;
+        .info-lista{
+            display:grid;
+            gap:12px;
         }
 
-        .info-item {
-            padding: 14px 16px;
-            border-radius: 12px;
-            background: #f8fafc;
-            border: 1px solid #e5e7eb;
+        .info-item{
+            padding:14px 16px;
+            border-radius:12px;
+            background:#f8fafc;
+            border:1px solid #e5e7eb;
         }
 
-        .info-item strong {
-            display: block;
-            color: #0f172a;
-            margin-bottom: 4px;
+        .info-item strong{
+            display:block;
+            color:#0f172a;
+            margin-bottom:4px;
         }
 
-        .footer {
-            text-align: center;
-            padding: 20px;
-            color: #6b7280;
-            font-size: 13px;
+        .footer{
+            text-align:center;
+            padding:20px;
+            color:#6b7280;
+            font-size:13px;
         }
 
-        .itens-coluna {
-            max-width: 280px;
-            white-space: normal;
-            line-height: 1.4;
+        .itens-coluna{
+            max-width:280px;
+            white-space:normal;
+            line-height:1.4;
         }
 
-        .btn-reenvio {
-            background: #163b8c;
-            color: white;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 700;
-            font-size: 12px;
+        .btn-reenvio{
+            background:#163b8c;
+            color:white;
+            border:none;
+            padding:8px 12px;
+            border-radius:8px;
+            cursor:pointer;
+            font-weight:700;
+            font-size:12px;
         }
 
-        .btn-reenvio:hover {
-            background: #0f2f70;
+        .btn-reenvio:hover{
+            background:#0f2f70;
         }
 
-        @media (max-width: 980px) {
+        @media (max-width:980px){
+
             .grid,
-            .grid-2 {
-                grid-template-columns: 1fr;
+            .grid-2{
+                grid-template-columns:1fr;
             }
 
-            .topbar h1 {
-                font-size: 22px;
+            .topbar h1{
+                font-size:22px;
             }
 
-            .card .numero {
-                font-size: 28px;
+            .card .numero{
+                font-size:28px;
             }
 
-            .container {
-                padding: 18px;
+            .container{
+                padding:18px;
             }
+
         }
+
     </style>
+
 </head>
+
 <body>
 
     <div class="topbar">
         <h1>🏍️ Dashboard Pós-Vendas Motoshow Yamaha</h1>
-        <p>Painel gerencial de atendimentos, revisões, reagendamentos, IA e vendas adicionais</p>
+
+        <p>
+            Painel gerencial de atendimentos,
+            revisões,
+            reagendamentos,
+            IA,
+            Sances
+            e vendas adicionais
+        </p>
     </div>
 
     <div class="container">
 
         <div class="filtros-dashboard">
-            <a href="/dashboard?filtro=hoje" class="filtro-btn {% if filtro_ativo == 'hoje' %}ativo{% endif %}">Hoje</a>
-            <a href="/dashboard?filtro=semana" class="filtro-btn {% if filtro_ativo == 'semana' %}ativo{% endif %}">Semana</a>
-            <a href="/dashboard?filtro=mes" class="filtro-btn {% if filtro_ativo == 'mes' %}ativo{% endif %}">Mês</a>
-            <a href="/dashboard?filtro=total" class="filtro-btn {% if filtro_ativo == 'total' %}ativo{% endif %}">Total</a>
+
+            <a href="/dashboard?filtro=hoje"
+               class="filtro-btn {% if filtro_ativo == 'hoje' %}ativo{% endif %}">
+                Hoje
+            </a>
+
+            <a href="/dashboard?filtro=semana"
+               class="filtro-btn {% if filtro_ativo == 'semana' %}ativo{% endif %}">
+                Semana
+            </a>
+
+            <a href="/dashboard?filtro=mes"
+               class="filtro-btn {% if filtro_ativo == 'mes' %}ativo{% endif %}">
+                Mês
+            </a>
+
+            <a href="/dashboard?filtro=total"
+               class="filtro-btn {% if filtro_ativo == 'total' %}ativo{% endif %}">
+                Total
+            </a>
+
+            <a href="/clientes"
+               class="filtro-btn">
+                Clientes CRM
+            </a>
+
         </div>
 
         <div class="cards">
+
             <div class="card azul">
                 <h3>Total de Atendimentos</h3>
-                <div class="numero">{{ total }}</div>
+                <div class="numero">
+                    {{ total if total is defined else 0 }}
+                </div>
             </div>
 
             <div class="card azul">
-                <h3>Atendimentos de Revisão</h3>
-                <div class="numero">{{ total_revisoes if total_revisoes is defined else revisao }}</div>
-            </div>
-
-            <div class="card ciano">
-                <h3>Sances Pendentes</h3>
-                <div class="numero">{{ sances_pendentes if sances_pendentes is defined else 0 }}</div>
-            </div>
-
-            <div class="card verde">
-                <h3>Sances Enviados</h3>
-                <div class="numero">{{ sances_enviados if sances_enviados is defined else 0 }}</div>
-            </div>
-
-            <div class="card vermelho">
-                <h3>Sances com Erro</h3>
-                <div class="numero">{{ sances_erros if sances_erros is defined else 0 }}</div>
-            </div>
-
-            <div class="card amarelo">
-                <h3>Sances Não Configurado</h3>
-                <div class="numero">{{ sances_nao_configurado if sances_nao_configurado is defined else 0 }}</div>
+                <h3>Atendimentos Revisão</h3>
+                <div class="numero">
+                    {{ total_revisoes if total_revisoes is defined else 0 }}
+                </div>
             </div>
 
             <div class="card verde">
                 <h3>Revisões Agendadas</h3>
-                <div class="numero">{{ agendados }}</div>
+                <div class="numero">
+                    {{ agendados if agendados is defined else 0 }}
+                </div>
             </div>
 
             <div class="card roxo">
                 <h3>Revisões Concluídas</h3>
-                <div class="numero">{{ concluidos if concluidos is defined else 0 }}</div>
+                <div class="numero">
+                    {{ concluidos if concluidos is defined else 0 }}
+                </div>
             </div>
 
             <div class="card vermelho">
                 <h3>Cancelados</h3>
-                <div class="numero">{{ cancelados }}</div>
+                <div class="numero">
+                    {{ cancelados if cancelados is defined else 0 }}
+                </div>
             </div>
 
             <div class="card ciano">
                 <h3>Reagendados</h3>
-                <div class="numero">{{ reagendados }}</div>
+                <div class="numero">
+                    {{ reagendados if reagendados is defined else 0 }}
+                </div>
             </div>
 
             <div class="card rosa">
                 <h3>Atendimento Humano</h3>
-                <div class="numero">{{ atendimento_humano if atendimento_humano is defined else 0 }}</div>
+                <div class="numero">
+                    {{ atendimento_humano if atendimento_humano is defined else 0 }}
+                </div>
             </div>
 
             <div class="card cinza">
-                <h3>Dúvidas Respondidas IA</h3>
-                <div class="numero">{{ duvidas_ia if duvidas_ia is defined else 0 }}</div>
-            </div>
-
-            <div class="card roxo">
-                <h3>Itens Vendidos</h3>
-                <div class="numero">{{ total_itens_vendidos }}</div>
-            </div>
-
-            <div class="card amarelo">
-                <h3>Conversão em Agendamento</h3>
+                <h3>Dúvidas IA</h3>
                 <div class="numero">
-                    {% set base_conversao = total_revisoes if total_revisoes is defined else total %}
-                    {% if base_conversao > 0 %}
-                        {{ ((agendados / base_conversao) * 100) | round(1) }}%
-                    {% else %}
-                        0%
-                    {% endif %}
+                    {{ duvidas_ia if duvidas_ia is defined else 0 }}
+                </div>
+            </div>
+            <div class="card ciano">
+                <h3>Sances Pendentes</h3>
+                <div class="numero">
+                    {{ sances_pendentes if sances_pendentes is defined else 0 }}
                 </div>
             </div>
 
             <div class="card verde">
-                <h3>Taxa de Agenda Ativa</h3>
+                <h3>Sances Enviados</h3>
                 <div class="numero">
-                    {% if total_agendamentos_periodo > 0 %}
-                        {{ ((agendados / total_agendamentos_periodo) * 100) | round(1) }}%
-                    {% else %}
-                        0%
-                    {% endif %}
+                    {{ sances_enviados if sances_enviados is defined else 0 }}
                 </div>
             </div>
+
+            <div class="card vermelho">
+                <h3>Sances com Erro</h3>
+                <div class="numero">
+                    {{ sances_erros if sances_erros is defined else 0 }}
+                </div>
+            </div>
+
+            <div class="card amarelo">
+                <h3>Itens Vendidos</h3>
+                <div class="numero">
+                    {{ total_itens_vendidos if total_itens_vendidos is defined else 0 }}
+                </div>
+            </div>
+
         </div>
 
         <div class="grid">
+
             <div class="panel">
                 <h2>📊 Revisões por Tipo</h2>
                 <div class="chart-box">
@@ -418,17 +455,22 @@
 
             <div class="panel">
                 <h2>🛒 Venda Adicional</h2>
+
                 {% if ranking_itens %}
                     <div class="chart-box">
                         <canvas id="graficoAdicionais"></canvas>
                     </div>
                 {% else %}
-                    <div class="vazio">Nenhuma venda adicional no período selecionado.</div>
+                    <div class="vazio">
+                        Nenhuma venda adicional no período selecionado.
+                    </div>
                 {% endif %}
             </div>
+
         </div>
 
         <div class="grid-2">
+
             <div class="panel">
                 <h2>📈 Situação dos Agendamentos</h2>
                 <div class="chart-box">
@@ -438,57 +480,68 @@
 
             <div class="panel">
                 <h2>📌 Resumo Operacional</h2>
+
                 <div class="info-lista">
+
                     <div class="info-item">
                         <strong>1ª Revisão</strong>
-                        {{ primeira }}
+                        {{ primeira if primeira is defined else 0 }}
                     </div>
+
                     <div class="info-item">
                         <strong>2ª Revisão</strong>
-                        {{ segunda }}
+                        {{ segunda if segunda is defined else 0 }}
                     </div>
+
                     <div class="info-item">
                         <strong>3ª Revisão</strong>
-                        {{ terceira }}
+                        {{ terceira if terceira is defined else 0 }}
                     </div>
+
                     <div class="info-item">
                         <strong>4ª Revisão</strong>
-                        {{ quarta }}
+                        {{ quarta if quarta is defined else 0 }}
                     </div>
+
                     <div class="info-item">
                         <strong>5ª Revisão ou acima</strong>
-                        {{ quinta }}
+                        {{ quinta if quinta is defined else 0 }}
                     </div>
+
                 </div>
             </div>
+
         </div>
 
         <div class="table-section">
             <h2>📌 Ranking de Itens Adicionais</h2>
 
             {% if ranking_itens %}
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Item</th>
-                            <th>Quantidade</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item, qtd in ranking_itens %}
-                        <tr>
-                            <td>{{ loop.index }}</td>
-                            <td>{{ item }}</td>
-                            <td>{{ qtd }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Item</th>
+                                <th>Quantidade</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for item, qtd in ranking_itens %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ item }}</td>
+                                <td>{{ qtd }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             {% else %}
-                <div class="vazio">Nenhum item vendido no período selecionado.</div>
+                <div class="vazio">
+                    Nenhum item vendido no período selecionado.
+                </div>
             {% endif %}
         </div>
 
@@ -496,77 +549,107 @@
             <h2>📅 Últimos Agendamentos de Revisão</h2>
 
             {% if agendamentos %}
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Protocolo</th>
-                            <th>Cliente</th>
-                            <th>Telefone</th>
-                            <th>Modelo</th>
-                            <th>Revisão</th>
-                            <th>Data</th>
-                            <th>Horário</th>
-                            <th>Itens Adicionais</th>
-                            <th>Status</th>
-                            <th>Sances</th>
-                            <th>Ação</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for ag in agendamentos %}
-                        {% set status_formatado = (ag.status or '')|upper %}
-                        <tr>
-                            <td>{{ ag.protocolo or '-' }}</td>
-                            <td>{{ ag.nome or '-' }}</td>
-                            <td>{{ ag.telefone or '-' }}</td>
-                            <td>{{ ag.modelo or '-' }}</td>
-                            <td>{{ ag.revisao or '-' }}{% if ag.revisao %}ª{% endif %}</td>
-                            <td>{{ ag.data_agendada or '-' }}</td>
-                            <td>{{ ag.horario or '-' }}</td>
-                            <td class="itens-coluna">{{ ag.itens if ag.itens else 'Nenhum' }}</td>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Protocolo</th>
+                                <th>Cliente</th>
+                                <th>Telefone</th>
+                                <th>Modelo</th>
+                                <th>Revisão</th>
+                                <th>Data</th>
+                                <th>Horário</th>
+                                <th>Itens Adicionais</th>
+                                <th>Status</th>
+                                <th>Sances</th>
+                                <th>Ação</th>
+                            </tr>
+                        </thead>
 
-                            <td>
-                                <span class="status-badge
-                                    {% if status_formatado == 'AGENDADO' %}status-agendado
-                                    {% elif status_formatado == 'CANCELADO' %}status-cancelado
-                                    {% elif status_formatado == 'REAGENDADO' %}status-reagendado
-                                    {% elif status_formatado in ['CONCLUIDO', 'CONCLUÍDO', 'FINALIZADO'] %}status-concluido
-                                    {% elif status_formatado == 'CONFIRMADO' %}status-confirmado
-                                    {% else %}status-padrao{% endif %}">
-                                    {{ ag.status or 'PENDENTE' }}
-                                </span>
-                            </td>
+                        <tbody>
+                            {% for ag in agendamentos %}
+                            {% set status_formatado = (ag.status or '')|upper %}
+                            {% set sances_formatado = (ag.sances_status or '')|upper %}
 
-                            <td>
-                                <span class="status-badge
-                                    {% if ag.sances_status == 'ENVIADO' %}status-agendado
-                                    {% elif ag.sances_status == 'ERRO' %}status-cancelado
-                                    {% elif ag.sances_status == 'PENDENTE' %}status-reagendado
-                                    {% elif ag.sances_status == 'NAO_CONFIGURADO' %}status-padrao
-                                    {% else %}status-padrao{% endif %}">
-                                    {{ ag.sances_status if ag.sances_status else 'PENDENTE' }}
-                                </span>
-                            </td>
+                            <tr>
+                                <td>{{ ag.protocolo or '-' }}</td>
+                                <td>{{ ag.nome or '-' }}</td>
+                                <td>{{ ag.telefone or '-' }}</td>
+                                <td>{{ ag.modelo or '-' }}</td>
 
-                            <td>
-                                {% if ag.sances_status in ['PENDENTE', 'ERRO', 'NAO_CONFIGURADO'] or not ag.sances_status %}
-                                    <button class="btn-reenvio" onclick="reenviarSances('{{ ag.protocolo }}')">
-                                        Reenviar
-                                    </button>
-                                {% else %}
-                                    <span style="color:#64748b; font-size:12px;">—</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                                <td>
+                                    {{ ag.revisao or '-' }}{% if ag.revisao %}ª{% endif %}
+                                </td>
+
+                                <td>{{ ag.data_agendada or '-' }}</td>
+                                <td>{{ ag.horario or '-' }}</td>
+
+                                <td class="itens-coluna">
+                                    {{ ag.itens if ag.itens else 'Nenhum' }}
+                                </td>
+
+                                <td>
+                                    <span class="status-badge
+                                        {% if status_formatado == 'AGENDADO' %}
+                                            status-agendado
+                                        {% elif status_formatado == 'CANCELADO' %}
+                                            status-cancelado
+                                        {% elif status_formatado == 'REAGENDADO' %}
+                                            status-reagendado
+                                        {% elif status_formatado in ['CONCLUIDO', 'CONCLUÍDO', 'FINALIZADO'] %}
+                                            status-concluido
+                                        {% elif status_formatado == 'CONFIRMADO' %}
+                                            status-confirmado
+                                        {% else %}
+                                            status-padrao
+                                        {% endif %}
+                                    ">
+                                        {{ ag.status or 'PENDENTE' }}
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="status-badge
+                                        {% if sances_formatado == 'ENVIADO' %}
+                                            status-agendado
+                                        {% elif sances_formatado == 'ERRO' %}
+                                            status-cancelado
+                                        {% elif sances_formatado == 'PENDENTE' %}
+                                            status-reagendado
+                                        {% elif sances_formatado == 'NAO_CONFIGURADO' %}
+                                            status-padrao
+                                        {% else %}
+                                            status-padrao
+                                        {% endif %}
+                                    ">
+                                        {{ ag.sances_status if ag.sances_status else 'PENDENTE' }}
+                                    </span>
+                                </td>
+
+                                <td>
+                                    {% if sances_formatado in ['PENDENTE', 'ERRO', 'NAO_CONFIGURADO', ''] %}
+                                        <button
+                                            class="btn-reenvio"
+                                            onclick="reenviarSances('{{ ag.protocolo }}')">
+                                            Reenviar
+                                        </button>
+                                    {% else %}
+                                        <span style="color:#64748b; font-size:12px;">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             {% else %}
-                <div class="vazio">Nenhum agendamento encontrado.</div>
+                <div class="vazio">
+                    Nenhum agendamento encontrado.
+                </div>
             {% endif %}
         </div>
+
     </div>
 
     <div class="footer">
@@ -575,8 +658,10 @@
 
     <script>
         const canvasRevisoes = document.getElementById('graficoRevisoes');
+
         if (canvasRevisoes) {
             const ctxRevisoes = canvasRevisoes.getContext('2d');
+
             new Chart(ctxRevisoes, {
                 type: 'bar',
                 data: {
@@ -584,11 +669,11 @@
                     datasets: [{
                         label: 'Quantidade',
                         data: [
-                            {{ primeira }},
-                            {{ segunda }},
-                            {{ terceira }},
-                            {{ quarta }},
-                            {{ quinta }}
+                            {{ primeira if primeira is defined else 0 }},
+                            {{ segunda if segunda is defined else 0 }},
+                            {{ terceira if terceira is defined else 0 }},
+                            {{ quarta if quarta is defined else 0 }},
+                            {{ quinta if quinta is defined else 0 }}
                         ],
                         backgroundColor: [
                             '#163b8c',
@@ -613,10 +698,11 @@
         }
 
         const canvasAdicionais = document.getElementById('graficoAdicionais');
+
         if (canvasAdicionais) {
             const labelsAdicionais = [
                 {% for item, qtd in ranking_itens[:10] %}
-                    "{{ item|escape }}"{% if not loop.last %},{% endif %}
+                    {{ item|tojson }}{% if not loop.last %},{% endif %}
                 {% endfor %}
             ];
 
@@ -627,6 +713,7 @@
             ];
 
             const ctxAdicionais = canvasAdicionais.getContext('2d');
+
             new Chart(ctxAdicionais, {
                 type: 'doughnut',
                 data: {
@@ -655,17 +742,19 @@
         }
 
         const canvasStatus = document.getElementById('graficoStatus');
+
         if (canvasStatus) {
             const ctxStatus = canvasStatus.getContext('2d');
+
             new Chart(ctxStatus, {
                 type: 'pie',
                 data: {
                     labels: ['Agendados', 'Cancelados', 'Reagendados'],
                     datasets: [{
                         data: [
-                            {{ agendados }},
-                            {{ cancelados }},
-                            {{ reagendados }}
+                            {{ agendados if agendados is defined else 0 }},
+                            {{ cancelados if cancelados is defined else 0 }},
+                            {{ reagendados if reagendados is defined else 0 }}
                         ],
                         backgroundColor: [
                             '#16a34a',
@@ -683,7 +772,10 @@
 
         async function reenviarSances(protocolo) {
             const confirmar = confirm(`Deseja reenviar o agendamento ${protocolo} para o Sances?`);
-            if (!confirmar) return;
+
+            if (!confirmar) {
+                return;
+            }
 
             try {
                 const response = await fetch(`/reenvio-sances/${protocolo}`, {
@@ -698,6 +790,7 @@
                 } else {
                     alert(`Falha no reenvio: ${data.mensagem}`);
                 }
+
             } catch (error) {
                 alert("Erro ao tentar reenviar para o Sances.");
             }
@@ -705,4 +798,4 @@
     </script>
 
 </body>
-</html>
+</html>         

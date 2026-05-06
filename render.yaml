@@ -3,27 +3,58 @@ services:
     name: yamaha-bot-1
     env: python
     plan: free
+
     buildCommand: pip install -r requirements.txt
+
     startCommand: gunicorn app:app
+
     autoDeploy: true
+
     envVars:
+
+      # ==========================================
+      # PYTHON
+      # ==========================================
       - key: PYTHON_VERSION
         value: 3.11.9
 
+      # ==========================================
       # WASENDER API
+      # ==========================================
       - key: WASENDER_API_KEY
         sync: false
+
       - key: WASENDER_BASE_URL
         value: https://www.wasenderapi.com/api
 
+      # ==========================================
       # URL DO BOT
+      # ==========================================
       - key: BASE_URL
         value: https://yamaha-bot-1.onrender.com
 
-      # BANCO
+      # ==========================================
+      # BANCO POSTGRES RENDER
+      # ==========================================
       - key: DATABASE_URL
-        value: sqlite:///yamaha.db
+        fromDatabase:
+          name: yamaha-postgres
+          property: connectionString
 
+      # ==========================================
       # INATIVIDADE
+      # ==========================================
       - key: TEMPO_INATIVIDADE
         value: 600
+
+      # ==========================================
+      # FOLLOWUP
+      # ==========================================
+      - key: INTERVALO_WORKER_FOLLOWUP
+        value: 300
+
+      - key: FOLLOWUP_1_HORAS
+        value: 48
+
+      - key: FOLLOWUP_2_DIAS
+        value: 5

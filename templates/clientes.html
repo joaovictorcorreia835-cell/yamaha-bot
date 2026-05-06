@@ -6,21 +6,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <style>
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+        }
+
         body {
             background: #f4f7fb;
             font-family: Arial, Helvetica, sans-serif;
-            margin: 0;
             color: #1f2937;
         }
 
         .topbar {
             background: linear-gradient(90deg, #0b1f4d, #163b8c);
             color: white;
-            padding: 20px 30px;
+            padding: 22px 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
         }
 
         .topbar h1 {
             margin: 0;
+            font-size: 28px;
         }
 
         .container {
@@ -28,59 +35,92 @@
         }
 
         .nav {
-            margin-bottom: 20px;
+            margin-bottom: 22px;
         }
 
         .nav a {
             background: white;
-            padding: 10px 16px;
-            border-radius: 8px;
+            padding: 10px 18px;
+            border-radius: 10px;
             text-decoration: none;
             color: #163b8c;
             font-weight: bold;
             border: 2px solid #163b8c;
+            transition: 0.2s;
+            display: inline-block;
         }
 
         .nav a:hover {
             background: #163b8c;
             color: white;
+            transform: translateY(-1px);
         }
 
         .cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
             margin-bottom: 25px;
         }
 
         .card {
             background: white;
-            padding: 18px;
-            border-radius: 12px;
+            padding: 22px;
+            border-radius: 16px;
             box-shadow: 0 6px 18px rgba(0,0,0,0.08);
             border-left: 5px solid #163b8c;
         }
 
         .card h3 {
-            font-size: 12px;
+            font-size: 13px;
             color: #6b7280;
+            margin-bottom: 10px;
         }
 
         .card .numero {
-            font-size: 26px;
+            font-size: 30px;
             font-weight: bold;
+            color: #111827;
         }
 
         .table-section {
             background: white;
-            padding: 20px;
-            border-radius: 14px;
+            padding: 22px;
+            border-radius: 16px;
             box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            overflow-x:auto;
+        }
+
+        .table-header {
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            margin-bottom:20px;
+            gap:15px;
+            flex-wrap:wrap;
+        }
+
+        .table-header h2 {
+            font-size:22px;
+            color:#111827;
+        }
+
+        .search-box input {
+            padding:10px 14px;
+            border-radius:10px;
+            border:1px solid #d1d5db;
+            width:260px;
+            outline:none;
+        }
+
+        .search-box input:focus {
+            border-color:#163b8c;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 900px;
         }
 
         thead {
@@ -88,39 +128,104 @@
             color: white;
         }
 
-        th, td {
-            padding: 12px;
-            border-bottom: 1px solid #e5e7eb;
+        th {
+            text-align:left;
+            padding: 14px 12px;
+            font-size:14px;
         }
 
-        tr:hover {
+        td {
+            padding: 14px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size:14px;
+        }
+
+        tbody tr {
+            transition:0.2s;
+        }
+
+        tbody tr:hover {
             background: #f9fafb;
         }
 
         .status {
-            padding: 6px 10px;
+            padding: 7px 12px;
             border-radius: 999px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
+            display:inline-block;
         }
 
-        .novo { background: #e0f2fe; color: #0369a1; }
-        .andamento { background: #fef3c7; color: #92400e; }
-        .agendado { background: #dcfce7; color: #166534; }
-        .humano { background: #ede9fe; color: #6d28d9; }
+        .novo {
+            background: #e0f2fe;
+            color: #0369a1;
+        }
+
+        .andamento {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .agendado {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .humano {
+            background: #ede9fe;
+            color: #6d28d9;
+        }
 
         .badge {
             font-size: 11px;
-            padding: 4px 8px;
-            border-radius: 8px;
-            background: #e5e7eb;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: #dcfce7;
+            color: #166534;
+            font-weight:bold;
         }
+
+        .telefone {
+            font-weight:bold;
+            color:#163b8c;
+        }
+
+        .origem {
+            font-weight:bold;
+            color:#374151;
+        }
+
+        .vazio {
+            color:#9ca3af;
+        }
+
+        @media(max-width:768px){
+
+            .container{
+                padding:15px;
+            }
+
+            .topbar h1{
+                font-size:22px;
+            }
+
+            .table-header{
+                flex-direction:column;
+                align-items:flex-start;
+            }
+
+            .search-box input{
+                width:100%;
+            }
+
+        }
+
     </style>
 </head>
 <body>
 
 <div class="topbar">
-    <h1>👥 Clientes CRM</h1>
+    <h1>👥 Clientes CRM Motoshow</h1>
 </div>
 
 <div class="container">
@@ -130,9 +235,12 @@
     </div>
 
     <div class="cards">
+
         <div class="card">
             <h3>Total Clientes</h3>
-            <div class="numero">{{ atendimentos|length }}</div>
+            <div class="numero">
+                {{ atendimentos|length }}
+            </div>
         </div>
 
         <div class="card">
@@ -142,17 +250,44 @@
             </div>
         </div>
 
-        <!-- REMOVIDO duvidas_ia -->
         <div class="card">
-            <h3>Interações</h3>
-            <div class="numero">{{ atendimentos|length }}</div>
+            <h3>Interações Totais</h3>
+            <div class="numero">
+                {{ atendimentos|length }}
+            </div>
         </div>
+
+        <div class="card">
+            <h3>Agendados</h3>
+            <div class="numero">
+                {{
+                    atendimentos
+                    | selectattr('status')
+                    | selectattr('status', 'equalto', 'AGENDADO')
+                    | list
+                    | length
+                }}
+            </div>
+        </div>
+
     </div>
 
     <div class="table-section">
-        <h2>📋 Lista de Clientes</h2>
 
-        <table>
+        <div class="table-header">
+            <h2>📋 Lista de Clientes</h2>
+
+            <div class="search-box">
+                <input
+                    type="text"
+                    id="pesquisa"
+                    placeholder="Pesquisar cliente..."
+                >
+            </div>
+        </div>
+
+        <table id="tabelaClientes">
+
             <thead>
                 <tr>
                     <th>Nome</th>
@@ -163,43 +298,102 @@
                     <th>Origem</th>
                 </tr>
             </thead>
+
             <tbody>
+
                 {% for c in atendimentos %}
                 <tr>
-                    <td>{{ c.nome or '-' }}</td>
-                    <td>{{ c.telefone }}</td>
 
                     <td>
+                        {{ c.nome or '-' }}
+                    </td>
+
+                    <td class="telefone">
+                        {{ c.telefone }}
+                    </td>
+
+                    <td>
+
                         {% set status = (c.status or '').upper() %}
-                        <span class="status
-                            {% if status == 'NOVO_ATENDIMENTO' %}novo
-                            {% elif status == 'AGENDADO' %}agendado
-                            {% elif status == 'ATENDIMENTO_HUMANO' %}humano
-                            {% else %}andamento{% endif %}
-                        ">
-                            {{ status or 'EM ANDAMENTO' }}
-                        </span>
-                    </td>
 
-                    <td>{{ c.ultima_interacao }}</td>
+                        <span class="status
+
+                            {% if status == 'NOVO_ATENDIMENTO' %}
+                                novo
+
+                            {% elif status == 'AGENDADO' %}
+                                agendado
+
+                            {% elif status == 'ATENDIMENTO_HUMANO' %}
+                                humano
+
+                            {% else %}
+                                andamento
+                            {% endif %}
+                        ">
+
+                            {{ status or 'EM ANDAMENTO' }}
+
+                        </span>
+
+                    </td>
 
                     <td>
-                        {% if c.atendimento_humano %}
-                            <span class="badge">Sim</span>
-                        {% else %}
-                            —
-                        {% endif %}
+                        {{ c.ultima_interacao or '-' }}
                     </td>
 
-                    <td>{{ c.origem or 'BOT' }}</td>
+                    <td>
+
+                        {% if c.atendimento_humano %}
+                            <span class="badge">
+                                Sim
+                            </span>
+                        {% else %}
+                            <span class="vazio">—</span>
+                        {% endif %}
+
+                    </td>
+
+                    <td class="origem">
+                        {{ c.origem or 'BOT' }}
+                    </td>
+
                 </tr>
                 {% endfor %}
+
             </tbody>
+
         </table>
 
     </div>
 
 </div>
+
+<script>
+
+const pesquisa = document.getElementById("pesquisa");
+
+pesquisa.addEventListener("keyup", function() {
+
+    let filtro = pesquisa.value.toLowerCase();
+
+    let linhas = document.querySelectorAll("#tabelaClientes tbody tr");
+
+    linhas.forEach(function(linha) {
+
+        let texto = linha.innerText.toLowerCase();
+
+        if(texto.includes(filtro)){
+            linha.style.display = "";
+        } else {
+            linha.style.display = "none";
+        }
+
+    });
+
+});
+
+</script>
 
 </body>
 </html>

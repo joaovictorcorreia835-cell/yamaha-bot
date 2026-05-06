@@ -17,16 +17,16 @@ WASENDER_BASE_URL = os.getenv(
     "https://www.wasenderapi.com/api"
 ).strip().rstrip("/")
 
-ARQUIVO_PLANILHA = "templates/data/clientes.xlsx"
+ARQUIVO_PLANILHA = "templates/data/disparo_atacado.xlsx"
 INTERVALO_ENTRE_ENVIOS = 90
 
 URL_ENVIO = f"{WASENDER_BASE_URL}/send-message"
 
 COLUNAS_OBRIGATORIAS = [
-    "NOME",
+    "EMPRESA",
     "TELEFONE",
-    "PERIODO_REVISAO",
-    "MODELO",
+    "CIDADE",
+    "RESPONSAVEL",
     "DATA_DISPARO",
     "STATUS_ENVIO",
     "STATUS_RETORNO",
@@ -44,37 +44,29 @@ COLUNAS_OBRIGATORIAS = [
 STATUS_ENVIO_PERMITIDOS = ["", "PENDENTE"]
 
 
-# ==========================================
-# CRIAR MENSAGEM
-# ==========================================
-def criar_mensagem(nome, modelo, periodo):
-    mensagem = f"""Olá {nome} 👋
+def criar_mensagem(empresa="", responsavel="", cidade=""):
+    nome_destino = responsavel.strip() if responsavel else empresa.strip()
 
-Aqui é da Equipe Motoshow Yamaha 🏍️
+    saudacao = "Olá, tudo bem? 👋"
+    if nome_destino:
+        saudacao = f"Olá {nome_destino}, tudo bem? 👋"
 
-Sua {modelo} está no período da revisão de {periodo} meses.
+    return f"""{saudacao}
 
-🎯 Campanha Especial Pós-Vendas:
+Aqui é da Motoshow Yamaha!
 
-✔ Peças Originais Yamaha
-✔ Técnicos Especializados
-✔ Agendamento rápido
+Estamos expandindo nossa distribuição e abrindo parceria com oficinas e lojas da região.
 
-📅 Agende agora sua revisão e mantenha sua Yamaha sempre em dia.
+Trabalhamos com:
+✅ Óleo Yamalube
+✅ Peças originais Yamaha
+✅ Acessórios
 
-Responda com uma das opções:
-1️⃣ *AGENDAR*
-2️⃣ *FALAR COM CONSULTOR*
-3️⃣ *DEPOIS*
+Temos condições especiais para atacado e entrega rápida 🚀
 
-Equipe Motoshow Yamaha 🏍️
-"""
-    return mensagem
+Posso te enviar nossa tabela e condições?"""
 
 
-# ==========================================
-# GARANTIR COLUNAS
-# ==========================================
 def garantir_colunas(df):
     for coluna in COLUNAS_OBRIGATORIAS:
         if coluna not in df.columns:
@@ -82,9 +74,6 @@ def garantir_colunas(df):
     return df
 
 
-# ==========================================
-# NORMALIZAR TELEFONE
-# ==========================================
 def normalizar_telefone(numero):
     numero = str(numero or "").strip()
     numero = (
@@ -105,9 +94,6 @@ def normalizar_telefone(numero):
     return numero
 
 
-# ==========================================
-# HEADERS
-# ==========================================
 def headers_wasender():
     return {
         "Content-Type": "application/json",
@@ -115,9 +101,6 @@ def headers_wasender():
     }
 
 
-# ==========================================
-# ENVIAR MENSAGEM
-# ==========================================
 def enviar_mensagem(numero, mensagem):
     if not WASENDER_API_KEY:
         print("❌ Erro: WASENDER_API_KEY não configurada.")
@@ -144,22 +127,16 @@ def enviar_mensagem(numero, mensagem):
         print("Status Code:", response.status_code)
         print("Resposta:", resposta)
 
-        if response.status_code in [200, 201]:
-            return True
-
-        return False
+        return response.status_code in [200, 201]
 
     except Exception as e:
         print("Erro envio:", repr(e))
         return False
 
 
-# ==========================================
-# DISPARO
-# ==========================================
 def disparar():
     print("===================================")
-    print("🚀 Iniciando disparo WasenderAPI...")
+    print("🚀 Iniciando disparo atacado...")
     print("===================================")
 
     if not WASENDER_API_KEY:
@@ -178,33 +155,30 @@ def disparar():
         status_envio = str(row.get("STATUS_ENVIO", "")).strip().upper()
 
         if status_envio not in STATUS_ENVIO_PERMITIDOS:
-            print("⏭ Pulando linha já tratada:", row.get("NOME", "Sem nome"), "-", status_envio)
+            print("⏭ Pulando linha já tratada:", row.get("EMPRESA", "Sem empresa"), "-", status_envio)
             continue
 
-        nome = str(row.get("NOME", "")).strip()
-        numero = normalizar_telefone(row.get("TELEFONE", ""))
-        modelo = str(row.get("MODELO", "")).strip()
-        periodo = str(row.get("PERIODO_REVISAO", "")).strip()
+        empresa = str(row.get("EMPRESA", "")).strip()
+        telefone = normalizar_telefone(row.get("TELEFONE", ""))
+        cidade = str(row.get("CIDADE", "")).strip()
+        responsavel = str(row.get("RESPONSAVEL", "")).strip()
 
-        if not nome or not numero:
-            print(f"⚠ Linha {index + 2} ignorada - falta NOME ou TELEFONE")
+        if not telefone:
+            print(f"⚠ Linha {index + 2} ignorada - falta TELEFONE")
             df.at[index, "STATUS_ENVIO"] = "ERRO"
-            df.at[index, "OBS"] = "Falta nome ou telefone"
+            df.at[index, "OBS"] = "Falta telefone"
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             continue
 
-        if not modelo or not periodo:
-            print(f"⚠ Linha {index + 2} ignorada - falta MODELO ou PERIODO_REVISAO")
-            df.at[index, "STATUS_ENVIO"] = "ERRO"
-            df.at[index, "OBS"] = "Falta modelo ou período de revisão"
-            df.to_excel(ARQUIVO_PLANILHA, index=False)
-            continue
+        mensagem = criar_mensagem(
+            empresa=empresa,
+            responsavel=responsavel,
+            cidade=cidade
+        )
 
-        mensagem = criar_mensagem(nome, modelo, periodo)
+        print(f"📤 Enviando para: {empresa or responsavel or 'Sem nome'} - {telefone}")
 
-        print(f"📤 Enviando para: {nome} - {numero}")
-
-        enviado = enviar_mensagem(numero, mensagem)
+        enviado = enviar_mensagem(telefone, mensagem)
 
         if enviado:
             agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -215,25 +189,25 @@ def disparar():
             df.at[index, "ULTIMA_INTERACAO"] = agora
             df.at[index, "FOLLOWUP_1"] = ""
             df.at[index, "FOLLOWUP_2"] = ""
-            df.at[index, "OBS"] = "Disparo enviado com sucesso via WasenderAPI"
-            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_REVISAO"
+            df.at[index, "OBS"] = "Disparo atacado enviado com sucesso via WasenderAPI"
+            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_ATACADO"
             df.at[index, "INTENCAO_IA"] = ""
             df.at[index, "PROXIMA_ACAO"] = "AGUARDAR_RETORNO"
             df.at[index, "NIVEL_INTERESSE"] = ""
 
             df.to_excel(ARQUIVO_PLANILHA, index=False)
-            print("✅ Enviado com sucesso:", nome)
+            print("✅ Enviado com sucesso:", empresa or responsavel or telefone)
 
         else:
             df.at[index, "STATUS_ENVIO"] = "ERRO"
             df.at[index, "OBS"] = "Falha ao enviar mensagem via WasenderAPI"
             df.to_excel(ARQUIVO_PLANILHA, index=False)
-            print("❌ Falha no envio:", nome)
+            print("❌ Falha no envio:", empresa or responsavel or telefone)
 
         time.sleep(INTERVALO_ENTRE_ENVIOS)
 
     print("===================================")
-    print("✅ Disparo finalizado")
+    print("✅ Disparo atacado finalizado")
     print("===================================")
 
 
