@@ -21,6 +21,12 @@ app = Flask(__name__)
 criar_banco()
 
 # ==========================================
+# ESTADO EM MEMÓRIA DOS CLIENTES
+# ==========================================
+clientes = {}
+
+
+# ==========================================
 # CONFIG - WASENDERAPI
 # ==========================================
 WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "").strip()
