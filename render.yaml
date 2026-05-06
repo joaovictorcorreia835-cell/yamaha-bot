@@ -9,15 +9,21 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: ZAPI_INSTANCE_ID
+
+      # WASENDER API
+      - key: WASENDER_API_KEY
         sync: false
-      - key: ZAPI_TOKEN
-        sync: false
-      - key: ZAPI_CLIENT_TOKEN
-        sync: false
+      - key: WASENDER_BASE_URL
+        value: https://www.wasenderapi.com/api
+
+      # URL DO BOT
       - key: BASE_URL
         value: https://yamaha-bot-1.onrender.com
+
+      # BANCO
       - key: DATABASE_URL
         value: sqlite:///yamaha.db
+
+      # INATIVIDADE
       - key: TEMPO_INATIVIDADE
         value: 600

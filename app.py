@@ -21,20 +21,45 @@ app = Flask(__name__)
 criar_banco()
 
 # ==========================================
-# CONFIG - Z-API
+# CONFIG - WASENDERAPI
 # ==========================================
-ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID", "").strip()
-ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "").strip()
-ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "").strip()
-BASE_URL = os.getenv("BASE_URL", "").strip()
+WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "").strip()
+WASENDER_BASE_URL = os.getenv(
+    "WASENDER_BASE_URL",
+    "https://www.wasenderapi.com/api"
+).strip().rstrip("/")
+
+URL_WASENDER_MENSAGEM = f"{WASENDER_BASE_URL}/send-message"
+
+BASE_URL = os.getenv("BASE_URL", "").strip().rstrip("/")
+
+
+if not WASENDER_API_KEY:
+    print(
+        "[ERRO] WasenderAPI não configurada corretamente. "
+        "Verifique WASENDER_API_KEY no .env ou no Render."
+    )
+
+
+def env_int(nome, padrao):
+    """
+    Lê variável numérica do ambiente com segurança.
+    Evita erro no Render caso venha vazia, com espaço ou valor inválido.
+    """
+    try:
+        valor = str(os.getenv(nome, padrao)).strip()
+        return int(valor)
+    except Exception:
+        return padrao
+
 
 # Evita erro se vier vazio ou inválido
-TEMPO_INATIVIDADE = int(os.getenv("TEMPO_INATIVIDADE", "43200") or 43200)
+TEMPO_INATIVIDADE = env_int("TEMPO_INATIVIDADE", 43200)
 
 ARQUIVO_FOLLOWUP = os.getenv("ARQUIVO_FOLLOWUP", "clientes_disparo.xlsx").strip()
-INTERVALO_WORKER_FOLLOWUP = int(os.getenv("INTERVALO_WORKER_FOLLOWUP", "300") or 300)
-FOLLOWUP_1_HORAS = int(os.getenv("FOLLOWUP_1_HORAS", "48") or 48)
-FOLLOWUP_2_DIAS = int(os.getenv("FOLLOWUP_2_DIAS", "5") or 5)
+INTERVALO_WORKER_FOLLOWUP = env_int("INTERVALO_WORKER_FOLLOWUP", 300)
+FOLLOWUP_1_HORAS = env_int("FOLLOWUP_1_HORAS", 48)
+FOLLOWUP_2_DIAS = env_int("FOLLOWUP_2_DIAS", 5)
 
 # ==========================================
 # PDFS DE ACESSÓRIOS POR MODELO
@@ -68,21 +93,27 @@ MAPA_PDF_ACESSORIOS = {
 
 PDF_ACESSORIOS_GERAL = "acessorios.pdf"
 
+
 # ==========================================
 # CONFIG FUTURA SANCES
 # mock | real
 # ==========================================
-SANCES_MODO = (os.getenv("SANCES_MODO", "mock") or "mock").strip().lower()
+SANCES_MODO = (
+    os.getenv("SANCES_MODO", "mock") or "mock"
+).strip().lower()
 
 # nao_configurado | enviado | erro
 SANCES_SIMULAR_RESULTADO = (
-    os.getenv("SANCES_SIMULAR_RESULTADO", "nao_configurado") or "nao_configurado"
+    os.getenv(
+        "SANCES_SIMULAR_RESULTADO",
+        "nao_configurado"
+    ) or "nao_configurado"
 ).strip().lower()
 
-SANCES_TIMEOUT = int(os.getenv("SANCES_TIMEOUT", "15") or 15)
-SANCES_RETRY_MAX = int(os.getenv("SANCES_RETRY_MAX", "1") or 1)
+SANCES_TIMEOUT = env_int("SANCES_TIMEOUT", 15)
+SANCES_RETRY_MAX = env_int("SANCES_RETRY_MAX", 1)
 
-# ==========================================
+## ==========================================
 # STATUS OFICIAIS DO CRM POS-VENDA
 # ==========================================
 STATUS_NOVO_ATENDIMENTO = "NOVO_ATENDIMENTO"
@@ -97,6 +128,7 @@ STATUS_FINALIZADO = "FINALIZADO"
 STATUS_POS_VENDA_ENVIADO = "POS_VENDA_ENVIADO"
 STATUS_ATENDIMENTO_HUMANO = "ATENDIMENTO_HUMANO"
 
+
 # ==========================================
 # STATUS INTEGRACAO SANCES
 # ==========================================
@@ -105,32 +137,18 @@ SANCES_STATUS_ENVIADO = "ENVIADO"
 SANCES_STATUS_ERRO = "ERRO"
 SANCES_STATUS_NAO_CONFIGURADO = "NAO_CONFIGURADO"
 
-# ==========================================
-# URLs Z-API
-# ==========================================
-if ZAPI_INSTANCE_ID and ZAPI_TOKEN:
-    url_envio = (
-        f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
-    )
-    url_documento = (
-        f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-document/pdf"
-    )
-else:
-    url_envio = ""
-    url_documento = ""
 
-if not ZAPI_INSTANCE_ID or not ZAPI_TOKEN or not ZAPI_CLIENT_TOKEN:
+# ==========================================
+# WASENDERAPI
+# ==========================================
+URL_WASENDER_MENSAGEM = f"{WASENDER_BASE_URL}/send-message"
+
+if not WASENDER_API_KEY:
     print(
-        "[ERRO] Z-API não configurada corretamente. "
-        "Verifique ZAPI_INSTANCE_ID, ZAPI_TOKEN e ZAPI_CLIENT_TOKEN no .env"
+        "[ERRO] WasenderAPI não configurada corretamente. "
+        "Verifique WASENDER_API_KEY no .env"
     )
 
-clientes = {}
-mensagens_processadas = set()
-fila_mensagens = deque(maxlen=5000)
-
-followup_lock = threading.Lock()
-worker_followup_iniciado = False
 
 # ==========================================
 # HOME
@@ -160,6 +178,7 @@ def servir_pdf(arquivo):
         pasta_pdfs = os.path.join(app.root_path, "static", "pdfs")
 
         arquivo = os.path.basename(str(arquivo or "").strip())
+
         if not arquivo:
             return "Arquivo inválido", 400
 
@@ -174,7 +193,6 @@ def servir_pdf(arquivo):
     except Exception as e:
         log_erro("Erro ao servir PDF:", repr(e))
         return "Erro ao carregar arquivo", 500
-
 
 # ==========================================
 # UTILITÁRIOS GERAIS
@@ -234,6 +252,7 @@ def limpar_telefone(telefone):
             telefone.replace("@c.us", "")
             .replace("@s.whatsapp.net", "")
             .replace("@g.us", "")
+            .replace("@lid", "")
         )
         return re.sub(r"\D", "", telefone)
     except Exception:
@@ -248,7 +267,8 @@ def limpar_cpf(cpf):
 
 
 def telefone_eh_grupo(telefone):
-    return "@g.us" in str(telefone or "")
+    texto = str(telefone or "").lower()
+    return "@g.us" in texto or texto.endswith("@g.us") or "g.us" in texto
 
 
 def limpar_opcao(texto):
@@ -715,8 +735,7 @@ def enviar_agendamento_para_sances(dados_agendamento):
             }
         )
         return retorno
-
-
+    
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -943,61 +962,99 @@ def processar_inatividade():
     except Exception as e:
         log_erro("Erro ao processar inatividade:", repr(e))
 
+# ==========================================
+# EXTRAÇÃO PAYLOAD - WASENDERAPI
+# ==========================================
+def obter_mensagem_wasender(payload):
+    """
+    Normaliza o payload da WasenderAPI para facilitar a leitura.
+    A WasenderAPI pode enviar data.messages como dict ou lista.
+    """
+    try:
+        data = payload.get("data", {}) or {}
+        messages = data.get("messages", {}) or {}
 
-# ==========================================
-# EXTRAÇÃO PAYLOAD
-# ==========================================
+        if isinstance(messages, list):
+            if messages:
+                return messages[0]
+            return {}
+
+        if isinstance(messages, dict):
+            return messages
+
+        return {}
+
+    except Exception as e:
+        log_erro("Erro ao obter mensagem WasenderAPI:", repr(e))
+        return {}
+
+
 def extrair_telefone(payload):
     try:
+        mensagem = obter_mensagem_wasender(payload)
+        key = mensagem.get("key", {}) or {}
+        data = payload.get("data", {}) or {}
+
         telefone = (
-            payload.get("phone")
+            key.get("cleanedSenderPn")
+            or key.get("cleanedParticipantPn")
+            or key.get("remoteJid")
+            or key.get("senderPn")
+            or mensagem.get("sender")
+            or mensagem.get("from")
+            or data.get("phone")
+            or data.get("chatId")
+            or data.get("from")
+            or payload.get("phone")
             or payload.get("chatId")
             or payload.get("from")
-            or payload.get("connectedPhone")
-            or payload.get("remoteJid")
         )
-
-        if not telefone:
-            data = payload.get("data", {}) or {}
-            telefone = (
-                data.get("phone")
-                or data.get("chatId")
-                or data.get("from")
-                or data.get("connectedPhone")
-                or data.get("remoteJid")
-            )
-
-        if not telefone and isinstance(payload.get("sender"), dict):
-            telefone = (
-                payload.get("sender", {}).get("phone")
-                or payload.get("sender", {}).get("id")
-            )
 
         return limpar_telefone(telefone)
 
     except Exception as e:
-        log_erro("Erro ao extrair telefone:", repr(e))
+        log_erro("Erro ao extrair telefone WasenderAPI:", repr(e))
         return ""
 
 
 def extrair_texto(payload):
     try:
+        mensagem = obter_mensagem_wasender(payload)
         data = payload.get("data", {}) or {}
 
+        message = mensagem.get("message", {}) or {}
+
         candidatos = [
-            data.get("text", {}).get("message") if isinstance(data.get("text"), dict) else None,
-            data.get("text") if isinstance(data.get("text"), str) else None,
+            mensagem.get("messageBody"),
+            mensagem.get("body"),
+            mensagem.get("text"),
+            mensagem.get("caption"),
+
+            message.get("conversation"),
+            message.get("extendedTextMessage", {}).get("text")
+            if isinstance(message.get("extendedTextMessage"), dict) else None,
+            message.get("imageMessage", {}).get("caption")
+            if isinstance(message.get("imageMessage"), dict) else None,
+            message.get("videoMessage", {}).get("caption")
+            if isinstance(message.get("videoMessage"), dict) else None,
+            message.get("documentMessage", {}).get("caption")
+            if isinstance(message.get("documentMessage"), dict) else None,
+
+            data.get("messageBody"),
             data.get("body"),
             data.get("message"),
             data.get("caption"),
-            data.get("extendedTextMessage", {}).get("text") if isinstance(data.get("extendedTextMessage"), dict) else None,
-            data.get("conversation"),
-            payload.get("text", {}).get("message") if isinstance(payload.get("text"), dict) else None,
-            payload.get("text") if isinstance(payload.get("text"), str) else None,
+            data.get("text", {}).get("message")
+            if isinstance(data.get("text"), dict) else None,
+            data.get("text") if isinstance(data.get("text"), str) else None,
+
+            payload.get("messageBody"),
             payload.get("body"),
             payload.get("message"),
             payload.get("caption"),
-            payload.get("conversation"),
+            payload.get("text", {}).get("message")
+            if isinstance(payload.get("text"), dict) else None,
+            payload.get("text") if isinstance(payload.get("text"), str) else None,
         ]
 
         for valor in candidatos:
@@ -1007,20 +1064,27 @@ def extrair_texto(payload):
         return ""
 
     except Exception as e:
-        log_erro("Erro ao extrair texto:", repr(e))
+        log_erro("Erro ao extrair texto WasenderAPI:", repr(e))
         return ""
 
 
 def extrair_message_id(payload):
     try:
+        mensagem = obter_mensagem_wasender(payload)
+        key = mensagem.get("key", {}) or {}
         data = payload.get("data", {}) or {}
+
         return (
-            data.get("id")
+            key.get("id")
+            or mensagem.get("messageId")
+            or mensagem.get("id")
             or data.get("messageId")
+            or data.get("id")
             or payload.get("messageId")
             or payload.get("id")
             or ""
         )
+
     except Exception:
         return ""
 
@@ -1028,6 +1092,7 @@ def extrair_message_id(payload):
 def mensagem_ja_processada(message_id):
     if not message_id:
         return False
+
     return message_id in mensagens_processadas
 
 
@@ -1048,16 +1113,21 @@ def registrar_mensagem_processada(message_id):
 
 def evento_eh_do_proprio_bot(payload):
     try:
+        mensagem = obter_mensagem_wasender(payload)
+        key = mensagem.get("key", {}) or {}
         data = payload.get("data", {}) or {}
 
         marcadores_true = [
+            key.get("fromMe"),
+            mensagem.get("fromMe"),
+            mensagem.get("isFromMe"),
+            mensagem.get("sentByMe"),
             payload.get("fromMe"),
             payload.get("isFromMe"),
             payload.get("sentByMe"),
             data.get("fromMe"),
             data.get("isFromMe"),
             data.get("sentByMe"),
-            data.get("isStatusReply"),
         ]
 
         return any(valor is True for valor in marcadores_true)
@@ -1069,10 +1139,14 @@ def evento_eh_do_proprio_bot(payload):
 
 def extrair_tipo_mensagem(payload):
     try:
+        mensagem = obter_mensagem_wasender(payload)
         data = payload.get("data", {}) or {}
+        message = mensagem.get("message", {}) or {}
 
         tipo = (
-            data.get("type")
+            mensagem.get("messageType")
+            or mensagem.get("type")
+            or data.get("type")
             or data.get("messageType")
             or payload.get("type")
             or payload.get("messageType")
@@ -1083,44 +1157,53 @@ def extrair_tipo_mensagem(payload):
 
         if "audio" in tipo or "ptt" in tipo:
             return "audio"
+
         if "image" in tipo:
             return "image"
+
         if "video" in tipo:
             return "video"
+
         if "document" in tipo:
             return "document"
+
         if "text" in tipo or "conversation" in tipo:
             return "text"
 
-        if data.get("audio") or data.get("ptt"):
+        if message.get("audioMessage") or message.get("ptt"):
             return "audio"
+
+        if message.get("imageMessage"):
+            return "image"
+
+        if message.get("videoMessage"):
+            return "video"
+
+        if message.get("documentMessage"):
+            return "document"
+
+        if message.get("conversation") or message.get("extendedTextMessage"):
+            return "text"
 
         return "text"
 
     except Exception as e:
-        log_erro("Erro ao extrair tipo de mensagem:", repr(e))
+        log_erro("Erro ao extrair tipo de mensagem WasenderAPI:", repr(e))
         return "text"
 
 
 # ==========================================
-# ENVIO - Z-API WHATSAPP
+# ENVIO - WASENDERAPI WHATSAPP
 # ==========================================
-def url_zapi(endpoint):
-    return (
-        f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
-        f"/token/{ZAPI_TOKEN}/{endpoint}"
-    )
-
-
-def headers_zapi():
+def headers_wasender():
     return {
         "Content-Type": "application/json",
-        "Client-Token": ZAPI_CLIENT_TOKEN,
+        "Authorization": f"Bearer {WASENDER_API_KEY}",
     }
 
 
-def zapi_configurada():
-    return bool(ZAPI_INSTANCE_ID and ZAPI_TOKEN and ZAPI_CLIENT_TOKEN)
+def wasender_configurada():
+    return bool(WASENDER_API_KEY and WASENDER_BASE_URL)
 
 
 def enviar_mensagem(telefone, mensagem):
@@ -1131,19 +1214,19 @@ def enviar_mensagem(telefone, mensagem):
             log_erro("Telefone inválido para envio de mensagem.")
             return False
 
-        if not zapi_configurada():
-            log_erro("Z-API não configurada corretamente.")
+        if not wasender_configurada():
+            log_erro("WasenderAPI não configurada corretamente.")
             return False
 
         payload = {
-            "phone": telefone,
-            "message": mensagem,
+            "to": telefone,
+            "text": mensagem,
         }
 
         response = requests.post(
-            url_zapi("send-text"),
+            f"{WASENDER_BASE_URL}/send-message",
             json=payload,
-            headers=headers_zapi(),
+            headers=headers_wasender(),
             timeout=30,
         )
 
@@ -1153,14 +1236,23 @@ def enviar_mensagem(telefone, mensagem):
             resposta_json = response.text
 
         if response.status_code not in [200, 201]:
-            log_erro("Falha envio mensagem Z-API:", response.status_code, resposta_json)
+            log_erro(
+                "Falha envio mensagem WasenderAPI:",
+                response.status_code,
+                resposta_json,
+            )
             return False
 
-        log_info("Mensagem enviada Z-API:", telefone, response.status_code, resposta_json)
+        log_info(
+            "Mensagem enviada WasenderAPI:",
+            telefone,
+            response.status_code,
+            resposta_json,
+        )
         return True
 
     except Exception as e:
-        log_erro("Erro envio mensagem Z-API:", repr(e))
+        log_erro("Erro envio mensagem WasenderAPI:", repr(e))
         return False
 
 
@@ -1172,8 +1264,8 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             log_erro("Telefone inválido para envio de PDF.")
             return False
 
-        if not zapi_configurada() or not BASE_URL:
-            log_erro("Z-API/BASE_URL não configurados corretamente para envio de PDF.")
+        if not wasender_configurada() or not BASE_URL:
+            log_erro("WasenderAPI/BASE_URL não configurados corretamente para envio de PDF.")
             return False
 
         if not arquivo:
@@ -1183,18 +1275,18 @@ def enviar_pdf(telefone, arquivo, legenda=""):
         url_pdf = f"{BASE_URL}/pdf/{arquivo}"
 
         payload = {
-            "phone": telefone,
-            "document": url_pdf,
+            "to": telefone,
+            "documentUrl": url_pdf,
             "fileName": arquivo,
             "caption": legenda or "",
         }
 
-        log_info("Enviando PDF Z-API:", url_pdf)
+        log_info("Enviando PDF WasenderAPI:", url_pdf)
 
         response = requests.post(
-            url_zapi("send-document/pdf"),
+            f"{WASENDER_BASE_URL}/send-document",
             json=payload,
-            headers=headers_zapi(),
+            headers=headers_wasender(),
             timeout=30,
         )
 
@@ -1204,15 +1296,25 @@ def enviar_pdf(telefone, arquivo, legenda=""):
             resposta_json = response.text
 
         if response.status_code not in [200, 201]:
-            log_erro("Falha envio PDF Z-API:", response.status_code, resposta_json)
+            log_erro(
+                "Falha envio PDF WasenderAPI:",
+                response.status_code,
+                resposta_json,
+            )
             return False
 
-        log_info("PDF enviado Z-API:", telefone, response.status_code, resposta_json)
+        log_info(
+            "PDF enviado WasenderAPI:",
+            telefone,
+            response.status_code,
+            resposta_json,
+        )
         return True
 
     except Exception as e:
-        log_erro("Erro enviar PDF Z-API:", repr(e))
+        log_erro("Erro enviar PDF WasenderAPI:", repr(e))
         return False
+
 
 # ==========================================
 # SALVAMENTO DE EVENTOS / DASHBOARD
@@ -1305,6 +1407,7 @@ def salvar_evento_atendimento(
 # ==========================================
 def enviar_menu(telefone):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return False
 
@@ -1336,6 +1439,7 @@ def enviar_menu(telefone):
 
 def iniciar_fluxo_pecas(telefone, texto_inicial=""):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return False
 
@@ -1379,6 +1483,7 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
 
 def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return False
 
@@ -1404,6 +1509,9 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         concluido=False,
     )
 
+    # ==========================================
+    # INÍCIO VIA IA / TEXTO LIVRE
+    # ==========================================
     if limpar_texto(texto_inicial):
         modelo_informado = limpar_texto(texto_inicial).upper()
 
@@ -1444,6 +1552,9 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
 
         return True
 
+    # ==========================================
+    # INÍCIO NORMAL
+    # ==========================================
     return enviar_mensagem(
         telefone,
         "🛵 *Acessórios*\n\n"
@@ -1472,7 +1583,9 @@ def menu_duvidas():
 
 def montar_mensagem_horarios(lista):
     if not lista:
-        return "⚠️ No momento não encontrei horários disponíveis para essa opção."
+        return (
+            "⚠️ No momento não encontrei horários disponíveis para essa opção."
+        )
 
     msg = "⏰ *Estes são os horários disponíveis:*\n\n"
 
@@ -1480,6 +1593,7 @@ def montar_mensagem_horarios(lista):
         msg += f"{i} - {h}\n"
 
     msg += "\nMe responda com o *número do horário* que você prefere."
+
     return msg
 
 
@@ -1498,6 +1612,7 @@ def montar_mensagem_venda_adicional():
 
 def montar_resumo_confirmacao(telefone):
     telefone = limpar_telefone(telefone)
+
     dados = clientes.get(telefone, {})
 
     itens = formatar_itens_adicionais_para_salvar(
@@ -1522,7 +1637,9 @@ def montar_resumo_confirmacao(telefone):
         observacao = "Nenhuma"
 
     revisao = limpar_texto(dados.get("revisao", "-"))
-    revisao_formatada = f"{revisao}ª" if revisao not in ["", "-"] else "-"
+    revisao_formatada = (
+        f"{revisao}ª" if revisao not in ["", "-"] else "-"
+    )
 
     return (
         "📋 *Confirmação do seu agendamento*\n\n"
@@ -1546,10 +1663,12 @@ def montar_resumo_confirmacao(telefone):
 
 def mensagem_por_etapa_revisao(telefone, etapa):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return "Vamos continuar seu agendamento."
 
     iniciar_cliente(telefone)
+
     dados = clientes[telefone]
 
     if etapa == "revisao_modelo":
@@ -1560,7 +1679,11 @@ def mensagem_por_etapa_revisao(telefone, etapa):
         )
 
     if etapa == "revisao_nome":
-        resumo = f"🏍️ Modelo: {dados['modelo']}\n\n" if dados.get("modelo") else ""
+        resumo = (
+            f"🏍️ Modelo: {dados['modelo']}\n\n"
+            if dados.get("modelo") else ""
+        )
+
         return (
             f"{resumo}"
             "Ótimo 😊\n\n"
@@ -1636,7 +1759,6 @@ def mensagem_por_etapa_revisao(telefone, etapa):
         return montar_resumo_confirmacao(telefone)
 
     return "Vamos continuar seu agendamento."
-
 # ==========================================
 # APOIO IA
 # ==========================================
@@ -1936,12 +2058,20 @@ def enviar_proxima_etapa_revisao(telefone):
             return True
 
         clientes[telefone]["horarios_disponiveis"] = horarios
-        enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+
+        enviar_mensagem(
+            telefone,
+            montar_mensagem_horarios(horarios)
+        )
+
         return True
 
-    enviar_mensagem(telefone, mensagem_por_etapa_revisao(telefone, etapa))
-    return True
+    enviar_mensagem(
+        telefone,
+        mensagem_por_etapa_revisao(telefone, etapa)
+    )
 
+    return True
 # ==========================================
 # CAPACIDADE / HORÁRIOS
 # ==========================================
@@ -1997,6 +2127,7 @@ def horarios_por_revisao(revisao, dia):
     if dia == "6":
         if revisao <= 2:
             return ["08:00", "09:00", "10:00"]
+
         return []
 
     if revisao <= 2:
@@ -2073,14 +2204,34 @@ def salvar_agendamento(telefone, dados):
             dados.get("venda_adicional", "")
         )
 
-        if limpar_texto(itens_formatados).upper() in ["", "NENHUM", "NAO", "NÃO", "2"]:
+        if limpar_texto(itens_formatados).upper() in [
+            "",
+            "NENHUM",
+            "NAO",
+            "NÃO",
+            "2",
+        ]:
             itens_formatados = ""
 
-        if limpar_texto(venda_formatada).upper() in ["", "NENHUM", "NAO", "NÃO", "2"]:
+        if limpar_texto(venda_formatada).upper() in [
+            "",
+            "NENHUM",
+            "NAO",
+            "NÃO",
+            "2",
+        ]:
             venda_formatada = "Nenhum"
 
         observacao = limpar_texto(dados.get("observacao", ""))
-        if observacao.strip().upper() in ["", "NENHUMA", "NENHUM", "NAO", "NÃO", "2"]:
+
+        if observacao.strip().upper() in [
+            "",
+            "NENHUMA",
+            "NENHUM",
+            "NAO",
+            "NÃO",
+            "2",
+        ]:
             observacao = "Nenhuma"
 
         agendamento = AgendamentoRevisao(
@@ -2116,6 +2267,7 @@ def salvar_agendamento(telefone, dados):
             log_erro("Erro ao salvar atendimento no dashboard:", repr(e))
 
         log_info("Agendamento salvo:", protocolo)
+
         return True, protocolo
 
     except Exception as e:
@@ -2230,6 +2382,7 @@ def cancelar_agendamento(cpf, novo_status=STATUS_CANCELADO):
         db.commit()
 
         log_info("Agendamento cancelado/reagendado:", dados)
+
         return dados
 
     except Exception as e:
@@ -2243,6 +2396,7 @@ def cancelar_agendamento(cpf, novo_status=STATUS_CANCELADO):
 
 def responder_consulta_agendamento(telefone, cpf):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return False
 
@@ -2256,6 +2410,7 @@ def responder_consulta_agendamento(telefone, cpf):
             "📄 Para consultar seu agendamento, informe seu *CPF com 11 números*.",
         )
         clientes[telefone]["etapa"] = "consulta_agendamento_cpf"
+
         return True
 
     ag = buscar_agendamento_por_cpf(cpf_limpo)
@@ -2276,7 +2431,9 @@ def responder_consulta_agendamento(telefone, cpf):
             "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
             "Se quiser, posso iniciar um novo agendamento. Envie *quero agendar revisão*.",
         )
+
         resetar_cliente(telefone)
+
         return True
 
     salvar_evento_atendimento(
@@ -2311,12 +2468,14 @@ def responder_consulta_agendamento(telefone, cpf):
     )
 
     resetar_cliente(telefone)
+
     return True
 
 
 def responder_cancelamento_agendamento(telefone, cpf):
     try:
         telefone = limpar_telefone(telefone)
+
         if not telefone:
             return False
 
@@ -2330,6 +2489,7 @@ def responder_cancelamento_agendamento(telefone, cpf):
                 "📄 Para cancelar seu agendamento, informe seu *CPF com 11 números*.",
             )
             clientes[telefone]["etapa"] = "cancelar_agendamento_cpf"
+
             return True
 
         ag_cancelado = cancelar_agendamento(cpf_limpo)
@@ -2349,7 +2509,9 @@ def responder_cancelamento_agendamento(telefone, cpf):
                 telefone,
                 "⚠️ Não encontrei agendamento ativo para este CPF.",
             )
+
             resetar_cliente(telefone)
+
             return True
 
         salvar_evento_atendimento(
@@ -2384,21 +2546,27 @@ def responder_cancelamento_agendamento(telefone, cpf):
         )
 
         enviar_mensagem(telefone, mensagem)
+
         resetar_cliente(telefone)
+
         return True
 
     except Exception as e:
         log_erro("Erro responder_cancelamento_agendamento:", repr(e))
+
         enviar_mensagem(
             telefone,
             "⚠️ O cancelamento foi processado, mas ocorreu uma falha ao finalizar a resposta. Envie *menu* para continuar.",
         )
+
         resetar_cliente(telefone)
+
         return False
 
 
 def iniciar_reagendamento(telefone, cpf):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return False
 
@@ -2411,7 +2579,9 @@ def iniciar_reagendamento(telefone, cpf):
             telefone,
             "📄 Para reagendar, informe seu *CPF com 11 números*.",
         )
+
         clientes[telefone]["etapa"] = "reagendar_agendamento_cpf"
+
         return True
 
     ag = buscar_agendamento_por_cpf(cpf_limpo)
@@ -2431,7 +2601,9 @@ def iniciar_reagendamento(telefone, cpf):
             telefone,
             "⚠️ Não encontrei agendamento ativo para este CPF.",
         )
+
         resetar_cliente(telefone)
+
         return True
 
     salvar_evento_atendimento(
@@ -2668,6 +2840,8 @@ def escolher_mensagem_followup(at):
 def processar_followup_inteligente():
     # FOLLOW-UP DESATIVADO TEMPORARIAMENTE
     return
+
+
 # ==========================================
 # APOIO DÚVIDAS / REVISÃO / SANCES
 # ==========================================
@@ -2804,7 +2978,7 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
         sucesso = bool(retorno_sances.get("sucesso", False))
 
         status = (
-            limpar_texto(retorno_sances.get("status", "")) 
+            limpar_texto(retorno_sances.get("status", ""))
             or SANCES_STATUS_ERRO
         ).upper()
 
@@ -2924,6 +3098,7 @@ def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
         )
 
         enviar_mensagem(telefone, menu_duvidas())
+
         return True
 
     except Exception as e:
@@ -2990,6 +3165,7 @@ def processar_fila_sances():
                         segundos_desde_tentativa = (
                             agora_time - ultima_tentativa
                         ).total_seconds()
+
                         if segundos_desde_tentativa < intervalo_minimo:
                             continue
                     except Exception:
@@ -3017,11 +3193,16 @@ def processar_fila_sances():
                 ag.sances_status = limpar_texto(
                     retorno.get("status", SANCES_STATUS_ERRO)
                 ).upper() or SANCES_STATUS_ERRO
+
                 ag.sances_enviado = bool(retorno.get("sucesso", False))
+
                 ag.sances_protocolo = limpar_texto(
                     retorno.get("protocolo_sances", "")
                 )
-                ag.sances_erro = limpar_texto(retorno.get("erro", ""))
+
+                ag.sances_erro = limpar_texto(
+                    retorno.get("erro", "")
+                )
 
                 if ag.sances_enviado:
                     ag.sances_data_envio = agora_time
@@ -3091,8 +3272,14 @@ def iniciar_worker():
         return
 
     worker_followup_iniciado = True
-    thread = threading.Thread(target=worker, daemon=True)
+
+    thread = threading.Thread(
+        target=worker,
+        daemon=True
+    )
+
     thread.start()
+
     log_info("Worker iniciado com sucesso.")
 
 
@@ -3110,22 +3297,31 @@ def dashboard():
         if filtro == "hoje":
             inicio = datetime.combine(hoje, datetime.min.time())
             fim = datetime.combine(hoje, datetime.max.time())
+
             query_atendimentos = query_atendimentos.filter(
                 Atendimento.data >= inicio,
                 Atendimento.data <= fim
             )
 
         elif filtro == "semana":
-            inicio = datetime.combine(hoje - timedelta(days=7), datetime.min.time())
+            inicio = datetime.combine(
+                hoje - timedelta(days=7),
+                datetime.min.time()
+            )
             fim = datetime.combine(hoje, datetime.max.time())
+
             query_atendimentos = query_atendimentos.filter(
                 Atendimento.data >= inicio,
                 Atendimento.data <= fim
             )
 
         elif filtro == "mes":
-            inicio = datetime.combine(hoje.replace(day=1), datetime.min.time())
+            inicio = datetime.combine(
+                hoje.replace(day=1),
+                datetime.min.time()
+            )
             fim = datetime.combine(hoje, datetime.max.time())
+
             query_atendimentos = query_atendimentos.filter(
                 Atendimento.data >= inicio,
                 Atendimento.data <= fim
@@ -3141,7 +3337,10 @@ def dashboard():
 
         total_revisoes = sum(
             1 for a in atendimentos
-            if str(getattr(a, "setor", "") or "").lower() in ["revisão", "revisao"]
+            if str(getattr(a, "setor", "") or "").lower() in [
+                "revisão",
+                "revisao",
+            ]
         )
 
         agendados = sum(
@@ -3151,7 +3350,11 @@ def dashboard():
 
         concluidos = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "status", "") or "").upper() in ["CONCLUIDO", "CONCLUÍDO", "FINALIZADO"]
+            if str(getattr(ag, "status", "") or "").upper() in [
+                "CONCLUIDO",
+                "CONCLUÍDO",
+                "FINALIZADO",
+            ]
         )
 
         cancelados = sum(
@@ -3213,7 +3416,11 @@ def dashboard():
         contador_itens = Counter()
 
         for ag in agendamentos_lista:
-            itens = getattr(ag, "itens", "") or getattr(ag, "venda_adicional", "") or ""
+            itens = (
+                getattr(ag, "itens", "")
+                or getattr(ag, "venda_adicional", "")
+                or ""
+            )
 
             if not itens:
                 continue
@@ -3223,7 +3430,12 @@ def dashboard():
             for item in partes:
                 item_limpo = item.strip()
 
-                if item_limpo and item_limpo.lower() not in ["nenhum", "não", "nao", "sem interesse"]:
+                if item_limpo and item_limpo.lower() not in [
+                    "nenhum",
+                    "não",
+                    "nao",
+                    "sem interesse",
+                ]:
                     contador_itens[item_limpo] += 1
 
         ranking_itens = contador_itens.most_common(10)
@@ -3263,6 +3475,7 @@ def dashboard():
 
     finally:
         db.close()
+
 
 @app.route("/clientes")
 def clientes():
@@ -3534,6 +3747,8 @@ def resetar_followups_do_cliente(telefone):
 def processar_followup_inteligente():
     # FOLLOW-UP DESATIVADO TEMPORARIAMENTE
     return
+
+
 # ==========================================
 # CONTROLE SEGURO DA IA NO WEBHOOK
 # ==========================================
@@ -3577,6 +3792,7 @@ def texto_parece_menu_ou_saudacao(texto_normalizado):
 
 def tentar_interpretar_ia_no_menu(telefone, texto):
     telefone = limpar_telefone(telefone)
+
     if not telefone:
         return False
 
@@ -3618,10 +3834,12 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos)
 
         resumo = montar_resumo_dados_ia_revisao(telefone)
+
         if resumo:
             enviar_mensagem(telefone, resumo)
 
         enviar_proxima_etapa_revisao(telefone)
+
         return True
 
     if intencao == "valor_revisao":
@@ -3647,6 +3865,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
             telefone,
             "Se quiser agendar sua revisão, me envie a mensagem em texto livre ou digite *1* no menu."
         )
+
         return True
 
     if intencao == "pecas":
@@ -3684,7 +3903,11 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         if resposta_texto:
             enviar_mensagem(telefone, resposta_texto)
 
-        enviar_mensagem(telefone, "🛡️ *Garantia*\n\nDescreva sua solicitação de garantia:")
+        enviar_mensagem(
+            telefone,
+            "🛡️ *Garantia*\n\nDescreva sua solicitação de garantia:"
+        )
+
         return True
 
     if intencao == "atacado":
@@ -3705,13 +3928,19 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         if resposta_texto:
             enviar_mensagem(telefone, resposta_texto)
 
-        enviar_mensagem(telefone, "📦 *Logista / Atacado*\n\nDigite sua solicitação de atacado:")
+        enviar_mensagem(
+            telefone,
+            "📦 *Logista / Atacado*\n\nDigite sua solicitação de atacado:"
+        )
+
         return True
 
     if intencao in ["duvidas", "duvida", "dúvidas", "dúvida"]:
         clientes[telefone]["etapa"] = "menu_duvidas"
         clientes[telefone]["ultima_interacao"] = agora()
+
         enviar_mensagem(telefone, menu_duvidas())
+
         return True
 
     if intencao == "humano":
@@ -3722,9 +3951,9 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
 
 # ==========================================
-# EXTRAÇÃO Z-API WEBHOOK
+# EXTRAÇÃO WASENDERAPI WEBHOOK
 # ==========================================
-def extrair_dados_zapi(payload):
+def extrair_dados_wasender(payload):
     try:
         message_id = extrair_message_id(payload)
         telefone = extrair_telefone(payload)
@@ -3738,26 +3967,24 @@ def extrair_dados_zapi(payload):
         return message_id, telefone, texto, tipo_mensagem
 
     except Exception as e:
-        log_erro("Erro ao extrair dados Z-API:", repr(e))
+        log_erro("Erro ao extrair dados WasenderAPI:", repr(e))
         return "", "", "", "text"
 
+
 # ==========================================
-# WEBHOOK - Z-API
+# WEBHOOK - WASENDERAPI
 # ==========================================
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    # ==========================================
-    # TESTE DO WEBHOOK NO RENDER / Z-API
-    # ==========================================
     if request.method == "GET":
         return jsonify({
             "status": "ok",
-            "message": "Webhook Z-API ativo"
+            "message": "Webhook WasenderAPI ativo"
         }), 200
 
     try:
         payload = request.get_json(silent=True) or {}
-        log_info("PAYLOAD Z-API RECEBIDO:", payload)
+        log_info("PAYLOAD WASENDERAPI RECEBIDO:", payload)
 
         if evento_eh_do_proprio_bot(payload):
             return jsonify({
@@ -3765,7 +3992,7 @@ def webhook():
                 "motivo": "mensagem_do_proprio_bot"
             }), 200
 
-        message_id, telefone, texto, tipo_mensagem = extrair_dados_zapi(payload)
+        message_id, telefone, texto, tipo_mensagem = extrair_dados_wasender(payload)
 
         if not telefone:
             return jsonify({
@@ -3773,7 +4000,7 @@ def webhook():
                 "motivo": "sem_telefone"
             }), 200
 
-        if telefone_eh_grupo(payload.get("chatId", "") or payload.get("from", "")):
+        if telefone_eh_grupo(str(payload)):
             return jsonify({
                 "status": "ignorado",
                 "motivo": "grupo"
@@ -3869,7 +4096,7 @@ def webhook():
         etapa = clientes[telefone].get("etapa", "menu")
 
         log_info(
-            "CONTEXTO WEBHOOK Z-API:",
+            "CONTEXTO WEBHOOK WASENDERAPI:",
             {
                 "telefone": telefone,
                 "etapa": etapa,
@@ -4545,16 +4772,21 @@ def webhook():
         }), 200
 
     except Exception as e:
-        log_erro("ERRO NO WEBHOOK Z-API:", repr(e))
+        log_erro("ERRO NO WEBHOOK WASENDERAPI:", repr(e))
         return jsonify({
             "status": "erro",
             "detalhe": "falha interna no webhook"
         }), 200
 
+# ==========================================
+# CONTROLE WORKER
+# ==========================================
+worker_followup_iniciado = False
 
 # ==========================================
 # INICIAR WORKER
 # ==========================================
+
 iniciar_worker()
 
 
