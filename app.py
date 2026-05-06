@@ -942,12 +942,25 @@ def ativar_atendimento_humano(telefone):
 
 
 def processar_inatividade():
+    global clientes
+
     try:
-        agora_atual = agora()
+        agora_atual = datetime.now()
+
+        if not isinstance(clientes, dict):
+            log_erro("ERRO: clientes não é dicionário. Tipo atual:", type(clientes))
+            return
 
         for telefone in list(clientes.keys()):
             dados = clientes.get(telefone, {})
-            ultima = dados.get("ultima_interacao", agora_atual)
+
+            if not isinstance(dados, dict):
+                continue
+
+            ultima = dados.get("ultima_interacao")
+
+            if not ultima:
+                continue
 
             # 🔒 NÃO encerrar atendimento humano
             if (
@@ -961,7 +974,6 @@ def processar_inatividade():
 
     except Exception as e:
         log_erro("Erro ao processar inatividade:", repr(e))
-
 # ==========================================
 # EXTRAÇÃO PAYLOAD - WASENDERAPI
 # ==========================================
@@ -3478,7 +3490,7 @@ def dashboard():
 
 
 @app.route("/clientes")
-def clientes():
+def pagina_clientes():
     db = SessionLocal()
 
     try:
