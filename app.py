@@ -35,6 +35,12 @@ fila_mensagens_processadas = deque(maxlen=5000)
 # CONFIG - WASENDERAPI
 # ==========================================
 WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "").strip()
+
+WASENDER_WEBHOOK_SECRET = os.getenv(
+    "WASENDER_WEBHOOK_SECRET",
+    ""
+).strip()
+
 WASENDER_BASE_URL = os.getenv(
     "WASENDER_BASE_URL",
     "https://www.wasenderapi.com/api"
@@ -4002,6 +4008,35 @@ def extrair_dados_wasender(payload):
         log_erro("Erro ao extrair dados WasenderAPI:", repr(e))
         return "", "", "", "text"
 
+# ==========================================
+# CONTROLE DUPLICIDADE MENSAGENS
+# ==========================================
+def mensagem_ja_processada(message_id):
+    try:
+        if not message_id:
+            return False
+
+        return message_id in mensagens_processadas
+
+    except Exception as e:
+        log_erro("Erro mensagem_ja_processada:", repr(e))
+        return False
+
+
+def registrar_mensagem_processada(message_id):
+    try:
+        if not message_id:
+            return
+
+        mensagens_processadas.add(message_id)
+        fila_mensagens_processadas.append(message_id)
+
+        while len(fila_mensagens_processadas) > 4000:
+            antigo = fila_mensagens_processadas.popleft()
+            mensagens_processadas.discard(antigo)
+
+    except Exception as e:
+        log_erro("Erro registrar_mensagem_processada:", repr(e))
 
 # ==========================================
 # WEBHOOK - WASENDERAPI
@@ -4016,6 +4051,26 @@ def webhook():
 
     try:
         payload = request.get_json(silent=True) or {}
+
+        # ==========================================
+        # VALIDAÇÃO ASSINATURA WEBHOOK
+        # ==========================================
+        assinatura = request.headers.get(
+            "x-webhook-signature",
+            ""
+        ).strip()
+
+        if (
+            WASENDER_WEBHOOK_SECRET
+            and assinatura != WASENDER_WEBHOOK_SECRET
+        ):
+            log_erro("Webhook rejeitado: assinatura inválida")
+
+            return jsonify({
+                "status": "erro",
+                "motivo": "assinatura_invalida"
+            }), 401
+
         log_info("PAYLOAD WASENDERAPI RECEBIDO:", payload)
 
         if evento_eh_do_proprio_bot(payload):
@@ -4063,7 +4118,6 @@ def webhook():
                 "status": "ignorado",
                 "motivo": "evento_sem_texto_util"
             }), 200
-
         # ==========================================
         # TRAVA DE ATENDIMENTO HUMANO
         # ==========================================
