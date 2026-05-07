@@ -27,7 +27,6 @@ clientes = {}
 
 # ==========================================
 # CONTROLE DE MENSAGENS PROCESSADAS
-# Evita processar a mesma mensagem duas vezes
 # ==========================================
 mensagens_processadas = set()
 fila_mensagens_processadas = deque(maxlen=5000)
