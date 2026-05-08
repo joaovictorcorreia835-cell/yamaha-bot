@@ -1685,6 +1685,13 @@ def salvar_evento_atendimento(
 
         agora_db = agora_datetime()
 
+        texto_cliente = limpar_texto(
+            base.get("ultima_mensagem_cliente", "")
+            or base.get("mensagem_cliente", "")
+            or base.get("texto", "")
+            or ""
+        )
+
         atendimento = Atendimento(
             telefone=telefone,
             nome=nome,
@@ -1698,21 +1705,27 @@ def salvar_evento_atendimento(
             horario=horario,
             itens=itens,
             venda_adicional=venda_adicional,
+
             observacao=limpar_texto(base.get("observacao", "")),
             observacoes=limpar_texto(base.get("observacao", "")),
+
             origem=limpar_texto(origem or base.get("origem", "BOT") or "BOT"),
             status=normalizar_status(status),
             etapa=limpar_texto(etapa),
+
             atendimento_humano=bool(atendimento_humano),
             concluido=bool(concluido),
+
             button_id=limpar_texto(base.get("button_id", "")),
+            tipo_mensagem=limpar_texto(base.get("tipo_mensagem", "text")),
             intencao_ia=limpar_texto(base.get("intencao_ia", "")),
             id_envio_zapi=limpar_texto(base.get("id_envio_zapi", "")),
             status_retorno=limpar_texto(base.get("status_retorno", "")),
             proxima_acao=limpar_texto(base.get("proxima_acao", "")),
             nivel_interesse=limpar_texto(base.get("nivel_interesse", "")),
+
             ultima_interacao=agora_db,
-            ultima_mensagem_cliente=agora_db,
+            ultima_mensagem_cliente=texto_cliente,
             data=agora_db,
         )
 
@@ -1729,7 +1742,6 @@ def salvar_evento_atendimento(
 
     finally:
         db.close()
-
 
 # ==========================================
 # MENU / MENSAGENS
@@ -3802,7 +3814,7 @@ def dashboard():
 
     try:
         filtro = request.args.get("filtro", "hoje")
-        hoje = datetime.now().date()
+        hoje = agora_datetime().date()
 
         query_atendimentos = db.query(Atendimento)
         query_agendamentos = db.query(AgendamentoRevisao)
@@ -3811,32 +3823,12 @@ def dashboard():
             inicio = datetime.combine(hoje, datetime.min.time())
             fim = datetime.combine(hoje, datetime.max.time())
 
-            query_atendimentos = query_atendimentos.filter(
-                Atendimento.data >= inicio,
-                Atendimento.data <= fim,
-            )
-
-            query_agendamentos = query_agendamentos.filter(
-                AgendamentoRevisao.criado_em >= inicio,
-                AgendamentoRevisao.criado_em <= fim,
-            )
-
         elif filtro == "semana":
             inicio = datetime.combine(
                 hoje - timedelta(days=7),
                 datetime.min.time(),
             )
             fim = datetime.combine(hoje, datetime.max.time())
-
-            query_atendimentos = query_atendimentos.filter(
-                Atendimento.data >= inicio,
-                Atendimento.data <= fim,
-            )
-
-            query_agendamentos = query_agendamentos.filter(
-                AgendamentoRevisao.criado_em >= inicio,
-                AgendamentoRevisao.criado_em <= fim,
-            )
 
         elif filtro == "mes":
             inicio = datetime.combine(
@@ -3845,6 +3837,12 @@ def dashboard():
             )
             fim = datetime.combine(hoje, datetime.max.time())
 
+        else:
+            inicio = None
+            fim = None
+            filtro = "total"
+
+        if inicio and fim:
             query_atendimentos = query_atendimentos.filter(
                 Atendimento.data >= inicio,
                 Atendimento.data <= fim,
@@ -3868,20 +3866,23 @@ def dashboard():
 
         total_revisoes = sum(
             1 for a in atendimentos
-            if str(getattr(a, "setor", "") or "").lower() in [
+            if str(getattr(a, "setor", "") or "").strip().lower() in [
                 "revisão",
                 "revisao",
             ]
         )
 
+        def status_ag(obj):
+            return str(getattr(obj, "status", "") or "").strip().upper()
+
         agendados = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "status", "") or "").upper() == STATUS_AGENDADO
+            if status_ag(ag) == STATUS_AGENDADO
         )
 
         concluidos = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "status", "") or "").upper() in [
+            if status_ag(ag) in [
                 "CONCLUIDO",
                 "CONCLUÍDO",
                 STATUS_FINALIZADO,
@@ -3890,12 +3891,12 @@ def dashboard():
 
         cancelados = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "status", "") or "").upper() == STATUS_CANCELADO
+            if status_ag(ag) == STATUS_CANCELADO
         )
 
         reagendados = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "status", "") or "").upper() == STATUS_REAGENDADO
+            if status_ag(ag) == STATUS_REAGENDADO
         )
 
         atendimento_humano = sum(
@@ -3905,35 +3906,41 @@ def dashboard():
 
         duvidas_ia = sum(
             1 for a in atendimentos
-            if "dúvida" in str(getattr(a, "setor", "") or "").lower()
-            or "duvida" in str(getattr(a, "setor", "") or "").lower()
-            or str(getattr(a, "intencao_ia", "") or "").lower() == "duvidas"
+            if (
+                "dúvida" in str(getattr(a, "setor", "") or "").lower()
+                or "duvida" in str(getattr(a, "setor", "") or "").lower()
+                or str(getattr(a, "intencao_ia", "") or "").lower() == "duvidas"
+            )
         )
+
+        def sances_status(ag):
+            return str(getattr(ag, "sances_status", "") or "").strip().upper()
 
         sances_pendentes = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "sances_status", "") or "").upper() == SANCES_STATUS_PENDENTE
+            if sances_status(ag) == SANCES_STATUS_PENDENTE
         )
 
         sances_enviados = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "sances_status", "") or "").upper() == SANCES_STATUS_ENVIADO
+            if sances_status(ag) == SANCES_STATUS_ENVIADO
         )
 
         sances_erros = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "sances_status", "") or "").upper() == SANCES_STATUS_ERRO
+            if sances_status(ag) == SANCES_STATUS_ERRO
         )
 
         sances_nao_configurado = sum(
             1 for ag in agendamentos_lista
-            if str(getattr(ag, "sances_status", "") or "").upper() == SANCES_STATUS_NAO_CONFIGURADO
+            if sances_status(ag) == SANCES_STATUS_NAO_CONFIGURADO
         )
 
         primeira = segunda = terceira = quarta = quinta = 0
 
         for ag in agendamentos_lista:
             rev = str(getattr(ag, "revisao", "") or "").strip()
+            rev = rev.replace("ª", "").replace("º", "")
 
             if rev == "1":
                 primeira += 1

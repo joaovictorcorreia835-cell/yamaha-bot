@@ -3,13 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>Dashboard Pós-Vendas Motoshow Yamaha</title>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-
         *{
             margin:0;
             padding:0;
@@ -64,11 +62,7 @@
             box-shadow:0 4px 12px rgba(15,23,42,0.06);
         }
 
-        .filtro-btn:hover{
-            background:#163b8f;
-            color:white;
-        }
-
+        .filtro-btn:hover,
         .filtro-btn.ativo{
             background:#163b8f;
             color:white;
@@ -172,9 +166,9 @@
         table{
             width:100%;
             border-collapse:collapse;
-            overflow:hidden;
             border-radius:12px;
             min-width:1100px;
+            overflow:hidden;
         }
 
         thead{
@@ -287,7 +281,6 @@
         }
 
         @media (max-width:980px){
-
             .grid,
             .grid-2{
                 grid-template-columns:1fr;
@@ -304,142 +297,90 @@
             .container{
                 padding:18px;
             }
-
         }
-
     </style>
-
 </head>
 
 <body>
 
     <div class="topbar">
         <h1>🏍️ Dashboard Pós-Vendas Motoshow Yamaha</h1>
-
         <p>
-            Painel gerencial de atendimentos,
-            revisões,
-            reagendamentos,
-            IA,
-            Sances
-            e vendas adicionais
+            Painel gerencial de atendimentos, revisões, reagendamentos,
+            IA, Sances e vendas adicionais
         </p>
     </div>
 
     <div class="container">
 
         <div class="filtros-dashboard">
-
-            <a href="/dashboard?filtro=hoje"
-               class="filtro-btn {% if filtro_ativo == 'hoje' %}ativo{% endif %}">
-                Hoje
-            </a>
-
-            <a href="/dashboard?filtro=semana"
-               class="filtro-btn {% if filtro_ativo == 'semana' %}ativo{% endif %}">
-                Semana
-            </a>
-
-            <a href="/dashboard?filtro=mes"
-               class="filtro-btn {% if filtro_ativo == 'mes' %}ativo{% endif %}">
-                Mês
-            </a>
-
-            <a href="/dashboard?filtro=total"
-               class="filtro-btn {% if filtro_ativo == 'total' %}ativo{% endif %}">
-                Total
-            </a>
-
-            <a href="/clientes"
-               class="filtro-btn">
-                Clientes CRM
-            </a>
-
+            <a href="/dashboard?filtro=hoje" class="filtro-btn {% if filtro_ativo == 'hoje' %}ativo{% endif %}">Hoje</a>
+            <a href="/dashboard?filtro=semana" class="filtro-btn {% if filtro_ativo == 'semana' %}ativo{% endif %}">Semana</a>
+            <a href="/dashboard?filtro=mes" class="filtro-btn {% if filtro_ativo == 'mes' %}ativo{% endif %}">Mês</a>
+            <a href="/dashboard?filtro=total" class="filtro-btn {% if filtro_ativo == 'total' %}ativo{% endif %}">Total</a>
+            <a href="/clientes" class="filtro-btn">Clientes CRM</a>
         </div>
 
         <div class="cards">
 
             <div class="card azul">
                 <h3>Total de Atendimentos</h3>
-                <div class="numero">
-                    {{ total if total is defined else 0 }}
-                </div>
+                <div class="numero">{{ total if total is defined else 0 }}</div>
             </div>
 
             <div class="card azul">
                 <h3>Atendimentos Revisão</h3>
-                <div class="numero">
-                    {{ total_revisoes if total_revisoes is defined else 0 }}
-                </div>
+                <div class="numero">{{ total_revisoes if total_revisoes is defined else 0 }}</div>
             </div>
 
             <div class="card verde">
                 <h3>Revisões Agendadas</h3>
-                <div class="numero">
-                    {{ agendados if agendados is defined else 0 }}
-                </div>
+                <div class="numero">{{ agendados if agendados is defined else 0 }}</div>
             </div>
 
             <div class="card roxo">
                 <h3>Revisões Concluídas</h3>
-                <div class="numero">
-                    {{ concluidos if concluidos is defined else 0 }}
-                </div>
+                <div class="numero">{{ concluidos if concluidos is defined else 0 }}</div>
             </div>
 
             <div class="card vermelho">
                 <h3>Cancelados</h3>
-                <div class="numero">
-                    {{ cancelados if cancelados is defined else 0 }}
-                </div>
+                <div class="numero">{{ cancelados if cancelados is defined else 0 }}</div>
             </div>
 
             <div class="card ciano">
                 <h3>Reagendados</h3>
-                <div class="numero">
-                    {{ reagendados if reagendados is defined else 0 }}
-                </div>
+                <div class="numero">{{ reagendados if reagendados is defined else 0 }}</div>
             </div>
 
             <div class="card rosa">
                 <h3>Atendimento Humano</h3>
-                <div class="numero">
-                    {{ atendimento_humano if atendimento_humano is defined else 0 }}
-                </div>
+                <div class="numero">{{ atendimento_humano if atendimento_humano is defined else 0 }}</div>
             </div>
 
             <div class="card cinza">
                 <h3>Dúvidas IA</h3>
-                <div class="numero">
-                    {{ duvidas_ia if duvidas_ia is defined else 0 }}
-                </div>
+                <div class="numero">{{ duvidas_ia if duvidas_ia is defined else 0 }}</div>
             </div>
+
             <div class="card ciano">
                 <h3>Sances Pendentes</h3>
-                <div class="numero">
-                    {{ sances_pendentes if sances_pendentes is defined else 0 }}
-                </div>
+                <div class="numero">{{ sances_pendentes if sances_pendentes is defined else 0 }}</div>
             </div>
 
             <div class="card verde">
                 <h3>Sances Enviados</h3>
-                <div class="numero">
-                    {{ sances_enviados if sances_enviados is defined else 0 }}
-                </div>
+                <div class="numero">{{ sances_enviados if sances_enviados is defined else 0 }}</div>
             </div>
 
             <div class="card vermelho">
                 <h3>Sances com Erro</h3>
-                <div class="numero">
-                    {{ sances_erros if sances_erros is defined else 0 }}
-                </div>
+                <div class="numero">{{ sances_erros if sances_erros is defined else 0 }}</div>
             </div>
 
             <div class="card amarelo">
                 <h3>Itens Vendidos</h3>
-                <div class="numero">
-                    {{ total_itens_vendidos if total_itens_vendidos is defined else 0 }}
-                </div>
+                <div class="numero">{{ total_itens_vendidos if total_itens_vendidos is defined else 0 }}</div>
             </div>
 
         </div>
@@ -461,9 +402,7 @@
                         <canvas id="graficoAdicionais"></canvas>
                     </div>
                 {% else %}
-                    <div class="vazio">
-                        Nenhuma venda adicional no período selecionado.
-                    </div>
+                    <div class="vazio">Nenhuma venda adicional no período selecionado.</div>
                 {% endif %}
             </div>
 
@@ -482,7 +421,6 @@
                 <h2>📌 Resumo Operacional</h2>
 
                 <div class="info-lista">
-
                     <div class="info-item">
                         <strong>1ª Revisão</strong>
                         {{ primeira if primeira is defined else 0 }}
@@ -507,7 +445,6 @@
                         <strong>5ª Revisão ou acima</strong>
                         {{ quinta if quinta is defined else 0 }}
                     </div>
-
                 </div>
             </div>
 
@@ -539,9 +476,7 @@
                     </table>
                 </div>
             {% else %}
-                <div class="vazio">
-                    Nenhum item vendido no período selecionado.
-                </div>
+                <div class="vazio">Nenhum item vendido no período selecionado.</div>
             {% endif %}
         </div>
 
@@ -631,7 +566,7 @@
                                     {% if sances_formatado in ['PENDENTE', 'ERRO', 'NAO_CONFIGURADO', ''] %}
                                         <button
                                             class="btn-reenvio"
-                                            onclick="reenviarSances('{{ ag.protocolo }}')">
+                                            onclick="reenviarSances('{{ ag.protocolo or '' }}')">
                                             Reenviar
                                         </button>
                                     {% else %}
@@ -644,9 +579,7 @@
                     </table>
                 </div>
             {% else %}
-                <div class="vazio">
-                    Nenhum agendamento encontrado.
-                </div>
+                <div class="vazio">Nenhum agendamento encontrado.</div>
             {% endif %}
         </div>
 
@@ -657,6 +590,20 @@
     </div>
 
     <script>
+        function valorSeguro(valor){
+            if(valor === null || valor === undefined || valor === ""){
+                return 0;
+            }
+
+            const numero = Number(valor);
+
+            if(isNaN(numero)){
+                return 0;
+            }
+
+            return numero;
+        }
+
         const canvasRevisoes = document.getElementById('graficoRevisoes');
 
         if (canvasRevisoes) {
@@ -669,11 +616,11 @@
                     datasets: [{
                         label: 'Quantidade',
                         data: [
-                            {{ primeira if primeira is defined else 0 }},
-                            {{ segunda if segunda is defined else 0 }},
-                            {{ terceira if terceira is defined else 0 }},
-                            {{ quarta if quarta is defined else 0 }},
-                            {{ quinta if quinta is defined else 0 }}
+                            valorSeguro({{ primeira if primeira is defined else 0 }}),
+                            valorSeguro({{ segunda if segunda is defined else 0 }}),
+                            valorSeguro({{ terceira if terceira is defined else 0 }}),
+                            valorSeguro({{ quarta if quarta is defined else 0 }}),
+                            valorSeguro({{ quinta if quinta is defined else 0 }})
                         ],
                         backgroundColor: [
                             '#163b8c',
@@ -708,7 +655,7 @@
 
             const dadosAdicionais = [
                 {% for item, qtd in ranking_itens[:10] %}
-                    {{ qtd }}{% if not loop.last %},{% endif %}
+                    valorSeguro({{ qtd }}){% if not loop.last %},{% endif %}
                 {% endfor %}
             ];
 
@@ -752,9 +699,9 @@
                     labels: ['Agendados', 'Cancelados', 'Reagendados'],
                     datasets: [{
                         data: [
-                            {{ agendados if agendados is defined else 0 }},
-                            {{ cancelados if cancelados is defined else 0 }},
-                            {{ reagendados if reagendados is defined else 0 }}
+                            valorSeguro({{ agendados if agendados is defined else 0 }}),
+                            valorSeguro({{ cancelados if cancelados is defined else 0 }}),
+                            valorSeguro({{ reagendados if reagendados is defined else 0 }})
                         ],
                         backgroundColor: [
                             '#16a34a',
@@ -771,31 +718,39 @@
         }
 
         async function reenviarSances(protocolo) {
-            const confirmar = confirm(`Deseja reenviar o agendamento ${protocolo} para o Sances?`);
+            if(!protocolo){
+                alert("Protocolo inválido para reenvio.");
+                return;
+            }
+
+            const confirmar = confirm(
+                `Deseja reenviar o agendamento ${protocolo} para o Sances?`
+            );
 
             if (!confirmar) {
                 return;
             }
 
             try {
-                const response = await fetch(`/reenvio-sances/${protocolo}`, {
+                const response = await fetch(`/reenvio-sances/${encodeURIComponent(protocolo)}`, {
                     method: "POST"
                 });
 
                 const data = await response.json();
 
                 if (data.ok) {
-                    alert(`Reenvio concluído.\nStatus: ${data.status}`);
+                    alert(`Reenvio concluído.\nStatus: ${data.status || '-'}`);
                     window.location.reload();
                 } else {
-                    alert(`Falha no reenvio: ${data.mensagem}`);
+                    alert(`Falha no reenvio: ${data.mensagem || 'Erro desconhecido'}`);
                 }
 
             } catch (error) {
+                console.error(error);
                 alert("Erro ao tentar reenviar para o Sances.");
             }
         }
     </script>
 
 </body>
-</html>         
+</html>
