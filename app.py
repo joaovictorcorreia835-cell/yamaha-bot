@@ -1464,6 +1464,7 @@ def extrair_tipo_mensagem(payload):
     except Exception as e:
         log_erro("Erro ao extrair tipo de mensagem Z-API:", repr(e))
         return "text"
+    
 # ==========================================
 # ENVIO - Z-API WHATSAPP
 # ==========================================
