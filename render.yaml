@@ -1,3 +1,4 @@
+```yaml
 services:
   - type: web
     name: yamaha-bot-1
@@ -19,27 +20,36 @@ services:
         value: 3.11.9
 
       # ==========================================
-      # WASENDER API
-      # ==========================================
-      - key: WASENDER_API_KEY
-        sync: false
-
-      - key: WASENDER_BASE_URL
-        value: https://www.wasenderapi.com/api
-
-      # ==========================================
-      # URL DO BOT
+      # URL BOT
       # ==========================================
       - key: BASE_URL
         value: https://yamaha-bot-1.onrender.com
 
       # ==========================================
-      # BANCO POSTGRES RENDER
+      # DATABASE
       # ==========================================
       - key: DATABASE_URL
         fromDatabase:
           name: yamaha-postgres
           property: connectionString
+
+      # ==========================================
+      # Z-API
+      # ==========================================
+      - key: ZAPI_INSTANCE_ID
+        sync: false
+
+      - key: ZAPI_TOKEN
+        sync: false
+
+      - key: ZAPI_CLIENT_TOKEN
+        sync: false
+
+      # ==========================================
+      # OPENAI
+      # ==========================================
+      - key: OPENAI_API_KEY
+        sync: false
 
       # ==========================================
       # INATIVIDADE
@@ -48,7 +58,7 @@ services:
         value: 600
 
       # ==========================================
-      # FOLLOWUP
+      # FOLLOW-UP
       # ==========================================
       - key: INTERVALO_WORKER_FOLLOWUP
         value: 300
@@ -58,3 +68,37 @@ services:
 
       - key: FOLLOWUP_2_DIAS
         value: 5
+
+      # ==========================================
+      # WORKERS
+      # ==========================================
+      - key: INTERVALO_WORKER
+        value: 30
+
+      - key: INTERVALO_WORKER_SANCES
+        value: 60
+
+      # ==========================================
+      # SANCES
+      # ==========================================
+      - key: SANCES_MODO
+        value: mock
+
+      - key: SANCES_TIMEOUT
+        value: 30
+
+      - key: SANCES_RETRY_MAX
+        value: 3
+
+      # ==========================================
+      # GUNICORN
+      # ==========================================
+      - key: WEB_CONCURRENCY
+        value: 1
+
+      # ==========================================
+      # LOG
+      # ==========================================
+      - key: PYTHONUNBUFFERED
+        value: true
+```

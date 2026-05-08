@@ -11,7 +11,6 @@ load_dotenv()
 # ==========================================
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///yamaha.db")
 
-# Ajuste Render/Postgres
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -40,51 +39,78 @@ class Atendimento(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     telefone = Column(String, index=True)
+
     nome = Column(String, nullable=True)
     setor = Column(String, index=True, nullable=True)
 
     modelo = Column(String, index=True, nullable=True)
     ano = Column(String, nullable=True)
+
     revisao = Column(String, index=True, nullable=True)
+
     cpf = Column(String, index=True, nullable=True)
 
     dia_semana = Column(String, nullable=True)
+
     data_agendada = Column(String, index=True, nullable=True)
+
     horario = Column(String, index=True, nullable=True)
 
     itens = Column(Text, nullable=True)
+
     venda_adicional = Column(Text, nullable=True)
 
-    # Compatibilidade antiga + nova
     observacao = Column(Text, nullable=True)
+
     observacoes = Column(Text, nullable=True)
 
     origem = Column(String, nullable=True)
 
     status = Column(String, index=True, nullable=True)
+
     etapa = Column(String, index=True, nullable=True)
 
     atendimento_humano = Column(Boolean, default=False)
+
     concluido = Column(Boolean, default=False)
+
+    # ==========================================
+    # IA / BOTÕES / CRM
+    # ==========================================
+    button_id = Column(String, nullable=True)
+
+    intencao_ia = Column(String, nullable=True)
+
+    id_envio_zapi = Column(String, nullable=True)
+
+    status_retorno = Column(String, nullable=True)
+
+    proxima_acao = Column(String, nullable=True)
+
+    nivel_interesse = Column(String, nullable=True)
 
     # ==========================================
     # FOLLOW-UP
     # ==========================================
     followup_1 = Column(Boolean, default=False)
+
     followup_2 = Column(Boolean, default=False)
+
     followup_3 = Column(Boolean, default=False)
 
     followup_respondido = Column(Boolean, default=False)
+
     followup_recuperado = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
+
     ultima_mensagem_cliente = Column(DateTime, nullable=True)
 
     data = Column(DateTime, default=datetime.now, index=True)
 
 
 # ==========================================
-# TABELA DISPAROS
+# TABELA DISPAROS DE REVISÃO
 # ==========================================
 class Disparo(Base):
     __tablename__ = "disparos"
@@ -94,15 +120,52 @@ class Disparo(Base):
     telefone = Column(String, index=True)
 
     nome = Column(String, nullable=True)
+
     modelo = Column(String, nullable=True)
+
     periodo = Column(String, nullable=True)
 
     cpf = Column(String, nullable=True)
+
     chassi = Column(String, nullable=True)
 
-    status = Column(String, default="pendente", index=True)
+    campanha = Column(String, index=True, nullable=True)
+
+    origem = Column(String, default="BOT", index=True)
+
+    status = Column(String, default="PENDENTE", index=True)
+
+    status_retorno = Column(
+        String,
+        default="AGUARDANDO",
+        index=True
+    )
+
+    button_id = Column(String, nullable=True)
+
+    id_envio_zapi = Column(String, nullable=True)
+
+    intencao_ia = Column(String, nullable=True)
+
+    proxima_acao = Column(String, nullable=True)
+
+    nivel_interesse = Column(String, nullable=True)
+
+    observacoes = Column(Text, nullable=True)
 
     data_envio = Column(DateTime, nullable=True)
+
+    data_retorno = Column(DateTime, nullable=True)
+
+    ultima_interacao = Column(DateTime, nullable=True)
+
+    criado_em = Column(DateTime, default=datetime.now, index=True)
+
+    atualizado_em = Column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now
+    )
 
 
 # ==========================================
@@ -116,16 +179,52 @@ class LeadAtacado(Base):
     telefone = Column(String, index=True)
 
     empresa = Column(String, nullable=True)
+
     cnpj = Column(String, index=True, nullable=True)
 
     cidade = Column(String, nullable=True)
+
     responsavel = Column(String, nullable=True)
+
+    campanha = Column(String, index=True, nullable=True)
+
+    origem = Column(String, default="BOT", index=True)
 
     interesse = Column(Text, nullable=True)
 
-    status = Column(String, default="novo", index=True)
+    status = Column(String, default="NOVO", index=True)
+
+    status_retorno = Column(
+        String,
+        default="AGUARDANDO",
+        index=True
+    )
+
+    button_id = Column(String, nullable=True)
+
+    id_envio_zapi = Column(String, nullable=True)
+
+    intencao_ia = Column(String, nullable=True)
+
+    proxima_acao = Column(String, nullable=True)
+
+    nivel_interesse = Column(String, nullable=True)
+
+    observacoes = Column(Text, nullable=True)
+
+    data_envio = Column(DateTime, nullable=True)
+
+    data_retorno = Column(DateTime, nullable=True)
+
+    ultima_interacao = Column(DateTime, nullable=True)
 
     data = Column(DateTime, default=datetime.now, index=True)
+
+    atualizado_em = Column(
+        DateTime,
+        default=datetime.now,
+        onupdate=datetime.now
+    )
 
 
 # ==========================================
@@ -141,9 +240,11 @@ class AgendamentoRevisao(Base):
     telefone = Column(String, index=True)
 
     nome = Column(String, nullable=True)
+
     cpf = Column(String, index=True)
 
     modelo = Column(String, index=True, nullable=True)
+
     ano = Column(String, nullable=True)
 
     revisao = Column(String, index=True, nullable=True)
@@ -151,12 +252,18 @@ class AgendamentoRevisao(Base):
     dia_semana = Column(String, nullable=True)
 
     data_agendada = Column(String, index=True)
+
     horario = Column(String, index=True)
 
     itens = Column(Text, nullable=True)
+
     venda_adicional = Column(Text, nullable=True)
 
-    status = Column(String, default="AGENDADO", index=True)
+    status = Column(
+        String,
+        default="AGENDADO",
+        index=True
+    )
 
     observacoes = Column(Text, nullable=True)
 
@@ -167,11 +274,16 @@ class AgendamentoRevisao(Base):
     # ==========================================
     # SANCES
     # ==========================================
-    sances_status = Column(String, default="PENDENTE", index=True)
+    sances_status = Column(
+        String,
+        default="PENDENTE",
+        index=True
+    )
 
     sances_enviado = Column(Boolean, default=False)
 
     sances_protocolo = Column(String, default="")
+
     sances_erro = Column(Text, default="")
 
     sances_data_envio = Column(DateTime, nullable=True)

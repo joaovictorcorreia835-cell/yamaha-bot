@@ -1,5 +1,6 @@
 import os
 import time
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -9,18 +10,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==========================================
-# CONFIG - WASENDERAPI
+# CONFIG - Z-API
 # ==========================================
-WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "").strip()
-WASENDER_BASE_URL = os.getenv(
-    "WASENDER_BASE_URL",
-    "https://www.wasenderapi.com/api"
-).strip().rstrip("/")
+ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID", "").strip()
+ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "").strip()
+ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "").strip()
 
 ARQUIVO_PLANILHA = "templates/data/clientes.xlsx"
 INTERVALO_ENTRE_ENVIOS = 90
 
-URL_ENVIO = f"{WASENDER_BASE_URL}/send-message"
+URL_ENVIO_BOTOES = (
+    f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
+    f"/token/{ZAPI_TOKEN}/send-button-list"
+)
 
 COLUNAS_OBRIGATORIAS = [
     "NOME",
@@ -39,6 +41,7 @@ COLUNAS_OBRIGATORIAS = [
     "INTENCAO_IA",
     "PROXIMA_ACAO",
     "NIVEL_INTERESSE",
+    "ID_ENVIO",
 ]
 
 STATUS_ENVIO_PERMITIDOS = ["", "PENDENTE"]
@@ -48,28 +51,19 @@ STATUS_ENVIO_PERMITIDOS = ["", "PENDENTE"]
 # CRIAR MENSAGEM
 # ==========================================
 def criar_mensagem(nome, modelo, periodo):
-    mensagem = f"""Olá {nome} 👋
+    return f"""Olá {nome} 👋
 
-Aqui é da Equipe Motoshow Yamaha 🏍️
+Aqui é da Motoshow Yamaha 🏍️
 
-Sua {modelo} está no período da revisão de {periodo} meses.
+Identificamos que sua {modelo} está no período ideal para a revisão de {periodo} meses.
 
-🎯 Campanha Especial Pós-Vendas:
+Manter a revisão em dia ajuda a preservar a garantia, segurança e desempenho da sua Yamaha.
 
-✔ Peças Originais Yamaha
-✔ Técnicos Especializados
-✔ Agendamento rápido
+✅ Técnicos especializados Yamaha
+✅ Peças originais
+✅ Atendimento com agendamento
 
-📅 Agende agora sua revisão e mantenha sua Yamaha sempre em dia.
-
-Responda com uma das opções:
-1️⃣ *AGENDAR*
-2️⃣ *FALAR COM CONSULTOR*
-3️⃣ *DEPOIS*
-
-Equipe Motoshow Yamaha 🏍️
-"""
-    return mensagem
+Como deseja seguir?"""
 
 
 # ==========================================
@@ -87,14 +81,7 @@ def garantir_colunas(df):
 # ==========================================
 def normalizar_telefone(numero):
     numero = str(numero or "").strip()
-    numero = (
-        numero.replace("+", "")
-        .replace(" ", "")
-        .replace("-", "")
-        .replace("(", "")
-        .replace(")", "")
-        .replace(".", "")
-    )
+    numero = re.sub(r"\D", "", numero)
 
     if numero.startswith("0"):
         numero = numero[1:]
@@ -106,34 +93,66 @@ def normalizar_telefone(numero):
 
 
 # ==========================================
-# HEADERS
+# VALIDAR TELEFONE
 # ==========================================
-def headers_wasender():
+def telefone_valido(numero):
+    numero = normalizar_telefone(numero)
+    return numero.startswith("55") and len(numero) in [12, 13]
+
+
+# ==========================================
+# HEADERS Z-API
+# ==========================================
+def headers_zapi():
     return {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {WASENDER_API_KEY}",
+        "Client-Token": ZAPI_CLIENT_TOKEN,
     }
 
 
 # ==========================================
-# ENVIAR MENSAGEM
+# ENVIAR MENSAGEM COM BOTÕES Z-API
 # ==========================================
 def enviar_mensagem(numero, mensagem):
-    if not WASENDER_API_KEY:
-        print("❌ Erro: WASENDER_API_KEY não configurada.")
-        return False
+    if not ZAPI_INSTANCE_ID:
+        print("❌ Erro: ZAPI_INSTANCE_ID não configurado.")
+        return False, "ZAPI_INSTANCE_ID não configurado", ""
+
+    if not ZAPI_TOKEN:
+        print("❌ Erro: ZAPI_TOKEN não configurado.")
+        return False, "ZAPI_TOKEN não configurado", ""
+
+    if not ZAPI_CLIENT_TOKEN:
+        print("❌ Erro: ZAPI_CLIENT_TOKEN não configurado.")
+        return False, "ZAPI_CLIENT_TOKEN não configurado", ""
 
     payload = {
-        "to": numero,
-        "text": mensagem,
+        "phone": numero,
+        "message": mensagem,
+        "buttonList": {
+            "buttons": [
+                {
+                    "label": "Agendar revisão",
+                    "id": "AGENDAR_REVISAO",
+                },
+                {
+                    "label": "Falar com consultor",
+                    "id": "FALAR_CONSULTOR",
+                },
+                {
+                    "label": "Depois",
+                    "id": "DEPOIS",
+                },
+            ]
+        },
     }
 
     try:
         response = requests.post(
-            URL_ENVIO,
+            URL_ENVIO_BOTOES,
             json=payload,
-            headers=headers_wasender(),
-            timeout=30
+            headers=headers_zapi(),
+            timeout=30,
         )
 
         try:
@@ -144,14 +163,23 @@ def enviar_mensagem(numero, mensagem):
         print("Status Code:", response.status_code)
         print("Resposta:", resposta)
 
-        if response.status_code in [200, 201]:
-            return True
+        id_envio = ""
+        if isinstance(resposta, dict):
+            id_envio = (
+                resposta.get("messageId")
+                or resposta.get("id")
+                or resposta.get("zaapId")
+                or ""
+            )
 
-        return False
+        if response.status_code in [200, 201]:
+            return True, "Enviado com sucesso via Z-API botões", id_envio
+
+        return False, f"Erro Z-API: {resposta}", id_envio
 
     except Exception as e:
         print("Erro envio:", repr(e))
-        return False
+        return False, repr(e), ""
 
 
 # ==========================================
@@ -159,11 +187,11 @@ def enviar_mensagem(numero, mensagem):
 # ==========================================
 def disparar():
     print("===================================")
-    print("🚀 Iniciando disparo WasenderAPI...")
+    print("🚀 Iniciando disparo revisão Z-API com botões...")
     print("===================================")
 
-    if not WASENDER_API_KEY:
-        print("❌ Erro: WASENDER_API_KEY não carregada do .env ou Render.")
+    if not ZAPI_INSTANCE_ID or not ZAPI_TOKEN or not ZAPI_CLIENT_TOKEN:
+        print("❌ Erro: credenciais Z-API não carregadas do .env ou Render.")
         return
 
     try:
@@ -174,11 +202,18 @@ def disparar():
 
     df = garantir_colunas(df)
 
+    telefones_enviados_nesta_execucao = set()
+
     for index, row in df.iterrows():
         status_envio = str(row.get("STATUS_ENVIO", "")).strip().upper()
+        status_retorno = str(row.get("STATUS_RETORNO", "")).strip().upper()
 
         if status_envio not in STATUS_ENVIO_PERMITIDOS:
             print("⏭ Pulando linha já tratada:", row.get("NOME", "Sem nome"), "-", status_envio)
+            continue
+
+        if status_retorno in ["RESPONDEU", "AGENDOU", "NAO_INTERESSADO", "NÃO_INTERESSADO"]:
+            print("⏭ Pulando cliente que já retornou:", row.get("NOME", "Sem nome"), "-", status_retorno)
             continue
 
         nome = str(row.get("NOME", "")).strip()
@@ -193,6 +228,20 @@ def disparar():
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             continue
 
+        if not telefone_valido(numero):
+            print(f"⚠ Linha {index + 2} ignorada - telefone inválido: {numero}")
+            df.at[index, "STATUS_ENVIO"] = "ERRO"
+            df.at[index, "OBS"] = f"Telefone inválido: {numero}"
+            df.to_excel(ARQUIVO_PLANILHA, index=False)
+            continue
+
+        if numero in telefones_enviados_nesta_execucao:
+            print(f"⏭ Telefone duplicado nesta execução: {numero}")
+            df.at[index, "STATUS_ENVIO"] = "DUPLICADO"
+            df.at[index, "OBS"] = "Telefone duplicado na planilha ou execução"
+            df.to_excel(ARQUIVO_PLANILHA, index=False)
+            continue
+
         if not modelo or not periodo:
             print(f"⚠ Linha {index + 2} ignorada - falta MODELO ou PERIODO_REVISAO")
             df.at[index, "STATUS_ENVIO"] = "ERRO"
@@ -204,7 +253,7 @@ def disparar():
 
         print(f"📤 Enviando para: {nome} - {numero}")
 
-        enviado = enviar_mensagem(numero, mensagem)
+        enviado, observacao, id_envio = enviar_mensagem(numero, mensagem)
 
         if enviado:
             agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -215,18 +264,22 @@ def disparar():
             df.at[index, "ULTIMA_INTERACAO"] = agora
             df.at[index, "FOLLOWUP_1"] = ""
             df.at[index, "FOLLOWUP_2"] = ""
-            df.at[index, "OBS"] = "Disparo enviado com sucesso via WasenderAPI"
-            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_REVISAO"
+            df.at[index, "OBS"] = observacao
+            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_REVISAO_BOTOES"
             df.at[index, "INTENCAO_IA"] = ""
             df.at[index, "PROXIMA_ACAO"] = "AGUARDAR_RETORNO"
             df.at[index, "NIVEL_INTERESSE"] = ""
+            df.at[index, "ID_ENVIO"] = id_envio
+
+            telefones_enviados_nesta_execucao.add(numero)
 
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             print("✅ Enviado com sucesso:", nome)
 
         else:
             df.at[index, "STATUS_ENVIO"] = "ERRO"
-            df.at[index, "OBS"] = "Falha ao enviar mensagem via WasenderAPI"
+            df.at[index, "OBS"] = observacao
+            df.at[index, "ID_ENVIO"] = id_envio
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             print("❌ Falha no envio:", nome)
 

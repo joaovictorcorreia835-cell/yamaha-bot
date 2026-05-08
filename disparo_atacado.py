@@ -1,5 +1,6 @@
 import os
 import time
+import re
 from datetime import datetime
 
 import pandas as pd
@@ -9,18 +10,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==========================================
-# CONFIG - WASENDERAPI
+# CONFIG - Z-API
 # ==========================================
-WASENDER_API_KEY = os.getenv("WASENDER_API_KEY", "").strip()
-WASENDER_BASE_URL = os.getenv(
-    "WASENDER_BASE_URL",
-    "https://www.wasenderapi.com/api"
-).strip().rstrip("/")
+ZAPI_INSTANCE_ID = os.getenv("ZAPI_INSTANCE_ID", "").strip()
+ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "").strip()
+ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "").strip()
 
 ARQUIVO_PLANILHA = "templates/data/disparo_atacado.xlsx"
 INTERVALO_ENTRE_ENVIOS = 90
 
-URL_ENVIO = f"{WASENDER_BASE_URL}/send-message"
+HORARIO_INICIO = 8
+HORARIO_FIM = 20
+
+URL_ENVIO_BOTOES = (
+    f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
+    f"/token/{ZAPI_TOKEN}/send-button-list"
+)
 
 COLUNAS_OBRIGATORIAS = [
     "EMPRESA",
@@ -39,9 +44,15 @@ COLUNAS_OBRIGATORIAS = [
     "INTENCAO_IA",
     "PROXIMA_ACAO",
     "NIVEL_INTERESSE",
+    "ID_ENVIO",
 ]
 
 STATUS_ENVIO_PERMITIDOS = ["", "PENDENTE"]
+
+
+def dentro_horario_comercial():
+    agora = datetime.now()
+    return HORARIO_INICIO <= agora.hour < HORARIO_FIM
 
 
 def criar_mensagem(empresa="", responsavel="", cidade=""):
@@ -51,20 +62,20 @@ def criar_mensagem(empresa="", responsavel="", cidade=""):
     if nome_destino:
         saudacao = f"Olá {nome_destino}, tudo bem? 👋"
 
+    cidade_txt = f" em {cidade} e região" if cidade else " na sua região"
+
     return f"""{saudacao}
 
-Aqui é da Motoshow Yamaha!
+Aqui é da Motoshow Yamaha 🏍️
 
-Estamos expandindo nossa distribuição e abrindo parceria com oficinas e lojas da região.
+Estamos selecionando oficinas e lojas parceiras{cidade_txt} para fornecimento de peças, óleo Yamalube e acessórios Yamaha.
 
-Trabalhamos com:
-✅ Óleo Yamalube
-✅ Peças originais Yamaha
-✅ Acessórios
+✅ Condições especiais para atacado
+✅ Produtos originais Yamaha
+✅ Entrega rápida conforme região
+✅ Atendimento direto com nossa equipe
 
-Temos condições especiais para atacado e entrega rápida 🚀
-
-Posso te enviar nossa tabela e condições?"""
+Posso te enviar nossa tabela e condições de parceria?"""
 
 
 def garantir_colunas(df):
@@ -76,14 +87,7 @@ def garantir_colunas(df):
 
 def normalizar_telefone(numero):
     numero = str(numero or "").strip()
-    numero = (
-        numero.replace("+", "")
-        .replace(" ", "")
-        .replace("-", "")
-        .replace("(", "")
-        .replace(")", "")
-        .replace(".", "")
-    )
+    numero = re.sub(r"\D", "", numero)
 
     if numero.startswith("0"):
         numero = numero[1:]
@@ -94,29 +98,55 @@ def normalizar_telefone(numero):
     return numero
 
 
-def headers_wasender():
+def telefone_valido(numero):
+    numero = normalizar_telefone(numero)
+    return numero.startswith("55") and len(numero) in [12, 13]
+
+
+def headers_zapi():
     return {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {WASENDER_API_KEY}",
+        "Client-Token": ZAPI_CLIENT_TOKEN,
     }
 
 
 def enviar_mensagem(numero, mensagem):
-    if not WASENDER_API_KEY:
-        print("❌ Erro: WASENDER_API_KEY não configurada.")
-        return False
+    if not ZAPI_INSTANCE_ID:
+        return False, "ZAPI_INSTANCE_ID não configurado", ""
+
+    if not ZAPI_TOKEN:
+        return False, "ZAPI_TOKEN não configurado", ""
+
+    if not ZAPI_CLIENT_TOKEN:
+        return False, "ZAPI_CLIENT_TOKEN não configurado", ""
 
     payload = {
-        "to": numero,
-        "text": mensagem,
+        "phone": numero,
+        "message": mensagem,
+        "buttonList": {
+            "buttons": [
+                {
+                    "label": "Quero tabela",
+                    "id": "ATACADO_TABELA",
+                },
+                {
+                    "label": "Falar com consultor",
+                    "id": "ATACADO_CONSULTOR",
+                },
+                {
+                    "label": "Depois",
+                    "id": "ATACADO_DEPOIS",
+                },
+            ]
+        },
     }
 
     try:
         response = requests.post(
-            URL_ENVIO,
+            URL_ENVIO_BOTOES,
             json=payload,
-            headers=headers_wasender(),
-            timeout=30
+            headers=headers_zapi(),
+            timeout=30,
         )
 
         try:
@@ -127,20 +157,35 @@ def enviar_mensagem(numero, mensagem):
         print("Status Code:", response.status_code)
         print("Resposta:", resposta)
 
-        return response.status_code in [200, 201]
+        id_envio = ""
+        if isinstance(resposta, dict):
+            id_envio = (
+                resposta.get("messageId")
+                or resposta.get("id")
+                or resposta.get("zaapId")
+                or ""
+            )
+
+        if response.status_code in [200, 201]:
+            return True, "Disparo atacado enviado com sucesso via Z-API botões", id_envio
+
+        return False, f"Erro Z-API status {response.status_code}: {resposta}", id_envio
 
     except Exception as e:
-        print("Erro envio:", repr(e))
-        return False
+        return False, f"Erro ao enviar: {repr(e)}", ""
 
 
 def disparar():
     print("===================================")
-    print("🚀 Iniciando disparo atacado...")
+    print("🚀 Iniciando disparo atacado Z-API com botões...")
     print("===================================")
 
-    if not WASENDER_API_KEY:
-        print("❌ Erro: WASENDER_API_KEY não carregada do .env ou Render.")
+    if not dentro_horario_comercial():
+        print("⏸ Fora do horário comercial. Envio permitido apenas das 08:00 às 20:00.")
+        return
+
+    if not ZAPI_INSTANCE_ID or not ZAPI_TOKEN or not ZAPI_CLIENT_TOKEN:
+        print("❌ Erro: credenciais Z-API não carregadas do .env ou Render.")
         return
 
     try:
@@ -151,11 +196,30 @@ def disparar():
 
     df = garantir_colunas(df)
 
+    telefones_enviados_nesta_execucao = set()
+
     for index, row in df.iterrows():
+        if not dentro_horario_comercial():
+            print("⏸ Horário comercial encerrado. Disparo pausado.")
+            break
+
         status_envio = str(row.get("STATUS_ENVIO", "")).strip().upper()
+        status_retorno = str(row.get("STATUS_RETORNO", "")).strip().upper()
 
         if status_envio not in STATUS_ENVIO_PERMITIDOS:
             print("⏭ Pulando linha já tratada:", row.get("EMPRESA", "Sem empresa"), "-", status_envio)
+            continue
+
+        if status_retorno in [
+            "RESPONDEU",
+            "INTERESSADO",
+            "QUER_TABELA",
+            "FALAR_CONSULTOR",
+            "DEPOIS",
+            "NAO_INTERESSADO",
+            "NÃO_INTERESSADO",
+        ]:
+            print("⏭ Pulando cliente que já retornou:", row.get("EMPRESA", "Sem empresa"), "-", status_retorno)
             continue
 
         empresa = str(row.get("EMPRESA", "")).strip()
@@ -163,22 +227,35 @@ def disparar():
         cidade = str(row.get("CIDADE", "")).strip()
         responsavel = str(row.get("RESPONSAVEL", "")).strip()
 
+        nome_exibicao = empresa or responsavel or telefone
+
         if not telefone:
-            print(f"⚠ Linha {index + 2} ignorada - falta TELEFONE")
             df.at[index, "STATUS_ENVIO"] = "ERRO"
             df.at[index, "OBS"] = "Falta telefone"
+            df.to_excel(ARQUIVO_PLANILHA, index=False)
+            continue
+
+        if not telefone_valido(telefone):
+            df.at[index, "STATUS_ENVIO"] = "ERRO"
+            df.at[index, "OBS"] = f"Telefone inválido: {telefone}"
+            df.to_excel(ARQUIVO_PLANILHA, index=False)
+            continue
+
+        if telefone in telefones_enviados_nesta_execucao:
+            df.at[index, "STATUS_ENVIO"] = "DUPLICADO"
+            df.at[index, "OBS"] = "Telefone duplicado na planilha ou execução"
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             continue
 
         mensagem = criar_mensagem(
             empresa=empresa,
             responsavel=responsavel,
-            cidade=cidade
+            cidade=cidade,
         )
 
-        print(f"📤 Enviando para: {empresa or responsavel or 'Sem nome'} - {telefone}")
+        print(f"📤 Enviando para: {nome_exibicao} - {telefone}")
 
-        enviado = enviar_mensagem(telefone, mensagem)
+        enviado, observacao, id_envio = enviar_mensagem(telefone, mensagem)
 
         if enviado:
             agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -189,20 +266,26 @@ def disparar():
             df.at[index, "ULTIMA_INTERACAO"] = agora
             df.at[index, "FOLLOWUP_1"] = ""
             df.at[index, "FOLLOWUP_2"] = ""
-            df.at[index, "OBS"] = "Disparo atacado enviado com sucesso via WasenderAPI"
-            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_ATACADO"
+            df.at[index, "OBS"] = observacao
+            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_ATACADO_BOTOES"
             df.at[index, "INTENCAO_IA"] = ""
             df.at[index, "PROXIMA_ACAO"] = "AGUARDAR_RETORNO"
             df.at[index, "NIVEL_INTERESSE"] = ""
+            df.at[index, "ID_ENVIO"] = id_envio
 
-            df.to_excel(ARQUIVO_PLANILHA, index=False)
-            print("✅ Enviado com sucesso:", empresa or responsavel or telefone)
+            telefones_enviados_nesta_execucao.add(telefone)
+
+            print("✅ Enviado com sucesso:", nome_exibicao)
 
         else:
             df.at[index, "STATUS_ENVIO"] = "ERRO"
-            df.at[index, "OBS"] = "Falha ao enviar mensagem via WasenderAPI"
-            df.to_excel(ARQUIVO_PLANILHA, index=False)
-            print("❌ Falha no envio:", empresa or responsavel or telefone)
+            df.at[index, "OBS"] = observacao
+            df.at[index, "ID_ENVIO"] = id_envio
+
+            print("❌ Falha no envio:", nome_exibicao)
+            print("Motivo:", observacao)
+
+        df.to_excel(ARQUIVO_PLANILHA, index=False)
 
         time.sleep(INTERVALO_ENTRE_ENVIOS)
 

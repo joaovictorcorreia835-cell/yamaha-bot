@@ -3,9 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <title>Clientes CRM</title>
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    <meta http-equiv="refresh" content="60">
+
     <style>
+
         *{
             margin:0;
             padding:0;
@@ -26,8 +30,13 @@
         }
 
         .topbar h1 {
-            margin: 0;
             font-size: 28px;
+        }
+
+        .topbar p {
+            margin-top: 6px;
+            font-size: 14px;
+            opacity: 0.9;
         }
 
         .container {
@@ -36,6 +45,9 @@
 
         .nav {
             margin-bottom: 22px;
+            display:flex;
+            gap:10px;
+            flex-wrap:wrap;
         }
 
         .nav a {
@@ -75,12 +87,39 @@
             font-size: 13px;
             color: #6b7280;
             margin-bottom: 10px;
+            text-transform: uppercase;
         }
 
         .card .numero {
             font-size: 30px;
             font-weight: bold;
             color: #111827;
+        }
+
+        .filters {
+            background:white;
+            padding:18px;
+            border-radius:16px;
+            box-shadow:0 6px 18px rgba(0,0,0,0.08);
+            margin-bottom:22px;
+            display:flex;
+            gap:12px;
+            flex-wrap:wrap;
+            align-items:center;
+        }
+
+        .filters input,
+        .filters select {
+            padding:10px 14px;
+            border-radius:10px;
+            border:1px solid #d1d5db;
+            outline:none;
+            min-width:220px;
+        }
+
+        .filters input:focus,
+        .filters select:focus {
+            border-color:#163b8c;
         }
 
         .table-section {
@@ -105,22 +144,10 @@
             color:#111827;
         }
 
-        .search-box input {
-            padding:10px 14px;
-            border-radius:10px;
-            border:1px solid #d1d5db;
-            width:260px;
-            outline:none;
-        }
-
-        .search-box input:focus {
-            border-color:#163b8c;
-        }
-
         table {
             width: 100%;
             border-collapse: collapse;
-            min-width: 900px;
+            min-width: 1250px;
         }
 
         thead {
@@ -132,16 +159,14 @@
             text-align:left;
             padding: 14px 12px;
             font-size:14px;
+            white-space:nowrap;
         }
 
         td {
             padding: 14px 12px;
             border-bottom: 1px solid #e5e7eb;
             font-size:14px;
-        }
-
-        tbody tr {
-            transition:0.2s;
+            vertical-align:middle;
         }
 
         tbody tr:hover {
@@ -154,6 +179,7 @@
             font-size: 11px;
             font-weight: bold;
             display:inline-block;
+            white-space:nowrap;
         }
 
         .novo {
@@ -171,9 +197,34 @@
             color: #166534;
         }
 
+        .confirmado {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .reagendado {
+            background: #fef9c3;
+            color: #854d0e;
+        }
+
+        .cancelado {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .finalizado {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
         .humano {
             background: #ede9fe;
             color: #6d28d9;
+        }
+
+        .execucao {
+            background: #ffedd5;
+            color: #c2410c;
         }
 
         .badge {
@@ -183,20 +234,61 @@
             background: #dcfce7;
             color: #166534;
             font-weight:bold;
+            white-space:nowrap;
+        }
+
+        .badge-baixo {
+            background:#f3f4f6;
+            color:#4b5563;
+        }
+
+        .badge-medio {
+            background:#fef3c7;
+            color:#92400e;
+        }
+
+        .badge-alto {
+            background:#dcfce7;
+            color:#166534;
         }
 
         .telefone {
             font-weight:bold;
             color:#163b8c;
+            white-space:nowrap;
         }
 
         .origem {
             font-weight:bold;
             color:#374151;
+            white-space:nowrap;
         }
 
         .vazio {
             color:#9ca3af;
+        }
+
+        .btn-whatsapp {
+            background:#25d366;
+            color:white;
+            padding:8px 12px;
+            border-radius:8px;
+            text-decoration:none;
+            font-size:12px;
+            font-weight:bold;
+            display:inline-block;
+            white-space:nowrap;
+            transition:0.2s;
+        }
+
+        .btn-whatsapp:hover {
+            filter:brightness(0.95);
+            transform:translateY(-1px);
+        }
+
+        .small-text {
+            font-size:12px;
+            color:#6b7280;
         }
 
         @media(max-width:768px){
@@ -209,12 +301,8 @@
                 font-size:22px;
             }
 
-            .table-header{
-                flex-direction:column;
-                align-items:flex-start;
-            }
-
-            .search-box input{
+            .filters input,
+            .filters select{
                 width:100%;
             }
 
@@ -222,22 +310,30 @@
 
     </style>
 </head>
+
 <body>
 
 <div class="topbar">
     <h1>👥 Clientes CRM Motoshow</h1>
+
+    <p>
+        Gestão de atendimentos, campanhas, IA, botões Z-API e pós-vendas Yamaha
+    </p>
 </div>
 
 <div class="container">
 
     <div class="nav">
         <a href="/dashboard">⬅ Voltar Dashboard</a>
+
+        <a href="/clientes">🔄 Atualizar</a>
     </div>
 
     <div class="cards">
 
         <div class="card">
             <h3>Total Clientes</h3>
+
             <div class="numero">
                 {{ atendimentos|length }}
             </div>
@@ -245,20 +341,15 @@
 
         <div class="card">
             <h3>Atendimento Humano</h3>
+
             <div class="numero">
                 {{ atendimentos | selectattr('atendimento_humano') | list | length }}
             </div>
         </div>
 
         <div class="card">
-            <h3>Interações Totais</h3>
-            <div class="numero">
-                {{ atendimentos|length }}
-            </div>
-        </div>
-
-        <div class="card">
             <h3>Agendados</h3>
+
             <div class="numero">
                 {{
                     atendimentos
@@ -270,39 +361,174 @@
             </div>
         </div>
 
+        <div class="card">
+            <h3>Finalizados</h3>
+
+            <div class="numero">
+                {{
+                    atendimentos
+                    | selectattr('concluido')
+                    | list
+                    | length
+                }}
+            </div>
+        </div>
+
+    </div>
+
+    <div class="filters">
+
+        <input
+            type="text"
+            id="pesquisa"
+            placeholder="Pesquisar cliente, telefone, modelo, origem..."
+        >
+
+        <select id="filtroStatus">
+            <option value="">Todos os status</option>
+
+            <option value="NOVO_ATENDIMENTO">
+                Novo atendimento
+            </option>
+
+            <option value="AGENDAMENTO_INICIADO">
+                Agendamento iniciado
+            </option>
+
+            <option value="AGENDADO">
+                Agendado
+            </option>
+
+            <option value="CONFIRMADO">
+                Confirmado
+            </option>
+
+            <option value="REAGENDADO">
+                Reagendado
+            </option>
+
+            <option value="CANCELADO">
+                Cancelado
+            </option>
+
+            <option value="FINALIZADO">
+                Finalizado
+            </option>
+
+            <option value="ATENDIMENTO_HUMANO">
+                Atendimento humano
+            </option>
+        </select>
+
+        <select id="filtroOrigem">
+
+            <option value="">
+                Todas as origens
+            </option>
+
+            <option value="BOT">
+                Bot
+            </option>
+
+            <option value="CAMPANHA_REVISAO_BOTOES">
+                Campanha Revisão
+            </option>
+
+            <option value="CAMPANHA_ATACADO_BOTOES">
+                Campanha Atacado
+            </option>
+
+            <option value="MENU">
+                Menu
+            </option>
+
+            <option value="IA">
+                IA
+            </option>
+
+        </select>
+
+        <select id="filtroHumano">
+
+            <option value="">
+                Humano: todos
+            </option>
+
+            <option value="sim">
+                Humano: sim
+            </option>
+
+            <option value="nao">
+                Humano: não
+            </option>
+
+        </select>
+
     </div>
 
     <div class="table-section">
 
         <div class="table-header">
-            <h2>📋 Lista de Clientes</h2>
 
-            <div class="search-box">
-                <input
-                    type="text"
-                    id="pesquisa"
-                    placeholder="Pesquisar cliente..."
-                >
-            </div>
+            <h2>
+                📋 Lista de Clientes
+            </h2>
+
+            <span class="small-text">
+                Atualização automática a cada 60 segundos
+            </span>
+
         </div>
 
         <table id="tabelaClientes">
 
             <thead>
+
                 <tr>
                     <th>Nome</th>
+
                     <th>Telefone</th>
+
                     <th>Status</th>
+
+                    <th>Etapa</th>
+
+                    <th>IA</th>
+
+                    <th>Botão</th>
+
+                    <th>Modelo</th>
+
+                    <th>Revisão</th>
+
+                    <th>Interesse</th>
+
                     <th>Última Interação</th>
+
                     <th>Humano</th>
+
                     <th>Origem</th>
+
+                    <th>Ação</th>
                 </tr>
+
             </thead>
 
             <tbody>
 
                 {% for c in atendimentos %}
-                <tr>
+
+                {% set status = (c.status or '').upper() %}
+
+                {% set origem = (c.origem or 'BOT') %}
+
+                {% set interesse = (c.nivel_interesse or '')|upper %}
+
+                <tr
+                    data-status="{{ status }}"
+                    data-origem="{{ origem }}"
+                    data-humano="{% if c.atendimento_humano %}sim{% else %}nao{% endif %}"
+                >
 
                     <td>
                         {{ c.nome or '-' }}
@@ -314,15 +540,31 @@
 
                     <td>
 
-                        {% set status = (c.status or '').upper() %}
-
                         <span class="status
 
                             {% if status == 'NOVO_ATENDIMENTO' %}
                                 novo
 
+                            {% elif status == 'AGENDAMENTO_INICIADO' %}
+                                andamento
+
                             {% elif status == 'AGENDADO' %}
                                 agendado
+
+                            {% elif status == 'CONFIRMADO' %}
+                                confirmado
+
+                            {% elif status == 'REAGENDADO' %}
+                                reagendado
+
+                            {% elif status == 'CANCELADO' %}
+                                cancelado
+
+                            {% elif status == 'FINALIZADO' %}
+                                finalizado
+
+                            {% elif status == 'EM_EXECUCAO' %}
+                                execucao
 
                             {% elif status == 'ATENDIMENTO_HUMANO' %}
                                 humano
@@ -339,26 +581,111 @@
                     </td>
 
                     <td>
+                        {{ c.etapa or '-' }}
+                    </td>
+
+                    <td>
+                        {{ c.intencao_ia or '-' }}
+                    </td>
+
+                    <td>
+                        {{ c.button_id or '-' }}
+                    </td>
+
+                    <td>
+                        {{ c.modelo or '-' }}
+                    </td>
+
+                    <td>
+
+                        {% if c.revisao %}
+                            {{ c.revisao }}ª
+                        {% else %}
+                            -
+                        {% endif %}
+
+                    </td>
+
+                    <td>
+
+                        {% if interesse == 'ALTO' %}
+
+                            <span class="badge badge-alto">
+                                Alto
+                            </span>
+
+                        {% elif interesse == 'MEDIO' or interesse == 'MÉDIO' %}
+
+                            <span class="badge badge-medio">
+                                Médio
+                            </span>
+
+                        {% elif interesse == 'BAIXO' %}
+
+                            <span class="badge badge-baixo">
+                                Baixo
+                            </span>
+
+                        {% else %}
+
+                            <span class="vazio">
+                                —
+                            </span>
+
+                        {% endif %}
+
+                    </td>
+
+                    <td>
                         {{ c.ultima_interacao or '-' }}
                     </td>
 
                     <td>
 
                         {% if c.atendimento_humano %}
+
                             <span class="badge">
                                 Sim
                             </span>
+
                         {% else %}
-                            <span class="vazio">—</span>
+
+                            <span class="vazio">
+                                —
+                            </span>
+
                         {% endif %}
 
                     </td>
 
                     <td class="origem">
-                        {{ c.origem or 'BOT' }}
+                        {{ origem }}
+                    </td>
+
+                    <td>
+
+                        {% if c.telefone %}
+
+                            <a
+                                href="https://wa.me/{{ c.telefone|replace('+','')|replace(' ','')|replace('-','')|replace('(','')|replace(')','') }}"
+                                target="_blank"
+                                class="btn-whatsapp"
+                            >
+                                WhatsApp
+                            </a>
+
+                        {% else %}
+
+                            <span class="vazio">
+                                —
+                            </span>
+
+                        {% endif %}
+
                     </td>
 
                 </tr>
+
                 {% endfor %}
 
             </tbody>
@@ -373,25 +700,72 @@
 
 const pesquisa = document.getElementById("pesquisa");
 
-pesquisa.addEventListener("keyup", function() {
+const filtroStatus = document.getElementById("filtroStatus");
 
-    let filtro = pesquisa.value.toLowerCase();
+const filtroOrigem = document.getElementById("filtroOrigem");
 
-    let linhas = document.querySelectorAll("#tabelaClientes tbody tr");
+const filtroHumano = document.getElementById("filtroHumano");
+
+function aplicarFiltros() {
+
+    const textoBusca = pesquisa.value.toLowerCase();
+
+    const statusSelecionado = filtroStatus.value.toUpperCase();
+
+    const origemSelecionada = filtroOrigem.value;
+
+    const humanoSelecionado = filtroHumano.value;
+
+    const linhas = document.querySelectorAll("#tabelaClientes tbody tr");
 
     linhas.forEach(function(linha) {
 
-        let texto = linha.innerText.toLowerCase();
+        const textoLinha = linha.innerText.toLowerCase();
 
-        if(texto.includes(filtro)){
+        const statusLinha = linha.getAttribute("data-status") || "";
+
+        const origemLinha = linha.getAttribute("data-origem") || "";
+
+        const humanoLinha = linha.getAttribute("data-humano") || "";
+
+        const bateBusca = textoLinha.includes(textoBusca);
+
+        const bateStatus =
+            !statusSelecionado ||
+            statusLinha === statusSelecionado;
+
+        const bateOrigem =
+            !origemSelecionada ||
+            origemLinha === origemSelecionada;
+
+        const bateHumano =
+            !humanoSelecionado ||
+            humanoLinha === humanoSelecionado;
+
+        if (
+            bateBusca &&
+            bateStatus &&
+            bateOrigem &&
+            bateHumano
+        ) {
             linha.style.display = "";
+
         } else {
+
             linha.style.display = "none";
         }
 
     });
 
-});
+}
+
+pesquisa.addEventListener("keyup", aplicarFiltros);
+
+filtroStatus.addEventListener("change", aplicarFiltros);
+
+filtroOrigem.addEventListener("change", aplicarFiltros);
+
+filtroHumano.addEventListener("change", aplicarFiltros);
 
 </script>
 
