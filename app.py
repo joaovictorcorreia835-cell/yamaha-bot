@@ -5025,6 +5025,222 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     return False
+
+def processar_fluxo_revisao(telefone, texto, texto_opcao=""):
+    telefone = limpar_telefone(telefone)
+    texto = limpar_texto(texto)
+    texto_opcao = limpar_opcao(texto_opcao or texto)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    etapa = clientes[telefone].get("etapa", "revisao_modelo")
+
+    if etapa == "revisao_modelo":
+        modelo = texto.upper()
+
+        if not modelo:
+            enviar_mensagem(telefone, "⚠️ Informe o *modelo da sua moto* para continuar.")
+            return True
+
+        clientes[telefone]["modelo"] = modelo
+        clientes[telefone]["etapa"] = "revisao_nome"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_nome")
+        return True
+
+    if etapa == "revisao_nome":
+        nome = texto.upper()
+
+        if len(nome.split()) < 2:
+            enviar_mensagem(telefone, "⚠️ Informe seu *nome completo*.")
+            return True
+
+        clientes[telefone]["nome"] = nome
+        clientes[telefone]["etapa"] = "revisao_cpf"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_cpf")
+        return True
+
+    if etapa == "revisao_cpf":
+        cpf = limpar_cpf(texto)
+
+        if len(cpf) != 11:
+            enviar_mensagem(telefone, "⚠️ CPF inválido. Digite apenas os *11 números* do CPF.")
+            return True
+
+        clientes[telefone]["cpf"] = cpf
+        clientes[telefone]["etapa"] = "revisao_ano"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_ano")
+        return True
+
+    if etapa == "revisao_ano":
+        ano = re.sub(r"\D", "", texto)
+
+        if len(ano) != 4:
+            enviar_mensagem(telefone, "⚠️ Informe o *ano da moto* com 4 números. Exemplo: 2024.")
+            return True
+
+        clientes[telefone]["ano"] = ano
+        clientes[telefone]["etapa"] = "revisao_km"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_km")
+        return True
+
+    if etapa == "revisao_km":
+        km = re.sub(r"\D", "", texto)
+
+        if not km:
+            enviar_mensagem(telefone, "⚠️ Informe a *quilometragem atual* da moto.")
+            return True
+
+        clientes[telefone]["km_atual"] = km
+        clientes[telefone]["etapa"] = "revisao_revisao"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_revisao")
+        return True
+
+    if etapa == "revisao_revisao":
+        revisao = normalizar_revisao_para_fluxo(texto_opcao)
+
+        if not revisao:
+            enviar_mensagem_etapa_revisao(telefone, "revisao_revisao")
+            return True
+
+        clientes[telefone]["revisao"] = revisao
+        clientes[telefone]["etapa"] = "revisao_dia"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_dia")
+        return True
+
+    if etapa == "revisao_dia":
+        dia = texto_opcao if texto_opcao in ["1", "2", "3", "4", "5", "6"] else numero_dia_por_texto(texto)
+
+        if not dia:
+            enviar_mensagem_etapa_revisao(telefone, "revisao_dia")
+            return True
+
+        clientes[telefone]["dia"] = dia
+        clientes[telefone]["dia_texto"] = nome_dia(dia)
+        clientes[telefone]["etapa"] = "revisao_data"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_data")
+        return True
+
+    if etapa == "revisao_data":
+        data = normalizar_data_para_fluxo(texto)
+
+        if not data or not validar_data(data):
+            enviar_mensagem(telefone, "⚠️ Data inválida. Envie no formato *dd/mm/aaaa* e não escolha domingo ou data passada.")
+            return True
+
+        dia = clientes[telefone].get("dia", "")
+
+        if dia and not data_bate_com_dia_semana(data, dia):
+            enviar_mensagem(
+                telefone,
+                f"⚠️ Essa data não corresponde a *{nome_dia(dia)}*.\n\n"
+                "Envie uma data correta no formato *dd/mm/aaaa*."
+            )
+            return True
+
+        clientes[telefone]["data"] = data
+        clientes[telefone]["etapa"] = "revisao_horario"
+        enviar_proxima_etapa_revisao(telefone)
+        return True
+
+    if etapa == "revisao_horario":
+        horarios = clientes[telefone].get("horarios_disponiveis", [])
+
+        try:
+            indice = int(texto_opcao) - 1
+        except Exception:
+            indice = -1
+
+        if indice < 0 or indice >= len(horarios):
+            enviar_mensagem(telefone, montar_mensagem_horarios(horarios))
+            return True
+
+        clientes[telefone]["horario"] = horarios[indice]
+        clientes[telefone]["etapa"] = "revisao_tipo_atendimento"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_tipo_atendimento")
+        return True
+
+    if etapa == "revisao_tipo_atendimento":
+        if texto_opcao == "1":
+            clientes[telefone]["tipo_atendimento"] = "AGUARDAR NA CONCESSIONÁRIA"
+        elif texto_opcao == "2":
+            clientes[telefone]["tipo_atendimento"] = "DEIXAR A MOTO E RETIRAR DEPOIS"
+        else:
+            enviar_mensagem_etapa_revisao(telefone, "revisao_tipo_atendimento")
+            return True
+
+        clientes[telefone]["etapa"] = "revisao_venda"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_venda")
+        return True
+
+    if etapa == "revisao_venda":
+        if item_adicional_valido(texto):
+            clientes[telefone]["itens"] = texto.upper()
+            clientes[telefone]["venda_adicional"] = texto.upper()
+        else:
+            clientes[telefone]["itens"] = ""
+            clientes[telefone]["venda_adicional"] = "Nenhum"
+
+        clientes[telefone]["etapa"] = "revisao_observacao"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_observacao")
+        return True
+
+    if etapa == "revisao_observacao":
+        if texto_opcao == "2" or normalizar_texto(texto) in ["nao", "não", "nenhuma", "nenhum"]:
+            clientes[telefone]["observacao"] = "Nenhuma"
+        else:
+            clientes[telefone]["observacao"] = texto
+
+        clientes[telefone]["etapa"] = "revisao_confirmacao"
+        enviar_mensagem_etapa_revisao(telefone, "revisao_confirmacao")
+        return True
+
+    if etapa == "revisao_confirmacao":
+        if texto_opcao == "2":
+            limpar_dados_fluxo_revisao(telefone)
+            clientes[telefone]["etapa"] = "revisao_modelo"
+            enviar_mensagem_etapa_revisao(telefone, "revisao_modelo")
+            return True
+
+        if texto_opcao != "1":
+            enviar_mensagem_etapa_revisao(telefone, "revisao_confirmacao")
+            return True
+
+        sucesso, protocolo = salvar_agendamento(telefone, clientes[telefone])
+
+        if not sucesso:
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não consegui salvar seu agendamento agora. Vou encaminhar para um atendente."
+            )
+            ativar_atendimento_humano(telefone)
+            return True
+
+        retorno_sances = enviar_agendamento_para_sances({
+            **clientes[telefone],
+            "telefone": telefone,
+            "protocolo": protocolo,
+        })
+
+        atualizar_status_sances_agendamento(protocolo, retorno_sances)
+
+        enviar_mensagem(
+            telefone,
+            "✅ *Agendamento confirmado com sucesso!*\n\n"
+            f"📌 *Protocolo:* {protocolo}\n"
+            f"👤 *Nome:* {clientes[telefone].get('nome', '-')}\n"
+            f"🏍️ *Modelo:* {clientes[telefone].get('modelo', '-')}\n"
+            f"📆 *Data:* {clientes[telefone].get('data', '-')}\n"
+            f"⏰ *Horário:* {clientes[telefone].get('horario', '-')}\n\n"
+            "📖 Lembre-se de trazer o manual da moto."
+        )
+
+        resetar_cliente(telefone)
+        return True
+
+    return False
 # ==========================================
 # WEBHOOK - Z-API
 # ==========================================
