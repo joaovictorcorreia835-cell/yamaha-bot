@@ -1278,6 +1278,8 @@ def extrair_telefone(payload):
                 or data.get("sender")
                 or data.get("chatId")
                 or data.get("participantPhone")
+                or data.get("connectedPhone")
+                or data.get("mommentPhone")
             )
 
         return limpar_telefone(telefone)
@@ -1330,6 +1332,15 @@ def extrair_texto(payload):
                 data.get("body"),
                 data.get("caption"),
                 data.get("messageBody"),
+
+                data.get("image", {}).get("caption")
+                if isinstance(data.get("image"), dict) else None,
+
+                data.get("video", {}).get("caption")
+                if isinstance(data.get("video"), dict) else None,
+
+                data.get("document", {}).get("caption")
+                if isinstance(data.get("document"), dict) else None,
             ])
 
         for valor in candidatos:
@@ -1376,7 +1387,8 @@ def extrair_message_id(payload):
 
         return str(message_id or "")
 
-    except Exception:
+    except Exception as e:
+        log_erro("Erro ao extrair message_id Z-API:", repr(e))
         return ""
 
 
@@ -1403,10 +1415,9 @@ def registrar_mensagem_processada(message_id):
         mensagens_processadas.add(message_id)
         fila_mensagens_processadas.append(message_id)
 
-        if len(fila_mensagens_processadas) >= fila_mensagens_processadas.maxlen:
-            while len(mensagens_processadas) > fila_mensagens_processadas.maxlen:
-                antigo = fila_mensagens_processadas.popleft()
-                mensagens_processadas.discard(antigo)
+        while len(mensagens_processadas) > fila_mensagens_processadas.maxlen:
+            antigo = fila_mensagens_processadas.popleft()
+            mensagens_processadas.discard(antigo)
 
     except Exception as e:
         log_erro("Erro registrar_mensagem_processada:", repr(e))
@@ -1427,6 +1438,7 @@ def evento_eh_do_proprio_bot(payload):
             data.get("isFromMe") if isinstance(data, dict) else None,
             data.get("sentByMe") if isinstance(data, dict) else None,
             data.get("fromApi") if isinstance(data, dict) else None,
+            data.get("isNewsletter") if isinstance(data, dict) else None,
         ]
 
         return any(valor is True for valor in marcadores_true)
@@ -1463,6 +1475,12 @@ def extrair_tipo_mensagem(payload):
             )
 
         tipo = str(tipo or "").strip().lower()
+
+        texto = extrair_texto(payload)
+
+        # ReceivedCallback com texto é mensagem normal da Z-API
+        if tipo == "receivedcallback" and texto:
+            return "text"
 
         if tipo in [
             "deliverycallback",
@@ -1508,7 +1526,7 @@ def extrair_tipo_mensagem(payload):
         if payload.get("document"):
             return "document"
 
-        if extrair_texto(payload):
+        if texto:
             return "text"
 
         return "unknown"
@@ -1516,6 +1534,60 @@ def extrair_tipo_mensagem(payload):
     except Exception as e:
         log_erro("Erro ao extrair tipo de mensagem Z-API:", repr(e))
         return "unknown"
+
+
+def evento_deve_ser_ignorado(payload):
+    try:
+        tipo = str(payload.get("type", "")).strip().lower()
+        texto = extrair_texto(payload)
+
+        # ReceivedCallback com texto é mensagem recebida do cliente.
+        # NÃO pode ser ignorado.
+        if tipo == "receivedcallback" and texto:
+            return False
+
+        data = payload.get("data", {}) or {}
+
+        tipo_data = ""
+        if isinstance(data, dict):
+            tipo_data = str(
+                data.get("type")
+                or data.get("messageType")
+                or data.get("typeMessage")
+                or data.get("event")
+                or ""
+            ).strip().lower()
+
+        eventos_ignorados = [
+            "deliverycallback",
+            "sentcallback",
+            "readcallback",
+            "statuscallback",
+            "message-status",
+            "messagestatus",
+            "sentmessage",
+            "deliveredmessage",
+            "readmessage",
+            "receivedack",
+        ]
+
+        if tipo in eventos_ignorados or tipo_data in eventos_ignorados:
+            log_info("Callback Z-API ignorado:", tipo or tipo_data)
+            return True
+
+        if ("callback" in tipo or "status" in tipo) and not texto:
+            log_info("Callback Z-API ignorado:", tipo)
+            return True
+
+        if ("callback" in tipo_data or "status" in tipo_data) and not texto:
+            log_info("Callback Z-API ignorado:", tipo_data)
+            return True
+
+        return False
+
+    except Exception as e:
+        log_erro("Erro evento_deve_ser_ignorado:", repr(e))
+        return False
 
 
 def extrair_dados_zapi(payload):
@@ -1534,6 +1606,8 @@ def extrair_dados_zapi(payload):
     except Exception as e:
         log_erro("Erro ao extrair dados Z-API:", repr(e))
         return "", "", "", "unknown"
+
+
 # ==========================================
 # ENVIO - Z-API WHATSAPP
 # ==========================================
@@ -1640,7 +1714,6 @@ def enviar_mensagem_botoes(telefone, mensagem, botoes):
                     "id": button_id,
                 })
 
-        # TEXTO FALLBACK VISÍVEL PARA O CLIENTE
         mensagem_texto = mensagem
 
         if botoes_formatados:
@@ -1650,8 +1723,6 @@ def enviar_mensagem_botoes(telefone, mensagem, botoes):
 
             mensagem_texto += "\nDigite o número da opção desejada."
 
-        # Enquanto os botões estiverem bloqueados na Z-API,
-        # o envio principal será texto normal.
         enviar_botao_real = False
 
         if not enviar_botao_real:
@@ -1801,9 +1872,11 @@ def salvar_evento_atendimento(
         revisao = limpar_texto(base.get("revisao", ""))
         cpf = limpar_cpf(base.get("cpf", ""))
         dia = limpar_texto(base.get("dia", ""))
+
         data_agendada = limpar_texto(
             base.get("data_agendada", "") or base.get("data", "")
         )
+
         horario = limpar_texto(base.get("horario", ""))
 
         venda_adicional = formatar_itens_adicionais_para_salvar(
@@ -1847,7 +1920,6 @@ def salvar_evento_atendimento(
             itens=itens,
             venda_adicional=venda_adicional,
 
-            observacao=limpar_texto(base.get("observacao", "")),
             observacoes=limpar_texto(
                 base.get("observacoes", "") or base.get("observacao", "")
             ),
@@ -1887,6 +1959,7 @@ def salvar_evento_atendimento(
 
     finally:
         db.close()
+
 
 # ==========================================
 # MENU / MENSAGENS
@@ -4864,6 +4937,18 @@ def webhook():
         payload = request.get_json(silent=True) or {}
         log_info("PAYLOAD Z-API:", payload)
 
+        # ==========================================
+        # IGNORAR EVENTOS INVALIDOS / CALLBACKS SEM TEXTO
+        # ==========================================
+        if evento_deve_ser_ignorado(payload):
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "evento_ignorado"
+            }), 200
+
+        # ==========================================
+        # IGNORAR MENSAGENS DO PROPRIO BOT
+        # ==========================================
         if evento_eh_do_proprio_bot(payload):
             return jsonify({
                 "status": "ignorado",
@@ -4876,23 +4961,12 @@ def webhook():
         texto = limpar_texto(texto)
         tipo_mensagem = limpar_texto(tipo_mensagem).lower() or "text"
 
+        log_info("TIPO:", tipo_mensagem)
+        log_info("TEXTO:", texto)
+        log_info("TELEFONE:", telefone)
+
         texto_normalizado = normalizar_texto(texto)
         texto_opcao = limpar_opcao(texto)
-
-        if tipo_mensagem in [
-            "callback",
-            "deliverycallback",
-            "receivedcallback",
-            "sentcallback",
-            "readcallback",
-            "statuscallback",
-        ]:
-            log_info("Callback Z-API ignorado:", tipo_mensagem)
-
-            return jsonify({
-                "status": "ignorado",
-                "motivo": "callback_zapi"
-            }), 200
 
         if not telefone:
             return jsonify({
@@ -5137,9 +5211,9 @@ def webhook():
                     telefone,
                     menu_duvidas(),
                     [
-                        {"label": "Revisões", "id": "DUVIDA_REVISOES"},
-                        {"label": "Garantia", "id": "DUVIDA_GARANTIA"},
-                        {"label": "Menu", "id": "MENU"},
+                        {"label": "Revisões", "id": "1"},
+                        {"label": "Garantia", "id": "2"},
+                        {"label": "Menu", "id": "3"},
                     ],
                 )
 
@@ -5232,9 +5306,9 @@ def webhook():
                 telefone,
                 menu_duvidas(),
                 [
-                    {"label": "Revisões", "id": "DUVIDA_REVISOES"},
-                    {"label": "Garantia", "id": "DUVIDA_GARANTIA"},
-                    {"label": "Menu", "id": "MENU"},
+                    {"label": "Revisões", "id": "1"},
+                    {"label": "Garantia", "id": "2"},
+                    {"label": "Menu", "id": "3"},
                 ],
             )
 
@@ -5297,12 +5371,12 @@ def webhook():
                 "motivo": "pecas_humano"
             }), 200
 
-        if etapa == "acessorios":
+        if etapa == "acessorios" or etapa == "acessorios_modelo" or etapa == "acessorios_orcamento":
             salvar_evento_atendimento(
                 telefone=telefone,
                 setor="Acessórios",
                 status=STATUS_NOVO_ATENDIMENTO,
-                etapa="acessorios",
+                etapa=etapa,
                 dados=clientes[telefone],
                 atendimento_humano=False,
                 concluido=False,
@@ -5389,8 +5463,6 @@ def webhook():
             "status": "erro",
             "mensagem": "erro interno"
         }), 200
-
-
 # ==========================================
 # INICIAR WORKER
 # ==========================================
