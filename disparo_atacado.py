@@ -22,6 +22,11 @@ INTERVALO_ENTRE_ENVIOS = 90
 HORARIO_INICIO = 8
 HORARIO_FIM = 20
 
+URL_ENVIO_TEXTO = (
+    f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
+    f"/token/{ZAPI_TOKEN}/send-text"
+)
+
 URL_ENVIO_BOTOES = (
     f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
     f"/token/{ZAPI_TOKEN}/send-button-list"
@@ -56,7 +61,11 @@ def dentro_horario_comercial():
 
 
 def criar_mensagem(empresa="", responsavel="", cidade=""):
-    nome_destino = responsavel.strip() if responsavel else empresa.strip()
+    empresa = str(empresa or "").strip()
+    responsavel = str(responsavel or "").strip()
+    cidade = str(cidade or "").strip()
+
+    nome_destino = responsavel or empresa
 
     saudacao = "Olá, tudo bem? 👋"
     if nome_destino:
@@ -75,7 +84,12 @@ Estamos selecionando oficinas e lojas parceiras{cidade_txt} para fornecimento de
 ✅ Entrega rápida conforme região
 ✅ Atendimento direto com nossa equipe
 
-Posso te enviar nossa tabela e condições de parceria?"""
+Posso te enviar nossa tabela e condições de parceria?
+
+Responda:
+1 - Quero tabela
+2 - Falar com consultor
+3 - Depois"""
 
 
 def garantir_colunas(df):
@@ -110,16 +124,67 @@ def headers_zapi():
     }
 
 
-def enviar_mensagem(numero, mensagem):
-    if not ZAPI_INSTANCE_ID:
-        return False, "ZAPI_INSTANCE_ID não configurado", ""
+def resposta_zapi_sucesso(status_code, resposta):
+    try:
+        if status_code not in [200, 201]:
+            return False
 
-    if not ZAPI_TOKEN:
-        return False, "ZAPI_TOKEN não configurado", ""
+        if isinstance(resposta, dict):
+            if resposta.get("error") is True:
+                return False
 
-    if not ZAPI_CLIENT_TOKEN:
-        return False, "ZAPI_CLIENT_TOKEN não configurado", ""
+            if resposta.get("success") is False:
+                return False
 
+        return True
+
+    except Exception:
+        return status_code in [200, 201]
+
+
+def extrair_id_envio(resposta):
+    if not isinstance(resposta, dict):
+        return ""
+
+    return (
+        resposta.get("messageId")
+        or resposta.get("id")
+        or resposta.get("zaapId")
+        or resposta.get("messageID")
+        or ""
+    )
+
+
+def enviar_mensagem_texto(numero, mensagem):
+    payload = {
+        "phone": numero,
+        "message": mensagem,
+    }
+
+    response = requests.post(
+        URL_ENVIO_TEXTO,
+        json=payload,
+        headers=headers_zapi(),
+        timeout=30,
+    )
+
+    try:
+        resposta = response.json()
+    except Exception:
+        resposta = response.text
+
+    print("Status Code Texto:", response.status_code)
+    print("Resposta Texto:", resposta)
+
+    id_envio = extrair_id_envio(resposta)
+
+    if resposta_zapi_sucesso(response.status_code, resposta):
+        return True, "Disparo atacado enviado com sucesso via Z-API texto", id_envio
+
+    return False, f"Erro Z-API texto status {response.status_code}: {resposta}", id_envio
+
+
+def enviar_mensagem_botoes(numero, mensagem):
     payload = {
         "phone": numero,
         "message": mensagem,
@@ -130,7 +195,7 @@ def enviar_mensagem(numero, mensagem):
                     "id": "ATACADO_TABELA",
                 },
                 {
-                    "label": "Falar com consultor",
+                    "label": "Consultor",
                     "id": "ATACADO_CONSULTOR",
                 },
                 {
@@ -141,35 +206,52 @@ def enviar_mensagem(numero, mensagem):
         },
     }
 
+    response = requests.post(
+        URL_ENVIO_BOTOES,
+        json=payload,
+        headers=headers_zapi(),
+        timeout=30,
+    )
+
     try:
-        response = requests.post(
-            URL_ENVIO_BOTOES,
-            json=payload,
-            headers=headers_zapi(),
-            timeout=30,
-        )
+        resposta = response.json()
+    except Exception:
+        resposta = response.text
 
-        try:
-            resposta = response.json()
-        except Exception:
-            resposta = response.text
+    print("Status Code Botões:", response.status_code)
+    print("Resposta Botões:", resposta)
 
-        print("Status Code:", response.status_code)
-        print("Resposta:", resposta)
+    id_envio = extrair_id_envio(resposta)
 
-        id_envio = ""
-        if isinstance(resposta, dict):
-            id_envio = (
-                resposta.get("messageId")
-                or resposta.get("id")
-                or resposta.get("zaapId")
-                or ""
-            )
+    if resposta_zapi_sucesso(response.status_code, resposta):
+        return True, "Disparo atacado enviado com sucesso via Z-API botões", id_envio
 
-        if response.status_code in [200, 201]:
-            return True, "Disparo atacado enviado com sucesso via Z-API botões", id_envio
+    return False, f"Erro Z-API botões status {response.status_code}: {resposta}", id_envio
 
-        return False, f"Erro Z-API status {response.status_code}: {resposta}", id_envio
+
+def enviar_mensagem(numero, mensagem):
+    if not ZAPI_INSTANCE_ID:
+        return False, "ZAPI_INSTANCE_ID não configurado", ""
+
+    if not ZAPI_TOKEN:
+        return False, "ZAPI_TOKEN não configurado", ""
+
+    if not ZAPI_CLIENT_TOKEN:
+        return False, "ZAPI_CLIENT_TOKEN não configurado", ""
+
+    try:
+        enviado, observacao, id_envio = enviar_mensagem_botoes(numero, mensagem)
+
+        if enviado:
+            return enviado, observacao, id_envio
+
+        print("⚠️ Botões falharam. Tentando envio em texto simples...")
+        enviado_texto, obs_texto, id_texto = enviar_mensagem_texto(numero, mensagem)
+
+        if enviado_texto:
+            return True, f"{obs_texto} | Fallback usado porque botões falharam: {observacao}", id_texto
+
+        return False, f"{observacao} | Fallback texto também falhou: {obs_texto}", id_envio or id_texto
 
     except Exception as e:
         return False, f"Erro ao enviar: {repr(e)}", ""
@@ -177,7 +259,7 @@ def enviar_mensagem(numero, mensagem):
 
 def disparar():
     print("===================================")
-    print("🚀 Iniciando disparo atacado Z-API com botões...")
+    print("🚀 Iniciando disparo atacado Z-API...")
     print("===================================")
 
     if not dentro_horario_comercial():
@@ -257,9 +339,9 @@ def disparar():
 
         enviado, observacao, id_envio = enviar_mensagem(telefone, mensagem)
 
-        if enviado:
-            agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
+        if enviado:
             df.at[index, "DATA_DISPARO"] = agora
             df.at[index, "STATUS_ENVIO"] = "ENVIADO"
             df.at[index, "STATUS_RETORNO"] = "AGUARDANDO"
@@ -278,6 +360,7 @@ def disparar():
             print("✅ Enviado com sucesso:", nome_exibicao)
 
         else:
+            df.at[index, "DATA_DISPARO"] = agora
             df.at[index, "STATUS_ENVIO"] = "ERRO"
             df.at[index, "OBS"] = observacao
             df.at[index, "ID_ENVIO"] = id_envio
