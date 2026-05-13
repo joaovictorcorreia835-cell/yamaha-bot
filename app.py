@@ -5030,7 +5030,6 @@ def processar_followup_inteligente():
 # ==========================================
 def etapa_permite_ia_livre(etapa):
     etapa = limpar_texto(etapa)
-
     etapas_bloqueadas = {
         "revisao_modelo",
         "revisao_nome",
@@ -5822,6 +5821,53 @@ def processar_fluxo_revisao(telefone, texto, texto_opcao=""):
         return True
 
     return False
+
+def payload_enviado_por_mim(payload):
+    try:
+        campos = [
+            payload.get("fromMe"),
+            payload.get("from_me"),
+            payload.get("isFromMe"),
+            payload.get("owner"),
+            payload.get("message", {}).get("fromMe")
+            if isinstance(payload.get("message"), dict) else None,
+        ]
+
+        for valor in campos:
+            if valor is True:
+                return True
+            if str(valor).lower() in ["true", "1", "sim", "yes"]:
+                return True
+
+        return False
+
+    except Exception:
+        return False
+
+
+def payload_enviado_pela_api(payload):
+    try:
+        campos = [
+            payload.get("fromApi"),
+            payload.get("from_api"),
+            payload.get("isFromApi"),
+            payload.get("fromBot"),
+            payload.get("from_bot"),
+            payload.get("api"),
+        ]
+
+        for valor in campos:
+            if valor is True:
+                return True
+            if str(valor).lower() in ["true", "1", "sim", "yes"]:
+                return True
+
+        return False
+
+    except Exception:
+        return False
+
+
 # ==========================================
 # WEBHOOK - Z-API
 # ==========================================
@@ -5849,6 +5895,32 @@ def webhook():
         telefone = limpar_telefone(telefone)
         texto = limpar_texto(texto)
         tipo_mensagem = limpar_texto(tipo_mensagem).lower() or "text"
+
+        # ==========================================
+        # IGNORAR MENSAGENS ENVIADAS PELO PRÓPRIO WHATSAPP
+        # Isso evita o bot responder mensagens do atendente humano.
+        # ==========================================
+        if payload_enviado_por_mim(payload):
+
+            if telefone:
+                iniciar_cliente(telefone)
+
+                # Se foi mensagem manual pelo WhatsApp Web/App,
+                # ativa trava humana para o cliente.
+                if not payload_enviado_pela_api(payload):
+                    clientes[telefone]["atendimento_humano"] = True
+                    clientes[telefone]["etapa"] = "humano"
+                    clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+
+                    try:
+                        ativar_atendimento_humano(telefone)
+                    except Exception as e:
+                        log_erro("Erro ao ativar humano por mensagem manual:", repr(e))
+
+            return jsonify({
+                "status": "ignorado",
+                "motivo": "mensagem_enviada_por_mim"
+            }), 200
 
         texto_normalizado = normalizar_texto(texto)
         texto_opcao = limpar_opcao(texto)
@@ -6023,9 +6095,11 @@ def webhook():
             }), 200
 
         # ==========================================
-        # BOTÕES / IA EM ETAPAS SEGURAS
+        # IA SOMENTE NO MENU
+        # Nunca rodar IA em garantia, peças, acessórios,
+        # atacado, humano ou fluxos em andamento.
         # ==========================================
-        if etapa in ["menu", "menu_duvidas"] or etapa_permite_ia_livre(etapa):
+        if etapa in ["menu", "menu_duvidas"]:
             interpretado = tentar_interpretar_ia_no_menu(
                 telefone,
                 texto
@@ -6499,7 +6573,6 @@ def webhook():
             "status": "erro",
             "mensagem": "erro interno"
         }), 200
-
 
 # ==========================================
 # INICIAR WORKER
