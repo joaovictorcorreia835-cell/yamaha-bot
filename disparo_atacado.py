@@ -27,11 +27,6 @@ URL_ENVIO_TEXTO = (
     f"/token/{ZAPI_TOKEN}/send-text"
 )
 
-URL_ENVIO_BOTOES = (
-    f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
-    f"/token/{ZAPI_TOKEN}/send-button-list"
-)
-
 COLUNAS_OBRIGATORIAS = [
     "EMPRESA",
     "TELEFONE",
@@ -86,7 +81,8 @@ Estamos selecionando oficinas e lojas parceiras{cidade_txt} para fornecimento de
 
 Posso te enviar nossa tabela e condições de parceria?
 
-Responda:
+Responda com o número da opção desejada:
+
 1 - Quero tabela
 2 - Falar com consultor
 3 - Depois"""
@@ -179,54 +175,9 @@ def enviar_mensagem_texto(numero, mensagem):
     id_envio = extrair_id_envio(resposta)
 
     if resposta_zapi_sucesso(response.status_code, resposta):
-        return True, "Disparo atacado enviado com sucesso via Z-API texto", id_envio
+        return True, "Disparo atacado enviado com sucesso via Z-API texto simples", id_envio
 
     return False, f"Erro Z-API texto status {response.status_code}: {resposta}", id_envio
-
-
-def enviar_mensagem_botoes(numero, mensagem):
-    payload = {
-        "phone": numero,
-        "message": mensagem,
-        "buttonList": {
-            "buttons": [
-                {
-                    "label": "Quero tabela",
-                    "id": "ATACADO_TABELA",
-                },
-                {
-                    "label": "Consultor",
-                    "id": "ATACADO_CONSULTOR",
-                },
-                {
-                    "label": "Depois",
-                    "id": "ATACADO_DEPOIS",
-                },
-            ]
-        },
-    }
-
-    response = requests.post(
-        URL_ENVIO_BOTOES,
-        json=payload,
-        headers=headers_zapi(),
-        timeout=30,
-    )
-
-    try:
-        resposta = response.json()
-    except Exception:
-        resposta = response.text
-
-    print("Status Code Botões:", response.status_code)
-    print("Resposta Botões:", resposta)
-
-    id_envio = extrair_id_envio(resposta)
-
-    if resposta_zapi_sucesso(response.status_code, resposta):
-        return True, "Disparo atacado enviado com sucesso via Z-API botões", id_envio
-
-    return False, f"Erro Z-API botões status {response.status_code}: {resposta}", id_envio
 
 
 def enviar_mensagem(numero, mensagem):
@@ -240,26 +191,15 @@ def enviar_mensagem(numero, mensagem):
         return False, "ZAPI_CLIENT_TOKEN não configurado", ""
 
     try:
-        enviado, observacao, id_envio = enviar_mensagem_botoes(numero, mensagem)
-
-        if enviado:
-            return enviado, observacao, id_envio
-
-        print("⚠️ Botões falharam. Tentando envio em texto simples...")
-        enviado_texto, obs_texto, id_texto = enviar_mensagem_texto(numero, mensagem)
-
-        if enviado_texto:
-            return True, f"{obs_texto} | Fallback usado porque botões falharam: {observacao}", id_texto
-
-        return False, f"{observacao} | Fallback texto também falhou: {obs_texto}", id_envio or id_texto
+        return enviar_mensagem_texto(numero, mensagem)
 
     except Exception as e:
-        return False, f"Erro ao enviar: {repr(e)}", ""
+        return False, f"Erro ao enviar texto simples: {repr(e)}", ""
 
 
 def disparar():
     print("===================================")
-    print("🚀 Iniciando disparo atacado Z-API...")
+    print("🚀 Iniciando disparo atacado Z-API texto simples...")
     print("===================================")
 
     if not dentro_horario_comercial():
@@ -349,7 +289,7 @@ def disparar():
             df.at[index, "FOLLOWUP_1"] = ""
             df.at[index, "FOLLOWUP_2"] = ""
             df.at[index, "OBS"] = observacao
-            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_ATACADO_BOTOES"
+            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_ATACADO_TEXTO"
             df.at[index, "INTENCAO_IA"] = ""
             df.at[index, "PROXIMA_ACAO"] = "AGUARDAR_RETORNO"
             df.at[index, "NIVEL_INTERESSE"] = ""

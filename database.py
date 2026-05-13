@@ -75,7 +75,7 @@ class Atendimento(Base):
     concluido = Column(Boolean, default=False)
 
     # ==========================================
-    # IA / BOTÕES / CRM
+    # IA / BOTÕES / INTERAÇÃO
     # ==========================================
     button_id = Column(String, nullable=True)
 
