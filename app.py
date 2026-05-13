@@ -2000,7 +2000,7 @@ def enviar_mensagem(telefone, mensagem):
         return False
 
 
-def enviar_mensagem_botoes(telefone, mensagem, botoes):
+def enviar_mensagem(telefone, mensagem, botoes):
     try:
         telefone = limpar_telefone(telefone)
         mensagem = str(mensagem or "").strip()
@@ -3448,7 +3448,7 @@ def responder_consulta_agendamento(telefone, cpf):
             concluido=False,
         )
 
-        enviar_mensagem_botoes(
+        enviar_mensagem(
             telefone,
             "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
             "Deseja iniciar um novo agendamento?",
@@ -3483,7 +3483,7 @@ def responder_consulta_agendamento(telefone, cpf):
         origem=ag.get("origem", "BOT"),
     )
 
-    enviar_mensagem_botoes(
+    enviar_mensagem(
         telefone,
         "📋 *Agendamento localizado*\n\n"
         f"👤 {ag.get('nome', '')}\n"
@@ -3536,7 +3536,7 @@ def responder_cancelamento_agendamento(telefone, cpf):
                 concluido=False,
             )
 
-            enviar_mensagem_botoes(
+            enviar_mensagem(
                 telefone,
                 "⚠️ Não encontrei agendamento ativo para este CPF.\n\n"
                 "Deseja voltar ao menu?",
@@ -3582,7 +3582,7 @@ def responder_cancelamento_agendamento(telefone, cpf):
             "Equipe Motoshow Yamaha"
         )
 
-        enviar_mensagem_botoes(
+        enviar_mensagem(
             telefone,
             mensagem,
             [
@@ -3641,7 +3641,7 @@ def iniciar_reagendamento(telefone, cpf):
             concluido=False,
         )
 
-        enviar_mensagem_botoes(
+        enviar_mensagem(
             telefone,
             "⚠️ Não encontrei agendamento ativo para este CPF.\n\n"
             "Deseja iniciar um novo agendamento?",
@@ -3834,7 +3834,7 @@ def processar_lembretes_agendamento():
                     "Se precisar reagendar, responda esta mensagem."
                 )
 
-                enviado = enviar_mensagem_botoes(
+                enviado = enviar_mensagem(
                     telefone,
                     mensagem,
                     [
@@ -4186,7 +4186,7 @@ def enviar_duvida_retorno_fluxo(telefone):
     mensagem = mensagem_duvida_retorno_fluxo(telefone)
 
     if etapa_retorno and etapa_retorno.startswith("revisao"):
-        return enviar_mensagem_botoes(
+        return enviar_mensagem(
             telefone,
             mensagem,
             [
@@ -4196,7 +4196,7 @@ def enviar_duvida_retorno_fluxo(telefone):
             ],
         )
 
-    return enviar_mensagem_botoes(
+    return enviar_mensagem(
         telefone,
         mensagem,
         [
@@ -4245,7 +4245,7 @@ def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
             "e depois podemos voltar para o seu agendamento.",
         )
 
-        return enviar_mensagem_botoes(
+        return enviar_mensagem(
             telefone,
             menu_duvidas(),
             [
@@ -5232,7 +5232,7 @@ def interpretar_botao_menu_rapido(telefone, button_id):
         if not enviado:
             clientes[telefone]["etapa"] = "menu_duvidas"
             clientes[telefone]["intencao_ia"] = "duvidas"
-            enviar_mensagem_botoes(
+            enviar_mensagem(
                 telefone,
                 menu_duvidas(),
                 [
@@ -5410,7 +5410,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
             or "Não encontrei essa informação no momento.",
         )
 
-        enviar_mensagem_botoes(
+        enviar_mensagem(
             telefone,
             "Deseja agendar sua revisão agora?",
             [
@@ -5499,7 +5499,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
         if not enviado:
             clientes[telefone]["etapa"] = "menu_duvidas"
-            enviar_mensagem_botoes(
+            enviar_mensagem(
                 telefone,
                 menu_duvidas(),
                 [
@@ -6208,7 +6208,7 @@ def webhook():
                 clientes[telefone]["etapa"] = "menu_duvidas"
                 clientes[telefone]["intencao_ia"] = "duvidas"
 
-                enviar_mensagem_botoes(
+                enviar_mensagem(
                     telefone,
                     menu_duvidas(),
                     [
@@ -6334,7 +6334,7 @@ def webhook():
                     "motivo": "voltar_menu"
                 }), 200
 
-            enviar_mensagem_botoes(
+            enviar_mensagem(
                 telefone,
                 menu_duvidas(),
                 [
