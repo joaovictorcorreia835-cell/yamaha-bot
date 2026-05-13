@@ -1314,61 +1314,685 @@ def detectar_intencao_regras(texto_normalizado):
         return "humano", 0.97
 
     return "", 0.0
+import os
+import re
+import unicodedata
+
+import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+CAMINHO_PLANILHA_REVISOES = "templates/data/revisoes_yamaha.xlsx"
+
+MODELOS_YAMAHA = [
+    "FAZER 250", "FZ15", "FZ25", "CROSSER", "LANDER",
+    "MT03", "MT07", "R15", "R3", "FLUO", "NEO",
+    "NMAX", "TENERE 700", "AEROX", "FACTOR"
+]
+
+
+BASE_DUVIDAS = {
+    "garantia": [
+        {
+            "palavras_chave": [
+                "garantia", "cobertura", "cobre", "defeito",
+                "defeito de fabrica", "problema", "falha"
+            ],
+            "resposta": (
+                "A garantia cobre situações elegíveis conforme as regras da Yamaha "
+                "e mediante avaliação técnica da concessionária."
+            )
+        },
+        {
+            "palavras_chave": [
+                "manual", "nota fiscal", "documento", "revisoes em dia",
+                "perder garantia", "fora da garantia"
+            ],
+            "resposta": (
+                "A análise de garantia considera as condições da moto, documentos "
+                "e histórico de revisões conforme orientação da fabricante."
+            )
+        }
+    ]
+}
+
+
+def log_info(*args):
+    print("[IA][INFO]", *args, flush=True)
+
+
+def log_erro(*args):
+    print("[IA][ERRO]", *args, flush=True)
+
+
+def limpar_texto(texto):
+    return str(texto or "").strip()
+
+
+def remover_acentos(texto):
+    texto = str(texto or "")
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def normalizar_texto(texto):
+    texto = limpar_texto(texto).lower()
+    texto = remover_acentos(texto)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto
+
+
+def normalizar_botao_zapi(texto):
+    texto_norm = normalizar_texto(texto)
+    texto_norm = texto_norm.replace("-", "_").replace(" ", "_")
+
+    mapa_botoes = {
+        "agendar_revisao": "AGENDAR_REVISAO",
+        "agendar": "AGENDAR_REVISAO",
+        "1": "OPCAO_1",
+
+        "falar_consultor": "FALAR_CONSULTOR",
+        "consultor": "FALAR_CONSULTOR",
+        "falar_com_consultor": "FALAR_CONSULTOR",
+
+        "depois": "DEPOIS",
+
+        "atacado_tabela": "ATACADO_TABELA",
+        "quero_tabela": "ATACADO_TABELA",
+        "tabela": "ATACADO_TABELA",
+
+        "atacado_consultor": "ATACADO_CONSULTOR",
+        "atacado_depois": "ATACADO_DEPOIS",
+    }
+
+    return mapa_botoes.get(texto_norm, "")
+
+
+def formatar_valor_brl(valor):
+    try:
+        if isinstance(valor, (int, float)):
+            valor_float = float(valor)
+        else:
+            valor_texto = str(valor).replace("R$", "").strip()
+            if "," in valor_texto:
+                valor_texto = valor_texto.replace(".", "").replace(",", ".")
+            valor_float = float(valor_texto)
+
+        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return f"R$ {valor}"
+
+
+def obter_cliente():
+    if not OPENAI_API_KEY:
+        return None
+
+    if OpenAI is None:
+        return None
+
+    try:
+        return OpenAI(api_key=OPENAI_API_KEY)
+    except Exception as e:
+        log_erro("Erro ao criar cliente OpenAI:", repr(e))
+        return None
+
+
+def extrair_modelo(texto):
+    texto_upper = remover_acentos(str(texto or "").upper())
+
+    for modelo in sorted(MODELOS_YAMAHA, key=len, reverse=True):
+        if remover_acentos(modelo) in texto_upper:
+            return modelo
+
+    aliases = {
+        "FAZER": "FAZER 250",
+        "FZ 15": "FZ15",
+        "FZ-15": "FZ15",
+        "FZ 25": "FZ25",
+        "FZ-25": "FZ25",
+        "MT 03": "MT03",
+        "MT-03": "MT03",
+        "MT 07": "MT07",
+        "MT-07": "MT07",
+        "R 15": "R15",
+        "R-15": "R15",
+        "R 3": "R3",
+        "R-3": "R3",
+        "TENERE": "TENERE 700",
+        "T7": "TENERE 700",
+    }
+
+    for alias, modelo in aliases.items():
+        if alias in texto_upper:
+            return modelo
+
+    return ""
+
+
+def extrair_ano(texto):
+    match = re.search(r"\b(20\d{2})\b", str(texto or ""))
+    return match.group(1) if match else ""
+
+
+def extrair_revisao(texto):
+    texto = normalizar_texto(texto)
+
+    match = re.search(r"(\d+)\s*(?:a|ª|o)?\s*revis", texto)
+    if match:
+        return match.group(1)
+
+    mapa_texto = {
+        "primeira revisao": "1",
+        "segunda revisao": "2",
+        "terceira revisao": "3",
+        "quarta revisao": "4",
+        "quinta revisao": "5",
+        "1 revisao": "1",
+        "2 revisao": "2",
+        "3 revisao": "3",
+        "4 revisao": "4",
+        "5 revisao": "5",
+    }
+
+    for chave, valor in mapa_texto.items():
+        if chave in texto:
+            return valor
+
+    return ""
+
+
+def extrair_km(texto):
+    texto = normalizar_texto(texto)
+    match = re.search(r"\b(\d{1,3}(?:[.\s]?\d{3})*|\d+)\s*km\b", texto)
+
+    if match:
+        return re.sub(r"[^\d]", "", match.group(1))
+
+    return ""
+
+
+def km_para_revisao(km):
+    try:
+        km_int = int(str(km).strip())
+    except Exception:
+        return ""
+
+    mapa = {
+        1000: "1",
+        3000: "2",
+        5000: "2",
+        6000: "3",
+        9000: "4",
+        10000: "4",
+        12000: "5",
+        15000: "5",
+        18000: "5",
+        21000: "5",
+        24000: "5",
+    }
+
+    return mapa.get(km_int, "")
+
+
+def extrair_horario(texto):
+    texto = normalizar_texto(texto)
+
+    match = re.search(r"\b(\d{1,2}):(\d{2})\b", texto)
+    if match:
+        hora = int(match.group(1))
+        minuto = match.group(2)
+        if 0 <= hora <= 23:
+            return f"{hora:02d}:{minuto}"
+
+    match = re.search(r"\b(\d{1,2})\s*h\b", texto)
+    if match:
+        hora = int(match.group(1))
+        if 0 <= hora <= 23:
+            return f"{hora:02d}:00"
+
+    match = re.search(r"\b(?:as|às)\s*(\d{1,2})\b", texto)
+    if match:
+        hora = int(match.group(1))
+        if 0 <= hora <= 23:
+            return f"{hora:02d}:00"
+
+    return ""
+
+
+def extrair_dia(texto):
+    texto = normalizar_texto(texto)
+
+    mapa = {
+        "segunda": "1",
+        "terca": "2",
+        "terça": "2",
+        "quarta": "3",
+        "quinta": "4",
+        "sexta": "5",
+        "sabado": "6",
+        "sábado": "6",
+    }
+
+    for chave, valor in mapa.items():
+        if chave in texto:
+            return valor
+
+    return ""
+
+
+def extrair_data(texto):
+    texto = limpar_texto(texto)
+
+    match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", texto)
+    if match:
+        return match.group(1)
+
+    match = re.search(r"\b(\d{2}-\d{2}-\d{4})\b", texto)
+    if match:
+        return match.group(1).replace("-", "/")
+
+    return ""
+
+
+def extrair_cpf(texto):
+    match = re.search(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", str(texto or ""))
+    if match:
+        return re.sub(r"\D", "", match.group(0))
+    return ""
+
+
+def extrair_nome(texto):
+    texto_original = limpar_texto(texto)
+    texto_lower = texto_original.lower()
+
+    padroes = [
+        r"meu nome é ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+        r"meu nome e ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+        r"nome[:\s]+([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+        r"sou ([a-záàâãéèêíìîóòôõúùûç\s]+?)(?:,|\.| e | que | quero | preciso | para | pra |$)",
+    ]
+
+    for padrao in padroes:
+        match = re.search(padrao, texto_lower, re.IGNORECASE)
+        if match:
+            nome = re.sub(r"\s+", " ", match.group(1)).strip()
+            if len(nome) >= 3:
+                return nome.upper()
+
+    texto_puro = re.sub(
+        r"[^a-zA-ZáàâãéèêíìîóòôõúùûçÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ\s]",
+        " ",
+        texto_original
+    )
+    texto_puro = re.sub(r"\s+", " ", texto_puro).strip()
+
+    palavras = texto_puro.split()
+
+    bloqueadas = {
+        "quero", "agendar", "revisao", "revisão", "garantia", "peca", "peça",
+        "acessorio", "acessório", "menu", "atendente", "humano", "segunda",
+        "terca", "terça", "quarta", "quinta", "sexta", "sabado", "sábado",
+        "dia", "as", "às", "valor", "quanto", "custa", "fluo", "fazer",
+        "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax",
+        "aerox", "logista", "lojista", "atacado", "catalogo", "catálogo",
+        "pecas", "peças", "cancelar", "reagendar", "consultar", "agendamento",
+        "protocolo", "falar", "alguem", "alguém", "consultor", "duvida",
+        "dúvida", "depois", "tabela", "oficina", "parceria"
+    }
+
+    if 2 <= len(palavras) <= 6:
+        if not any(p.lower() in bloqueadas for p in palavras):
+            return " ".join(palavras).upper()
+
+    return ""
+
+
+def extrair_item_adicional(texto):
+    texto_lower = normalizar_texto(texto)
+
+    itens_comuns = [
+        "filtro", "filtro de oleo", "filtro de ar",
+        "pastilha traseira", "pastilha dianteira", "pastilha de freio",
+        "sapata de freio", "kit lubrificante", "oleo",
+        "slider", "bau", "suporte celular", "suporte para celular",
+        "protetor motor", "protetor de motor", "vela",
+        "vela de ignicao", "limpeza de bico", "limpeza de injecao",
+        "troca de oleo", "bateria", "relacao", "kit transmissao",
+        "pneu"
+    ]
+
+    encontrados = []
+
+    for item in itens_comuns:
+        item_normalizado = normalizar_texto(item)
+        if item_normalizado in texto_lower:
+            item_formatado = item_normalizado.upper()
+            if item_formatado not in encontrados:
+                encontrados.append(item_formatado)
+
+    return ", ".join(encontrados)
+
+
+def extrair_observacao(texto):
+    texto_limpo = limpar_texto(texto)
+
+    if not texto_limpo:
+        return ""
+
+    if normalizar_botao_zapi(texto_limpo):
+        return ""
+
+    if len(texto_limpo) < 8:
+        return ""
+
+    return texto_limpo
+
+
+def extrair_tipo_atendimento(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if "aguardar" in texto_norm:
+        return "AGUARDAR NA CONCESSIONÁRIA"
+
+    if "deixar" in texto_norm or "retirar depois" in texto_norm:
+        return "DEIXAR A MOTO E RETIRAR DEPOIS"
+
+    return ""
+
+
+def texto_parece_valor_revisao(texto_normalizado):
+    termos_agendamento = [
+        "agendar", "agendamento", "marcar", "remarcar", "reagendar",
+        "cancelar", "consultar", "acompanhar", "horario", "segunda",
+        "terca", "quarta", "quinta", "sexta", "sabado"
+    ]
+
+    if any(p in texto_normalizado for p in termos_agendamento):
+        return False
+
+    tem_valor = any(p in texto_normalizado for p in [
+        "valor", "preco", "preço", "custa", "quanto custa",
+        "quanto e", "quanto é"
+    ])
+
+    tem_contexto_revisao = any(p in texto_normalizado for p in [
+        "revisao", "revisão", "km", "quilometragem", "meses", "mes"
+    ])
+
+    tem_km = re.search(r"\b\d{1,3}(?:[.\s]?\d{3})*\s*km\b", texto_normalizado) is not None
+    tem_meses = re.search(r"\b\d+\s*(?:meses|mes)\b", texto_normalizado) is not None
+
+    return tem_valor and (tem_contexto_revisao or tem_km or tem_meses)
+
+
+def texto_parece_valor_pecas(texto_normalizado):
+    termos_valor = [
+        "valor", "preco", "preço", "quanto custa", "quanto e",
+        "quanto é", "custa", "orcamento", "orçamento",
+        "disponibilidade", "tem", "possui"
+    ]
+
+    termos_pecas = [
+        "peca", "pecas", "peça", "peças", "oleo", "óleo",
+        "filtro", "pastilha", "vela", "bateria", "relacao",
+        "relação", "kit transmissao", "kit transmissão", "corrente",
+        "coroa", "pinhao", "pinhão", "pneu", "camara", "câmara",
+        "retentor", "amortecedor", "embreagem", "disco de freio",
+        "lona de freio", "sapata de freio"
+    ]
+
+    return (
+        any(p in texto_normalizado for p in termos_valor)
+        and any(p in texto_normalizado for p in termos_pecas)
+    )
+
+
+def texto_parece_consulta_pecas(texto_normalizado):
+    termos_pecas = [
+        "peca", "pecas", "peça", "peças", "oleo", "óleo",
+        "filtro", "pastilha", "vela", "bateria", "relacao",
+        "relação", "kit transmissao", "kit transmissão", "pneu",
+        "corrente", "coroa", "pinhao", "pinhão", "retentor", "embreagem"
+    ]
+
+    termos_consulta = [
+        "tem", "possui", "quanto", "valor", "preco", "preço",
+        "custa", "orcamento", "orçamento", "disponibilidade",
+        "quero saber", "preciso de"
+    ]
+
+    return (
+        any(p in texto_normalizado for p in termos_pecas)
+        and any(p in texto_normalizado for p in termos_consulta)
+    )
+
+
+def frase_parece_duvida(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if texto_parece_valor_pecas(texto_norm) or texto_parece_consulta_pecas(texto_norm):
+        return False
+
+    gatilhos_duvida = [
+        "qual o valor", "qual valor", "quanto custa", "quanto e",
+        "quanto é", "o que troca", "o que inclui", "o que faz",
+        "o que e verificado", "quanto tempo", "quanto demora",
+        "com quantos km", "qual km", "quais itens", "como funciona",
+        "me explica", "pode me explicar", "tenho uma duvida",
+        "tenho uma dúvida", "duvida sobre", "dúvida sobre"
+    ]
+
+    marcadores_pergunta = [
+        "qual", "quais", "quanto", "como", "o que", "me explica", "explica"
+    ]
+
+    if any(gatilho in texto_norm for gatilho in gatilhos_duvida):
+        return True
+
+    if "?" in str(texto):
+        return True
+
+    if any(texto_norm.startswith(marcador) for marcador in marcadores_pergunta):
+        return True
+
+    return False
+
+
+def texto_parece_dado_de_fluxo(texto):
+    texto_limpo = limpar_texto(texto)
+    texto_norm = normalizar_texto(texto_limpo)
+
+    if not texto_limpo:
+        return False
+
+    if normalizar_botao_zapi(texto_limpo):
+        return False
+
+    intencoes_fortes = [
+        "agendar", "marcar revisao", "falar consultor", "consultor",
+        "humano", "quero tabela", "tabela", "atacado", "pecas",
+        "peças", "acessorios", "acessórios", "garantia", "menu", "depois"
+    ]
+
+    if any(p in texto_norm for p in intencoes_fortes):
+        return False
+
+    if extrair_cpf(texto_limpo):
+        return True
+    if extrair_data(texto_limpo):
+        return True
+    if extrair_horario(texto_limpo):
+        return True
+    if extrair_modelo(texto_limpo):
+        return True
+    if extrair_ano(texto_limpo):
+        return True
+    if extrair_revisao(texto_limpo):
+        return True
+    if extrair_dia(texto_limpo):
+        return True
+    if extrair_nome(texto_limpo):
+        return True
+
+    if texto_limpo in ["1", "2", "3", "4", "5", "6", "7"]:
+        return True
+
+    return False
+
+
+def detectar_intencao_regras(texto_normalizado):
+    botao = normalizar_botao_zapi(texto_normalizado)
+
+    if botao == "AGENDAR_REVISAO":
+        return "agendar_revisao", 1.0
+    if botao == "FALAR_CONSULTOR":
+        return "humano", 1.0
+    if botao == "DEPOIS":
+        return "menu", 0.80
+    if botao == "ATACADO_TABELA":
+        return "atacado", 1.0
+    if botao == "ATACADO_CONSULTOR":
+        return "humano", 1.0
+    if botao == "ATACADO_DEPOIS":
+        return "menu", 0.80
+
+    if texto_normalizado in ["menu", "voltar", "inicio", "início"]:
+        return "menu", 0.99
+
+    if texto_normalizado in ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite"]:
+        return "menu", 0.95
+
+    if any(p in texto_normalizado for p in [
+        "cancelar revisao", "cancelar minha revisao", "cancelar agendamento",
+        "desmarcar revisao", "quero cancelar", "cancelar meu horario"
+    ]):
+        return "cancelar_agendamento", 0.98
+
+    if any(p in texto_normalizado for p in [
+        "reagendar revisao", "reagendar agendamento", "remarcar revisao",
+        "trocar horario", "mudar horario", "quero remarcar", "quero reagendar"
+    ]):
+        return "reagendar_agendamento", 0.98
+
+    if any(p in texto_normalizado for p in [
+        "consultar agendamento", "consultar revisao", "ver agendamento",
+        "ver minha revisao", "ver meu protocolo", "acompanhar agendamento",
+        "qual meu agendamento", "tenho agendamento", "meu protocolo"
+    ]):
+        return "consultar_agendamento", 0.97
+
+    if any(p in texto_normalizado for p in [
+        "agendar revisao", "marcar revisao", "quero agendar",
+        "agendamento", "marcar horario", "agenda revisao"
+    ]):
+        return "agendar_revisao", 0.99
+
+    if texto_parece_valor_revisao(texto_normalizado):
+        return "valor_revisao", 0.98
+
+    if texto_parece_valor_pecas(texto_normalizado):
+        return "pecas", 0.99
+
+    if texto_parece_consulta_pecas(texto_normalizado):
+        return "pecas", 0.97
+
+    if any(p in texto_normalizado for p in [
+        "peca", "pecas", "peça", "peças", "orcamento", "orçamento",
+        "filtro", "pastilha", "vela", "oleo", "óleo", "relacao",
+        "relação", "bateria", "pneu"
+    ]):
+        return "pecas", 0.96
+
+    if any(p in texto_normalizado for p in [
+        "acessorio", "acessorios", "acessório", "acessórios",
+        "slider", "bau", "baú", "suporte de celular",
+        "suporte para celular", "protetor de motor"
+    ]):
+        return "acessorios", 0.95
+
+    if "garantia" in texto_normalizado:
+        if frase_parece_duvida(texto_normalizado):
+            return "duvidas", 0.95
+        return "garantia", 0.94
+
+    if any(p in texto_normalizado for p in [
+        "o que troca", "o que e trocado", "o que é trocado",
+        "o que e verificado", "o que inclui na revisao",
+        "quanto tempo demora a revisao", "com quantos km faz a revisao",
+        "segunda revisao", "terceira revisao", "quarta revisao", "quinta revisao"
+    ]):
+        return "duvidas", 0.95
+
+    if any(p in texto_normalizado for p in [
+        "duvida", "dúvida", "pergunta", "informacao", "informação",
+        "me explica", "como funciona"
+    ]):
+        return "duvidas", 0.90
+
+    if any(p in texto_normalizado for p in [
+        "atacado", "logista", "lojista", "oficina", "parceria",
+        "revenda", "revender", "comprar no atacado", "cotacao",
+        "cotação", "catalogo", "catálogo", "quero tabela",
+        "tabela de preco", "tabela de preço", "oleo yamalube", "óleo yamalube"
+    ]):
+        return "atacado", 0.96
+
+    if any(p in texto_normalizado for p in [
+        "atendente", "humano", "consultor", "falar com alguem",
+        "falar com alguém"
+    ]):
+        return "humano", 0.97
+
+    return "", 0.0
 
 
 def sugerir_proxima_etapa(intencao, dados):
     if intencao == "agendar_revisao":
-        if not dados["modelo"]:
+        if not dados.get("modelo"):
             return "revisao_modelo"
-        if not dados["nome"]:
+        if not dados.get("nome"):
             return "revisao_nome"
-        if not dados["cpf"]:
+        if not dados.get("cpf"):
             return "revisao_cpf"
-        if not dados["ano"]:
+        if not dados.get("ano"):
             return "revisao_ano"
-        if not dados["km"]:
+        if not dados.get("km"):
             return "revisao_km"
-        if not dados["revisao"]:
+        if not dados.get("revisao"):
             return "revisao_revisao"
-        if not dados["dia"]:
+        if not dados.get("dia"):
             return "revisao_dia"
-        if not dados["data"]:
+        if not dados.get("data"):
             return "revisao_data"
-        if not dados["horario"]:
+        if not dados.get("horario"):
             return "revisao_horario"
         return "revisao_venda"
 
-    if intencao == "cancelar_agendamento":
-        return "cancelar_agendamento"
+    mapa = {
+        "cancelar_agendamento": "cancelar_agendamento",
+        "reagendar_agendamento": "reagendar_agendamento",
+        "consultar_agendamento": "consultar_agendamento",
+        "valor_revisao": "consulta_valor_revisao",
+        "duvidas": "menu_duvidas",
+        "pecas": "pecas",
+        "acessorios": "acessorios_modelo",
+        "garantia": "garantia",
+        "atacado": "atacado",
+        "humano": "atendimento_humano",
+        "menu": "menu",
+    }
 
-    if intencao == "reagendar_agendamento":
-        return "reagendar_agendamento"
-
-    if intencao == "consultar_agendamento":
-        return "consultar_agendamento"
-
-    if intencao == "valor_revisao":
-        return "consulta_valor_revisao"
-
-    if intencao == "duvidas":
-        return "menu_duvidas"
-
-    if intencao == "pecas":
-        return "pecas"
-
-    if intencao == "acessorios":
-        return "acessorios_modelo"
-
-    if intencao == "garantia":
-        return "garantia"
-
-    if intencao == "atacado":
-        return "atacado"
-
-    if intencao == "humano":
-        return "atendimento_humano"
-
-    return "menu"
+    return mapa.get(intencao, "menu")
 
 
 def gerar_resposta(intencao, dados):
@@ -1391,40 +2015,21 @@ def gerar_resposta(intencao, dados):
 
         return "Perfeito. Vou te ajudar com o agendamento da sua revisão."
 
-    if intencao == "cancelar_agendamento":
-        return "Certo. Vou te ajudar a cancelar seu agendamento de revisão."
+    respostas = {
+        "cancelar_agendamento": "Certo. Vou te ajudar a cancelar seu agendamento de revisão.",
+        "reagendar_agendamento": "Perfeito. Vou te ajudar a reagendar sua revisão.",
+        "consultar_agendamento": "Certo. Vou consultar seu agendamento de revisão.",
+        "valor_revisao": "Perfeito. Vou verificar as informações para consultar o valor da revisão.",
+        "duvidas": "Perfeito. Vou te direcionar para a central de dúvidas.",
+        "pecas": "Certo. Vou seguir com seu atendimento de peças.",
+        "acessorios": "Perfeito. Vou seguir com seu atendimento de acessórios.",
+        "garantia": "Certo. Vou seguir com sua solicitação de garantia.",
+        "atacado": "Perfeito. Vou te direcionar para o atendimento de logista e atacado.",
+        "humano": "Certo. Vou te encaminhar para atendimento humano.",
+        "menu": "Perfeito. Vou te enviar o menu principal.",
+    }
 
-    if intencao == "reagendar_agendamento":
-        return "Perfeito. Vou te ajudar a reagendar sua revisão."
-
-    if intencao == "consultar_agendamento":
-        return "Certo. Vou consultar seu agendamento de revisão."
-
-    if intencao == "valor_revisao":
-        return "Perfeito. Vou verificar as informações para consultar o valor da revisão."
-
-    if intencao == "duvidas":
-        return "Perfeito. Vou te direcionar para a central de dúvidas."
-
-    if intencao == "pecas":
-        return "Certo. Vou seguir com seu atendimento de peças."
-
-    if intencao == "acessorios":
-        return "Perfeito. Vou seguir com seu atendimento de acessórios."
-
-    if intencao == "garantia":
-        return "Certo. Vou seguir com sua solicitação de garantia."
-
-    if intencao == "atacado":
-        return "Perfeito. Vou te direcionar para o atendimento de logista e atacado."
-
-    if intencao == "humano":
-        return "Certo. Vou te encaminhar para atendimento humano."
-
-    if intencao == "menu":
-        return "Perfeito. Vou te enviar o menu principal."
-
-    return "Entendi sua mensagem. Vou te ajudar com isso."
+    return respostas.get(intencao, "Entendi sua mensagem. Vou te ajudar com isso.")
 
 
 def classificar_com_ia(texto):
@@ -1432,6 +2037,7 @@ def classificar_com_ia(texto):
         return "", 0.0
 
     cliente = obter_cliente()
+
     if cliente is None:
         return "", 0.0
 
@@ -1447,26 +2053,15 @@ def classificar_com_ia(texto):
                         "Responda com apenas uma única palavra, sem explicação, escolhendo uma destas opções exatas: "
                         "agendar_revisao, cancelar_agendamento, reagendar_agendamento, consultar_agendamento, "
                         "valor_revisao, duvidas, pecas, acessorios, garantia, atacado, humano, menu. "
-
-                        "Use agendar_revisao quando o cliente quiser marcar, agendar ou iniciar uma revisão. "
-                        "Use valor_revisao apenas quando a pessoa quiser saber preço, valor ou custo da revisão. "
-                        "Use pecas quando perguntar valor, preço, orçamento ou disponibilidade de peça avulsa, "
-                        "como filtro, pastilha, vela, bateria, óleo, relação, pneu ou itens similares. "
-                        "Use acessorios quando mencionar acessórios como slider, baú, suporte, protetor ou catálogo de acessórios. "
+                        "Use pecas quando perguntar preço, orçamento ou disponibilidade de peça avulsa. "
+                        "Use acessorios quando mencionar slider, baú, suporte, protetor ou catálogo de acessórios. "
                         "Use garantia quando relatar defeito, problema, falha ou solicitação de garantia. "
-                        "Use duvidas quando quiser apenas tirar uma dúvida sobre revisão ou garantia, sem pedir agendamento. "
-                        "Use atacado quando mencionar lojista, oficina, parceria, tabela, revenda, óleo Yamalube ou compra no atacado. "
-                        "Use humano quando pedir consultor, atendente, vendedor ou falar com alguém. "
-                        "Use menu para saudações simples ou quando pedir o menu. "
-
-                        "Se o texto parecer apenas nome, CPF, data, horário, modelo, ano, quilometragem ou outra resposta curta de cadastro, responda vazio. "
-                        "Se receber IDs de botões como AGENDAR_REVISAO, FALAR_CONSULTOR, ATACADO_TABELA, ATACADO_CONSULTOR ou DEPOIS, classifique corretamente."
+                        "Use duvidas quando quiser apenas tirar dúvida sobre revisão ou garantia. "
+                        "Use humano quando pedir consultor, atendente ou falar com alguém. "
+                        "Se parecer nome, CPF, data, horário, modelo, ano ou quilometragem, responda vazio."
                     )
                 },
-                {
-                    "role": "user",
-                    "content": texto
-                }
+                {"role": "user", "content": texto}
             ]
         )
 
@@ -1474,18 +2069,9 @@ def classificar_com_ia(texto):
         log_info("Resposta bruta IA:", conteudo)
 
         permitidas = {
-            "agendar_revisao",
-            "cancelar_agendamento",
-            "reagendar_agendamento",
-            "consultar_agendamento",
-            "valor_revisao",
-            "duvidas",
-            "pecas",
-            "acessorios",
-            "garantia",
-            "atacado",
-            "humano",
-            "menu"
+            "agendar_revisao", "cancelar_agendamento", "reagendar_agendamento",
+            "consultar_agendamento", "valor_revisao", "duvidas", "pecas",
+            "acessorios", "garantia", "atacado", "humano", "menu"
         }
 
         if conteudo in permitidas:
@@ -1494,7 +2080,7 @@ def classificar_com_ia(texto):
         return "", 0.0
 
     except Exception as e:
-        log_erro("Erro ao classificar intenção:", e)
+        log_erro("Erro ao classificar intenção:", repr(e))
         return "", 0.0
 
 
@@ -1503,6 +2089,7 @@ def pontuar_correspondencia_duvida(pergunta_normalizada, palavras_chave):
 
     for palavra in palavras_chave:
         palavra_normalizada = normalizar_texto(palavra)
+
         if palavra_normalizada and palavra_normalizada in pergunta_normalizada:
             pontos += 1
 
@@ -1513,7 +2100,7 @@ def responder_duvida_revisao_excel(pergunta, modelo="", revisao=""):
     try:
         df = pd.read_excel(CAMINHO_PLANILHA_REVISOES)
     except Exception as e:
-        log_erro("Erro ao carregar planilha revisões:", e)
+        log_erro("Erro ao carregar planilha revisões:", repr(e))
         return "Não consegui consultar as informações de revisão no momento."
 
     if df.empty:
@@ -1565,8 +2152,7 @@ def responder_duvida_revisao_excel(pergunta, modelo="", revisao=""):
     if df.empty:
         return (
             "Não encontrei essa revisão na base de dados.\n\n"
-            "Tente informar o modelo da moto e o número da revisão.\n\n"
-            "Se preferir, nossa equipe pode verificar para você."
+            "Tente informar o modelo da moto e o número da revisão."
         )
 
     linha = df.iloc[0]
@@ -1581,18 +2167,12 @@ def responder_duvida_revisao_excel(pergunta, modelo="", revisao=""):
     revisao_linha = str(linha["revisao_numero"]).strip()
 
     if any(p in pergunta_normalizada for p in ["valor", "preco", "preço", "quanto custa", "custo"]):
-        return (
-            f"O valor estimado da {revisao_linha}ª revisão da {modelo_linha} é "
-            f"{formatar_valor_brl(valor)}."
-        )
+        return f"O valor estimado da {revisao_linha}ª revisão da {modelo_linha} é {formatar_valor_brl(valor)}."
 
     if any(p in pergunta_normalizada for p in ["tempo", "demora", "duracao", "duração", "quanto tempo"]):
-        return (
-            f"O tempo estimado da {revisao_linha}ª revisão da {modelo_linha} é "
-            f"{tempo_estimado}."
-        )
+        return f"O tempo estimado da {revisao_linha}ª revisão da {modelo_linha} é {tempo_estimado}."
 
-    if any(p in pergunta_normalizada for p in ["troca", "trocado", "trocados", "o que troca", "itens trocados"]):
+    if any(p in pergunta_normalizada for p in ["troca", "trocado", "trocados", "o que troca"]):
         return (
             f"Na {revisao_linha}ª revisão da {modelo_linha}, os principais itens trocados são:\n\n"
             f"{itens_trocados}"
@@ -1605,16 +2185,10 @@ def responder_duvida_revisao_excel(pergunta, modelo="", revisao=""):
         )
 
     if any(p in pergunta_normalizada for p in ["km", "quilometragem"]):
-        return (
-            f"A {revisao_linha}ª revisão da {modelo_linha} é prevista para aproximadamente "
-            f"{km} km."
-        )
+        return f"A {revisao_linha}ª revisão da {modelo_linha} é prevista para aproximadamente {km} km."
 
     if any(p in pergunta_normalizada for p in ["mes", "meses", "prazo"]):
-        return (
-            f"A {revisao_linha}ª revisão da {modelo_linha} é prevista para "
-            f"{meses} meses."
-        )
+        return f"A {revisao_linha}ª revisão da {modelo_linha} é prevista para {meses} meses."
 
     return (
         f"📋 {revisao_linha}ª revisão da {modelo_linha}\n\n"
@@ -1660,14 +2234,6 @@ def responder_duvida_por_tabela(categoria, pergunta_cliente, modelo="", revisao=
 
     if melhor_item and melhor_pontuacao > 0:
         return melhor_item["resposta"]
-
-    if categoria_normalizada == "garantia":
-        return (
-            "Entendi sua dúvida sobre garantia.\n\n"
-            "No momento, não encontrei uma resposta exata na base de conhecimento.\n\n"
-            "Para te orientar corretamente, o ideal é que nossa equipe analise o seu caso. "
-            "Se desejar, posso te encaminhar para atendimento."
-        )
 
     return (
         "Recebi sua dúvida, mas ainda não encontrei uma resposta exata na base.\n\n"
@@ -1746,8 +2312,8 @@ def classificar_intencao(texto):
 
         elif dados["item_adicional"] and any(
             p in texto_normalizado for p in [
-                "valor", "preco", "preço", "quanto custa", "orcamento",
-                "orçamento", "custa", "tem", "disponibilidade"
+                "valor", "preco", "preço", "quanto custa",
+                "orcamento", "orçamento", "custa", "tem", "disponibilidade"
             ]
         ):
             intencao = "pecas"
@@ -1766,12 +2332,8 @@ def classificar_intencao(texto):
             confianca = 0.90
 
         elif (
-            dados["nome"] or
-            dados["cpf"] or
-            dados["ano"] or
-            dados["dia"] or
-            dados["data"] or
-            dados["horario"]
+            dados["nome"] or dados["cpf"] or dados["ano"] or
+            dados["dia"] or dados["data"] or dados["horario"]
         ):
             intencao = "agendar_revisao"
             confianca = 0.80
@@ -1798,3 +2360,18 @@ def classificar_intencao(texto):
 
     log_info("Retorno final IA:", retorno)
     return retorno
+
+
+if __name__ == "__main__":
+    testes = [
+        "quanto custa a revisão da minha fz15?",
+        "quero agendar revisão da minha lander 2025",
+        "tem pastilha de freio da fazer?",
+        "garantia cobre bateria?",
+        "meu nome é João Silva",
+        "CPF 123.456.789-00",
+    ]
+
+    for t in testes:
+        print("\nPERGUNTA:", t)
+        print(classificar_intencao(t))

@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
+
     <title>Clientes CRM</title>
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,87 +18,86 @@
             box-sizing:border-box;
         }
 
-        body {
-            background: #f4f7fb;
-            font-family: Arial, Helvetica, sans-serif;
-            color: #1f2937;
+        body{
+            background:#f4f7fb;
+            font-family:Arial, Helvetica, sans-serif;
+            color:#1f2937;
         }
 
-        .topbar {
-            background: linear-gradient(90deg, #0b1f4d, #163b8c);
-            color: white;
-            padding: 22px 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        .topbar{
+            background:linear-gradient(90deg,#0b1f4d,#163b8c);
+            color:white;
+            padding:22px 30px;
+            box-shadow:0 4px 15px rgba(0,0,0,0.15);
         }
 
-        .topbar h1 {
-            font-size: 28px;
+        .topbar h1{
+            font-size:28px;
         }
 
-        .topbar p {
-            margin-top: 6px;
-            font-size: 14px;
-            opacity: 0.9;
+        .topbar p{
+            margin-top:6px;
+            font-size:14px;
+            opacity:0.9;
         }
 
-        .container {
-            padding: 25px;
+        .container{
+            padding:25px;
         }
 
-        .nav {
-            margin-bottom: 22px;
+        .nav{
+            margin-bottom:22px;
             display:flex;
             gap:10px;
             flex-wrap:wrap;
         }
 
-        .nav a {
-            background: white;
-            padding: 10px 18px;
-            border-radius: 10px;
-            text-decoration: none;
-            color: #163b8c;
-            font-weight: bold;
-            border: 2px solid #163b8c;
-            transition: 0.2s;
-            display: inline-block;
+        .nav a{
+            background:white;
+            padding:10px 18px;
+            border-radius:10px;
+            text-decoration:none;
+            color:#163b8c;
+            font-weight:bold;
+            border:2px solid #163b8c;
+            transition:0.2s;
         }
 
-        .nav a:hover {
-            background: #163b8c;
-            color: white;
-            transform: translateY(-1px);
+        .nav a:hover{
+            background:#163b8c;
+            color:white;
+            transform:translateY(-1px);
         }
 
-        .cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 18px;
-            margin-bottom: 25px;
+        .cards{
+            display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+            gap:18px;
+            margin-bottom:25px;
         }
 
-        .card {
-            background: white;
-            padding: 22px;
-            border-radius: 16px;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-            border-left: 5px solid #163b8c;
+        .card{
+            background:white;
+            padding:22px;
+            border-radius:16px;
+            box-shadow:0 6px 18px rgba(0,0,0,0.08);
+            border-left:5px solid #163b8c;
         }
 
-        .card h3 {
-            font-size: 13px;
-            color: #6b7280;
-            margin-bottom: 10px;
-            text-transform: uppercase;
+        .card h3{
+            font-size:13px;
+            color:#6b7280;
+            margin-bottom:10px;
+            text-transform:uppercase;
         }
 
-        .card .numero {
-            font-size: 30px;
-            font-weight: bold;
-            color: #111827;
+        .card .numero{
+            font-size:30px;
+            font-weight:bold;
+            color:#111827;
         }
 
-        .filters {
+        .filters{
             background:white;
             padding:18px;
             border-radius:16px;
@@ -109,7 +110,7 @@
         }
 
         .filters input,
-        .filters select {
+        .filters select{
             padding:10px 14px;
             border-radius:10px;
             border:1px solid #d1d5db;
@@ -118,19 +119,19 @@
         }
 
         .filters input:focus,
-        .filters select:focus {
+        .filters select:focus{
             border-color:#163b8c;
         }
 
-        .table-section {
-            background: white;
-            padding: 22px;
-            border-radius: 16px;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+        .table-section{
+            background:white;
+            padding:22px;
+            border-radius:16px;
+            box-shadow:0 6px 18px rgba(0,0,0,0.08);
             overflow-x:auto;
         }
 
-        .table-header {
+        .table-header{
             display:flex;
             justify-content:space-between;
             align-items:center;
@@ -139,136 +140,139 @@
             flex-wrap:wrap;
         }
 
-        .table-header h2 {
+        .table-header h2{
             font-size:22px;
             color:#111827;
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            min-width: 1250px;
+        table{
+            width:100%;
+            border-collapse:collapse;
+            min-width:1700px;
         }
 
-        thead {
-            background: #163b8c;
-            color: white;
+        thead{
+            background:#163b8c;
+            color:white;
         }
 
-        th {
+        th{
             text-align:left;
-            padding: 14px 12px;
+            padding:14px 12px;
             font-size:14px;
             white-space:nowrap;
         }
 
-        td {
-            padding: 14px 12px;
-            border-bottom: 1px solid #e5e7eb;
+        td{
+            padding:14px 12px;
+            border-bottom:1px solid #e5e7eb;
             font-size:14px;
             vertical-align:middle;
         }
 
-        tbody tr:hover {
-            background: #f9fafb;
+        tbody tr:hover{
+            background:#f9fafb;
         }
 
-        .status {
-            padding: 7px 12px;
-            border-radius: 999px;
-            font-size: 11px;
-            font-weight: bold;
+        .status{
+            padding:7px 12px;
+            border-radius:999px;
+            font-size:11px;
+            font-weight:bold;
             display:inline-block;
             white-space:nowrap;
         }
 
-        .novo {
-            background: #e0f2fe;
-            color: #0369a1;
+        .novo{
+            background:#e0f2fe;
+            color:#0369a1;
         }
 
-        .andamento {
-            background: #fef3c7;
-            color: #92400e;
-        }
-
-        .agendado {
-            background: #dcfce7;
-            color: #166534;
-        }
-
-        .confirmado {
-            background: #dbeafe;
-            color: #1d4ed8;
-        }
-
-        .reagendado {
-            background: #fef9c3;
-            color: #854d0e;
-        }
-
-        .cancelado {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        .finalizado {
-            background: #dcfce7;
-            color: #15803d;
-        }
-
-        .humano {
-            background: #ede9fe;
-            color: #6d28d9;
-        }
-
-        .execucao {
-            background: #ffedd5;
-            color: #c2410c;
-        }
-
-        .badge {
-            font-size: 11px;
-            padding: 5px 10px;
-            border-radius: 999px;
-            background: #dcfce7;
-            color: #166534;
-            font-weight:bold;
-            white-space:nowrap;
-        }
-
-        .badge-baixo {
-            background:#f3f4f6;
-            color:#4b5563;
-        }
-
-        .badge-medio {
+        .andamento{
             background:#fef3c7;
             color:#92400e;
         }
 
-        .badge-alto {
+        .agendado{
             background:#dcfce7;
             color:#166534;
         }
 
-        .telefone {
+        .confirmado{
+            background:#dbeafe;
+            color:#1d4ed8;
+        }
+
+        .reagendado{
+            background:#fef9c3;
+            color:#854d0e;
+        }
+
+        .cancelado{
+            background:#fee2e2;
+            color:#991b1b;
+        }
+
+        .finalizado{
+            background:#dcfce7;
+            color:#15803d;
+        }
+
+        .humano{
+            background:#ede9fe;
+            color:#6d28d9;
+        }
+
+        .execucao{
+            background:#ffedd5;
+            color:#c2410c;
+        }
+
+        .ia{
+            background:#ede9fe;
+            color:#7c3aed;
+        }
+
+        .badge{
+            font-size:11px;
+            padding:5px 10px;
+            border-radius:999px;
+            font-weight:bold;
+            white-space:nowrap;
+        }
+
+        .badge-baixo{
+            background:#f3f4f6;
+            color:#4b5563;
+        }
+
+        .badge-medio{
+            background:#fef3c7;
+            color:#92400e;
+        }
+
+        .badge-alto{
+            background:#dcfce7;
+            color:#166534;
+        }
+
+        .telefone{
             font-weight:bold;
             color:#163b8c;
             white-space:nowrap;
         }
 
-        .origem {
+        .origem{
             font-weight:bold;
             color:#374151;
             white-space:nowrap;
         }
 
-        .vazio {
+        .vazio{
             color:#9ca3af;
         }
 
-        .btn-whatsapp {
+        .btn-whatsapp{
             background:#25d366;
             color:white;
             padding:8px 12px;
@@ -281,14 +285,25 @@
             transition:0.2s;
         }
 
-        .btn-whatsapp:hover {
+        .btn-whatsapp:hover{
             filter:brightness(0.95);
             transform:translateY(-1px);
         }
 
-        .small-text {
+        .small-text{
             font-size:12px;
             color:#6b7280;
+        }
+
+        .resposta-ia{
+            max-width:300px;
+            white-space:normal;
+            line-height:1.4;
+        }
+
+        .confidence{
+            font-weight:bold;
+            color:#7c3aed;
         }
 
         @media(max-width:768px){
@@ -309,69 +324,90 @@
         }
 
     </style>
+
 </head>
 
 <body>
 
 <div class="topbar">
+
     <h1>👥 Clientes CRM Motoshow</h1>
 
     <p>
-        Gestão de atendimentos, campanhas, IA, botões Z-API e pós-vendas Yamaha
+        Gestão inteligente de clientes, IA, pós-vendas e campanhas Yamaha
     </p>
+
 </div>
 
 <div class="container">
 
     <div class="nav">
-        <a href="/dashboard">⬅ Voltar Dashboard</a>
 
-        <a href="/clientes">🔄 Atualizar</a>
+        <a href="/dashboard">
+            ⬅ Voltar Dashboard
+        </a>
+
+        <a href="/clientes">
+            🔄 Atualizar
+        </a>
+
     </div>
 
     <div class="cards">
 
         <div class="card">
+
             <h3>Total Clientes</h3>
 
             <div class="numero">
                 {{ atendimentos|length }}
             </div>
+
         </div>
 
         <div class="card">
+
             <h3>Atendimento Humano</h3>
 
             <div class="numero">
-                {{ atendimentos | selectattr('atendimento_humano') | list | length }}
+                {{
+                    atendimentos
+                    | selectattr('atendimento_humano', 'equalto', true)
+                    | list
+                    | length
+                }}
             </div>
+
         </div>
 
         <div class="card">
+
             <h3>Agendados</h3>
 
             <div class="numero">
                 {{
                     atendimentos
-                    | selectattr('status')
                     | selectattr('status', 'equalto', 'AGENDADO')
                     | list
                     | length
                 }}
             </div>
+
         </div>
 
         <div class="card">
-            <h3>Finalizados</h3>
+
+            <h3>IA Conversando</h3>
 
             <div class="numero">
                 {{
                     atendimentos
-                    | selectattr('concluido')
+                    | selectattr('intencao_ia')
                     | list
                     | length
                 }}
             </div>
+
         </div>
 
     </div>
@@ -381,18 +417,17 @@
         <input
             type="text"
             id="pesquisa"
-            placeholder="Pesquisar cliente, telefone, modelo, origem..."
+            placeholder="Pesquisar cliente, telefone, modelo..."
         >
 
         <select id="filtroStatus">
-            <option value="">Todos os status</option>
+
+            <option value="">
+                Todos os status
+            </option>
 
             <option value="NOVO_ATENDIMENTO">
                 Novo atendimento
-            </option>
-
-            <option value="AGENDAMENTO_INICIADO">
-                Agendamento iniciado
             </option>
 
             <option value="AGENDADO">
@@ -403,14 +438,6 @@
                 Confirmado
             </option>
 
-            <option value="REAGENDADO">
-                Reagendado
-            </option>
-
-            <option value="CANCELADO">
-                Cancelado
-            </option>
-
             <option value="FINALIZADO">
                 Finalizado
             </option>
@@ -418,6 +445,7 @@
             <option value="ATENDIMENTO_HUMANO">
                 Atendimento humano
             </option>
+
         </select>
 
         <select id="filtroOrigem">
@@ -427,39 +455,19 @@
             </option>
 
             <option value="BOT">
-                Bot
-            </option>
-
-            <option value="CAMPANHA_REVISAO_BOTOES">
-                Campanha Revisão
-            </option>
-
-            <option value="CAMPANHA_ATACADO_BOTOES">
-                Campanha Atacado
-            </option>
-
-            <option value="MENU">
-                Menu
+                BOT
             </option>
 
             <option value="IA">
                 IA
             </option>
 
-        </select>
-
-        <select id="filtroHumano">
-
-            <option value="">
-                Humano: todos
+            <option value="MENU">
+                MENU
             </option>
 
-            <option value="sim">
-                Humano: sim
-            </option>
-
-            <option value="nao">
-                Humano: não
+            <option value="CAMPANHA">
+                CAMPANHA
             </option>
 
         </select>
@@ -484,209 +492,206 @@
 
             <thead>
 
-                <tr>
-                    <th>Nome</th>
+            <tr>
 
-                    <th>Telefone</th>
+                <th>Nome</th>
 
-                    <th>Status</th>
+                <th>Telefone</th>
 
-                    <th>Etapa</th>
+                <th>Status</th>
 
-                    <th>IA</th>
+                <th>Etapa</th>
 
-                    <th>Botão</th>
+                <th>IA</th>
 
-                    <th>Modelo</th>
+                <th>Resposta IA</th>
 
-                    <th>Revisão</th>
+                <th>Confiança</th>
 
-                    <th>Interesse</th>
+                <th>Próxima Ação</th>
 
-                    <th>Última Interação</th>
+                <th>Botão</th>
 
-                    <th>Humano</th>
+                <th>Modelo</th>
 
-                    <th>Origem</th>
+                <th>Revisão</th>
 
-                    <th>Ação</th>
-                </tr>
+                <th>Interesse</th>
+
+                <th>Última Mensagem</th>
+
+                <th>Última Interação</th>
+
+                <th>Origem</th>
+
+                <th>Ação</th>
+
+            </tr>
 
             </thead>
 
             <tbody>
 
-                {% for c in atendimentos %}
+            {% for c in atendimentos %}
 
-                {% set status = (c.status or '').upper() %}
+            {% set status = (c.status or '').upper() %}
+            {% set interesse = (c.nivel_interesse or '').upper() %}
 
-                {% set origem = (c.origem or 'BOT') %}
+            <tr
+                data-status="{{ status }}"
+                data-origem="{{ c.origem or '' }}"
+            >
 
-                {% set interesse = (c.nivel_interesse or '')|upper %}
+                <td>
+                    {{ c.nome or '-' }}
+                </td>
 
-                <tr
-                    data-status="{{ status }}"
-                    data-origem="{{ origem }}"
-                    data-humano="{% if c.atendimento_humano %}sim{% else %}nao{% endif %}"
-                >
+                <td class="telefone">
+                    {{ c.telefone or '-' }}
+                </td>
 
-                    <td>
-                        {{ c.nome or '-' }}
-                    </td>
+                <td>
 
-                    <td class="telefone">
-                        {{ c.telefone }}
-                    </td>
+                    <span class="status
 
-                    <td>
+                    {% if status == 'NOVO_ATENDIMENTO' %}
+                        novo
 
-                        <span class="status
+                    {% elif status == 'AGENDADO' %}
+                        agendado
 
-                            {% if status == 'NOVO_ATENDIMENTO' %}
-                                novo
+                    {% elif status == 'CONFIRMADO' %}
+                        confirmado
 
-                            {% elif status == 'AGENDAMENTO_INICIADO' %}
-                                andamento
+                    {% elif status == 'FINALIZADO' %}
+                        finalizado
 
-                            {% elif status == 'AGENDADO' %}
-                                agendado
+                    {% elif status == 'ATENDIMENTO_HUMANO' %}
+                        humano
 
-                            {% elif status == 'CONFIRMADO' %}
-                                confirmado
+                    {% elif status == 'EM_EXECUCAO' %}
+                        execucao
 
-                            {% elif status == 'REAGENDADO' %}
-                                reagendado
+                    {% else %}
+                        andamento
+                    {% endif %}
+                    ">
 
-                            {% elif status == 'CANCELADO' %}
-                                cancelado
+                        {{ status or 'EM ANDAMENTO' }}
 
-                            {% elif status == 'FINALIZADO' %}
-                                finalizado
+                    </span>
 
-                            {% elif status == 'EM_EXECUCAO' %}
-                                execucao
+                </td>
 
-                            {% elif status == 'ATENDIMENTO_HUMANO' %}
-                                humano
+                <td>
+                    {{ c.etapa or '-' }}
+                </td>
 
-                            {% else %}
-                                andamento
-                            {% endif %}
-                        ">
+                <td>
 
-                            {{ status or 'EM ANDAMENTO' }}
+                    <span class="status ia">
+                        {{ c.intencao_ia or '-' }}
+                    </span>
 
+                </td>
+
+                <td class="resposta-ia">
+                    {{ c.resposta_ia or '-' }}
+                </td>
+
+                <td class="confidence">
+                    {{ c.confianca_ia or '-' }}
+                </td>
+
+                <td>
+                    {{ c.proxima_acao or '-' }}
+                </td>
+
+                <td>
+                    {{ c.button_id or '-' }}
+                </td>
+
+                <td>
+                    {{ c.modelo or '-' }}
+                </td>
+
+                <td>
+
+                    {% if c.revisao %}
+                        {{ c.revisao }}ª
+                    {% else %}
+                        -
+                    {% endif %}
+
+                </td>
+
+                <td>
+
+                    {% if interesse == 'ALTO' %}
+
+                        <span class="badge badge-alto">
+                            Alto
                         </span>
 
-                    </td>
+                    {% elif interesse == 'MEDIO' or interesse == 'MÉDIO' %}
 
-                    <td>
-                        {{ c.etapa or '-' }}
-                    </td>
+                        <span class="badge badge-medio">
+                            Médio
+                        </span>
 
-                    <td>
-                        {{ c.intencao_ia or '-' }}
-                    </td>
+                    {% elif interesse == 'BAIXO' %}
 
-                    <td>
-                        {{ c.button_id or '-' }}
-                    </td>
+                        <span class="badge badge-baixo">
+                            Baixo
+                        </span>
 
-                    <td>
-                        {{ c.modelo or '-' }}
-                    </td>
+                    {% else %}
 
-                    <td>
+                        <span class="vazio">
+                            —
+                        </span>
 
-                        {% if c.revisao %}
-                            {{ c.revisao }}ª
-                        {% else %}
-                            -
-                        {% endif %}
+                    {% endif %}
 
-                    </td>
+                </td>
 
-                    <td>
+                <td class="resposta-ia">
+                    {{ c.ultima_mensagem_cliente or '-' }}
+                </td>
 
-                        {% if interesse == 'ALTO' %}
+                <td>
+                    {{ c.ultima_interacao or '-' }}
+                </td>
 
-                            <span class="badge badge-alto">
-                                Alto
-                            </span>
+                <td class="origem">
+                    {{ c.origem or 'BOT' }}
+                </td>
 
-                        {% elif interesse == 'MEDIO' or interesse == 'MÉDIO' %}
+                <td>
 
-                            <span class="badge badge-medio">
-                                Médio
-                            </span>
+                    {% if c.telefone %}
 
-                        {% elif interesse == 'BAIXO' %}
+                    <a
+                        href="https://wa.me/{{ c.telefone|replace('+','')|replace(' ','')|replace('-','')|replace('(','')|replace(')','') }}"
+                        target="_blank"
+                        class="btn-whatsapp"
+                    >
+                        WhatsApp
+                    </a>
 
-                            <span class="badge badge-baixo">
-                                Baixo
-                            </span>
+                    {% else %}
 
-                        {% else %}
+                    <span class="vazio">
+                        —
+                    </span>
 
-                            <span class="vazio">
-                                —
-                            </span>
+                    {% endif %}
 
-                        {% endif %}
+                </td>
 
-                    </td>
+            </tr>
 
-                    <td>
-                        {{ c.ultima_interacao or '-' }}
-                    </td>
-
-                    <td>
-
-                        {% if c.atendimento_humano %}
-
-                            <span class="badge">
-                                Sim
-                            </span>
-
-                        {% else %}
-
-                            <span class="vazio">
-                                —
-                            </span>
-
-                        {% endif %}
-
-                    </td>
-
-                    <td class="origem">
-                        {{ origem }}
-                    </td>
-
-                    <td>
-
-                        {% if c.telefone %}
-
-                            <a
-                                href="https://wa.me/{{ c.telefone|replace('+','')|replace(' ','')|replace('-','')|replace('(','')|replace(')','') }}"
-                                target="_blank"
-                                class="btn-whatsapp"
-                            >
-                                WhatsApp
-                            </a>
-
-                        {% else %}
-
-                            <span class="vazio">
-                                —
-                            </span>
-
-                        {% endif %}
-
-                    </td>
-
-                </tr>
-
-                {% endfor %}
+            {% endfor %}
 
             </tbody>
 
@@ -704,9 +709,7 @@ const filtroStatus = document.getElementById("filtroStatus");
 
 const filtroOrigem = document.getElementById("filtroOrigem");
 
-const filtroHumano = document.getElementById("filtroHumano");
-
-function aplicarFiltros() {
+function aplicarFiltros(){
 
     const textoBusca = pesquisa.value.toLowerCase();
 
@@ -714,19 +717,15 @@ function aplicarFiltros() {
 
     const origemSelecionada = filtroOrigem.value;
 
-    const humanoSelecionado = filtroHumano.value;
-
     const linhas = document.querySelectorAll("#tabelaClientes tbody tr");
 
-    linhas.forEach(function(linha) {
+    linhas.forEach(function(linha){
 
         const textoLinha = linha.innerText.toLowerCase();
 
         const statusLinha = linha.getAttribute("data-status") || "";
 
         const origemLinha = linha.getAttribute("data-origem") || "";
-
-        const humanoLinha = linha.getAttribute("data-humano") || "";
 
         const bateBusca = textoLinha.includes(textoBusca);
 
@@ -738,21 +737,18 @@ function aplicarFiltros() {
             !origemSelecionada ||
             origemLinha === origemSelecionada;
 
-        const bateHumano =
-            !humanoSelecionado ||
-            humanoLinha === humanoSelecionado;
-
-        if (
+        if(
             bateBusca &&
             bateStatus &&
-            bateOrigem &&
-            bateHumano
-        ) {
+            bateOrigem
+        ){
+
             linha.style.display = "";
 
-        } else {
+        }else{
 
             linha.style.display = "none";
+
         }
 
     });
@@ -764,8 +760,6 @@ pesquisa.addEventListener("keyup", aplicarFiltros);
 filtroStatus.addEventListener("change", aplicarFiltros);
 
 filtroOrigem.addEventListener("change", aplicarFiltros);
-
-filtroHumano.addEventListener("change", aplicarFiltros);
 
 </script>
 

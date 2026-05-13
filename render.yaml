@@ -101,4 +101,15 @@ services:
       # ==========================================
       - key: PYTHONUNBUFFERED
         value: true
-```
+        
+      # ==========================================
+      # IA / BASE DE CONHECIMENTO
+      # ==========================================
+      - key: CAMINHO_MANUAIS
+        value: manuais
+
+      - key: CAMINHO_PLANILHA_REVISOES
+        value: templates/data/revisoes_yamaha.xlsx
+
+      - key: IA_ATIVA
+        value: true
