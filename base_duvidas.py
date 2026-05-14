@@ -14,8 +14,10 @@ except ImportError:
 
 # ==========================================
 # PASTA DOS MANUAIS
+# Ajuste conforme onde seus PDFs estão.
+# Se seus PDFs estão em static/manuais, mantenha assim.
 # ==========================================
-PASTA_MANUAIS = os.path.join("templates", "data", "manuais")
+PASTA_MANUAIS = os.path.join("static", "manuais")
 
 
 # ==========================================
@@ -100,11 +102,46 @@ def normalizar_texto(texto):
     return texto.strip()
 
 
+def normalizar_nome_arquivo(nome):
+    nome = str(nome or "").lower().strip()
+    nome = nome.replace("\\", "/").split("/")[-1]
+    nome = re.sub(r"[^a-z0-9]+", "", nome)
+    return nome
+
+
 def limpar_trecho(texto):
     texto = str(texto or "")
     texto = re.sub(r"\s+", " ", texto)
     texto = texto.replace(" ,", ",").replace(" .", ".")
+    texto = texto.replace(" :", ":").replace(" ;", ";")
+    texto = texto.strip()
+
+    # Remove marcas comuns extraídas de PDF
+    texto = re.sub(r"ubf\w*\.book page \d+.*?\d{1,2}:\d{2}.*?(am|pm)?", "", texto)
+    texto = re.sub(r"\.{4,}", " ", texto)
+    texto = re.sub(r"\s+", " ", texto)
+
     return texto.strip()
+
+
+def cortar_em_frases(texto, limite=650):
+    texto = limpar_trecho(texto)
+
+    if len(texto) <= limite:
+        return texto
+
+    partes = re.split(r"(?<=[.!?])\s+", texto)
+    saida = ""
+
+    for parte in partes:
+        if len(saida + " " + parte) > limite:
+            break
+        saida = (saida + " " + parte).strip()
+
+    if not saida:
+        saida = texto[:limite].strip()
+
+    return saida.strip()
 
 
 # ==========================================
@@ -132,6 +169,49 @@ def identificar_modelo(modelo):
 
 
 # ==========================================
+# LOCALIZAR PDF COM TOLERÂNCIA
+# ==========================================
+def localizar_pdf(nome_arquivo):
+    caminho_pdf = os.path.join(PASTA_MANUAIS, nome_arquivo)
+
+    if os.path.exists(caminho_pdf):
+        return caminho_pdf
+
+    if not os.path.isdir(PASTA_MANUAIS):
+        log_erro("Pasta de manuais não encontrada:", PASTA_MANUAIS)
+        return ""
+
+    alvo_norm = normalizar_nome_arquivo(nome_arquivo)
+
+    for arquivo in os.listdir(PASTA_MANUAIS):
+        arquivo_norm = normalizar_nome_arquivo(arquivo)
+
+        if arquivo_norm == alvo_norm:
+            return os.path.join(PASTA_MANUAIS, arquivo)
+
+    partes_alvo = [
+        p for p in re.split(r"[_\-. ]+", nome_arquivo.lower())
+        if len(p) >= 3
+    ]
+
+    melhor = ""
+    melhor_score = 0
+
+    for arquivo in os.listdir(PASTA_MANUAIS):
+        arquivo_lower = arquivo.lower()
+        score = sum(1 for parte in partes_alvo if parte in arquivo_lower)
+
+        if score > melhor_score:
+            melhor_score = score
+            melhor = arquivo
+
+    if melhor and melhor_score >= 2:
+        return os.path.join(PASTA_MANUAIS, melhor)
+
+    return ""
+
+
+# ==========================================
 # CARREGAR MANUAL PDF
 # ==========================================
 def carregar_manual_pdf(modelo):
@@ -152,10 +232,10 @@ def carregar_manual_pdf(modelo):
     if not nome_arquivo:
         return ""
 
-    caminho_pdf = os.path.join(PASTA_MANUAIS, nome_arquivo)
+    caminho_pdf = localizar_pdf(nome_arquivo)
 
-    if not os.path.exists(caminho_pdf):
-        log_erro("Manual não encontrado:", caminho_pdf)
+    if not caminho_pdf:
+        log_erro("Manual não encontrado:", os.path.join(PASTA_MANUAIS, nome_arquivo))
         return ""
 
     texto_manual = ""
@@ -196,6 +276,7 @@ def identificar_assunto(pergunta):
             "perde garantia",
             "cobertura",
             "defeito",
+            "termo de garantia",
         ],
 
         "oleo": [
@@ -203,6 +284,9 @@ def identificar_assunto(pergunta):
             "lubrificante",
             "viscosidade",
             "yamalube",
+            "sae",
+            "jaso",
+            "api",
         ],
 
         "revisao": [
@@ -294,10 +378,49 @@ RESPOSTAS_PADRAO = {
 
 
 # ==========================================
+# RESPOSTAS DIRETAS SEGURAS
+# Evita enviar trecho errado ou muito técnico do PDF
+# ==========================================
+def resposta_direta_por_assunto(modelo_detectado, assunto):
+    modelo_formatado = str(modelo_detectado or "").upper()
+
+    if assunto == "oleo":
+        return (
+            f"🛢️ Para a Yamaha *{modelo_formatado}*, utilize o óleo recomendado no manual do proprietário.\n\n"
+            "Antes de completar ou trocar o óleo, o ideal é confirmar a especificação exata com o pós-venda, "
+            "para evitar uso de lubrificante incorreto.\n\n"
+            "Também posso te ajudar a agendar a revisão."
+        )
+
+    if assunto == "garantia":
+        return (
+            f"🛡️ Sobre garantia da Yamaha *{modelo_formatado}*:\n\n"
+            "A cobertura depende das condições do manual, histórico de revisões e avaliação técnica da concessionária.\n\n"
+            "Alterações não autorizadas, falta de manutenção ou uso fora das recomendações podem afetar a garantia."
+        )
+
+    if assunto == "bateria":
+        return (
+            f"🔋 Sobre bateria da Yamaha *{modelo_formatado}*:\n\n"
+            "Falhas de partida podem estar ligadas à bateria, sistema elétrico ou uso da moto. "
+            "O ideal é fazer uma avaliação técnica para confirmar a causa."
+        )
+
+    if assunto == "painel":
+        return (
+            f"⚠️ Sobre luzes ou alertas no painel da Yamaha *{modelo_formatado}*:\n\n"
+            "Se alguma luz permanecer acesa ou aparecer alerta no painel, o ideal é trazer a moto para avaliação técnica."
+        )
+
+    return ""
+
+
+# ==========================================
 # EXTRAIR TRECHO RELEVANTE
 # ==========================================
 def extrair_trecho_relevante(texto_manual, pergunta):
     pergunta = normalizar_texto(pergunta)
+    assunto = identificar_assunto(pergunta)
 
     palavras_ignoradas = {
         "minha", "meu", "moto", "yamaha", "quanto", "como",
@@ -319,12 +442,44 @@ def extrair_trecho_relevante(texto_manual, pergunta):
 
         palavras.append(palavra)
 
+    palavras_por_assunto = {
+        "pneu": [
+            "pneu",
+            "pneus",
+            "pressao",
+            "pressao dos pneus",
+            "calibragem",
+            "calibre",
+            "libras",
+        ],
+
+        "revisao": [
+            "manutencao periodica",
+            "tabela de manutencao",
+            "revisao",
+            "quilometragem",
+            "troca",
+            "km",
+        ],
+
+        "combustivel": [
+            "combustivel",
+            "gasolina",
+            "etanol",
+            "alcool",
+            "tanque",
+        ],
+    }
+
+    if assunto in palavras_por_assunto:
+        palavras.extend(palavras_por_assunto[assunto])
+
     if not palavras:
         return ""
 
     blocos = []
-    tamanho_bloco = 1200
-    passo = 700
+    tamanho_bloco = 1500
+    passo = 500
 
     for i in range(0, len(texto_manual), passo):
         blocos.append(texto_manual[i:i + tamanho_bloco])
@@ -333,25 +488,46 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     melhor_pontuacao = 0
 
     for trecho in blocos:
+        trecho_limpo = limpar_trecho(trecho)
         pontuacao = 0
 
+        # Penaliza sumário/índice
+        if "........................" in trecho_limpo:
+            pontuacao -= 10
+
+        if any(x in trecho_limpo[:400] for x in ["indice", "sumario", "conteudo"]):
+            pontuacao -= 8
+
         for palavra in palavras:
-            if palavra in trecho:
-                pontuacao += 2
+            palavra_norm = normalizar_texto(palavra)
 
-        assunto = identificar_assunto(pergunta)
+            if palavra_norm and palavra_norm in trecho_limpo:
+                pontuacao += 3
 
-        if assunto and assunto in trecho:
+        if assunto and assunto in trecho_limpo:
             pontuacao += 3
+
+        bonus = [
+            "pressao dos pneus",
+            "manutencao periodica",
+            "tabela de manutencao",
+            "combustivel recomendado",
+            "gasolina",
+            "etanol",
+        ]
+
+        for termo in bonus:
+            if termo in trecho_limpo:
+                pontuacao += 4
 
         if pontuacao > melhor_pontuacao:
             melhor_pontuacao = pontuacao
-            melhor_trecho = trecho
+            melhor_trecho = trecho_limpo
 
     if melhor_pontuacao <= 0:
         return ""
 
-    return limpar_trecho(melhor_trecho[:1000])
+    return cortar_em_frases(melhor_trecho, limite=650)
 
 
 # ==========================================
@@ -366,6 +542,33 @@ def buscar_resposta_manual(modelo, pergunta):
     return extrair_trecho_relevante(
         texto_manual,
         pergunta
+    )
+
+
+# ==========================================
+# MONTAR RESPOSTA FINAL PARA WHATSAPP
+# ==========================================
+def montar_resposta_whatsapp(modelo_detectado, assunto, trecho):
+    modelo_formatado = str(modelo_detectado or "").upper()
+    trecho = cortar_em_frases(trecho, limite=650)
+
+    if not trecho:
+        return ""
+
+    titulo_assunto = {
+        "pneu": "calibragem/pneus",
+        "revisao": "revisão/manutenção",
+        "combustivel": "combustível",
+        "garantia": "garantia",
+        "oleo": "óleo",
+        "bateria": "bateria",
+        "painel": "painel",
+    }.get(assunto, "manual")
+
+    return (
+        f"📘 No manual da Yamaha *{modelo_formatado}*, encontrei uma informação sobre *{titulo_assunto}*:\n\n"
+        f"{trecho}\n\n"
+        "Para confirmar no atendimento, posso te encaminhar para o pós-venda ou ajudar com agendamento."
     )
 
 
@@ -408,27 +611,38 @@ def responder_duvida_manual(modelo, pergunta_cliente):
             "resposta": "Ainda não encontrei o manual desse modelo na base. Vou encaminhar para o pós-venda."
         }
 
+    assunto = identificar_assunto(pergunta_cliente)
+
+    resposta_direta = resposta_direta_por_assunto(modelo_detectado, assunto)
+
+    if resposta_direta:
+        return {
+            "encontrou": True,
+            "modelo": modelo_detectado,
+            "assunto": assunto,
+            "fonte": "resposta_direta",
+            "resposta": resposta_direta
+        }
+
     trecho = buscar_resposta_manual(
         modelo_detectado,
         pergunta_cliente
     )
 
     if trecho:
-        resposta = (
-            f"📘 Encontrei uma informação no manual da Yamaha *{modelo_detectado.upper()}*:\n\n"
-            f"{trecho}\n\n"
-            "Se quiser, também posso te ajudar com revisão, garantia, peças, acessórios ou agendamento."
+        resposta = montar_resposta_whatsapp(
+            modelo_detectado=modelo_detectado,
+            assunto=assunto,
+            trecho=trecho,
         )
 
         return {
             "encontrou": True,
             "modelo": modelo_detectado,
-            "assunto": identificar_assunto(pergunta_cliente),
+            "assunto": assunto,
             "fonte": "manual_pdf",
             "resposta": resposta
         }
-
-    assunto = identificar_assunto(pergunta_cliente)
 
     if assunto in RESPOSTAS_PADRAO:
         return {
@@ -449,3 +663,20 @@ def responder_duvida_manual(modelo, pergunta_cliente):
             "Vou encaminhar sua dúvida para o pós-venda."
         )
     }
+
+
+# ==========================================
+# TESTE LOCAL
+# ==========================================
+if __name__ == "__main__":
+    modelo = "FZ15"
+    pergunta = "qual oleo usar?"
+
+    resultado = responder_duvida_manual(
+        modelo,
+        pergunta
+    )
+
+    print("\n")
+    print(resultado["resposta"])
+    print("\n")
