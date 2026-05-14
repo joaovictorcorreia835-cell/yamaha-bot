@@ -42,6 +42,15 @@ except Exception as e:
     gerar_mensagem_venda_adicional = None
     print("[ERRO] Não foi possível importar ia_comercial:", repr(e), flush=True)
 
+try:
+    from ia_duvidas import (
+        responder_duvida_ia,
+        texto_parece_duvida_inteligente,
+    )
+except Exception as e:
+    responder_duvida_ia = None
+    texto_parece_duvida_inteligente = None
+    print("[ERRO] Não foi possível importar ia_duvidas:", repr(e), flush=True)
 
 # ==========================================
 # APP FLASK
@@ -5600,6 +5609,86 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         "cancelar_agendamento",
         "reagendar_agendamento",
     ]
+
+    # ==========================================
+    # FASE 2 - IA DE DÚVIDAS POR MANUAL
+    # Só entra aqui se não for uma intenção forte de fluxo
+    # ==========================================
+    try:
+        eh_duvida_manual = texto_parece_duvida_inteligente(texto)
+    except Exception:
+        eh_duvida_manual = False
+
+    if (
+        eh_duvida_manual
+        and intencao not in [
+            "agendar_revisao",
+            "pecas",
+            "acessorios",
+            "atacado",
+            "humano",
+            "consultar_agendamento",
+            "cancelar_agendamento",
+            "reagendar_agendamento",
+        ]
+    ):
+        try:
+            modelo_duvida = limpar_texto(
+                dados_extraidos.get("modelo", "")
+                or clientes[telefone].get("modelo", "")
+            )
+
+            resultado_duvida = responder_duvida_ia(
+                pergunta_cliente=texto,
+                modelo=modelo_duvida,
+            )
+
+            if not isinstance(resultado_duvida, dict):
+                resultado_duvida = {}
+
+            resposta_duvida = limpar_texto(
+                resultado_duvida.get("resposta", "")
+            )
+
+            modelo_detectado = limpar_texto(
+                resultado_duvida.get("modelo", "")
+            )
+
+            if modelo_detectado and not clientes[telefone].get("modelo"):
+                clientes[telefone]["modelo"] = modelo_detectado.upper()
+
+            clientes[telefone]["intencao_ia"] = "duvida_manual"
+            clientes[telefone]["ultima_interacao"] = agora()
+
+            if resposta_duvida:
+                enviar_mensagem(telefone, resposta_duvida)
+
+            salvar_duvida_dashboard(
+                telefone=telefone,
+                categoria="manual",
+                pergunta=texto,
+                resposta=resposta_duvida or "Sem resposta encontrada.",
+            )
+
+            if resultado_duvida.get("encaminhar_humano") is True:
+                ativar_atendimento_humano(telefone)
+
+            else:
+                enviar_mensagem(
+                    telefone,
+                    "Posso te ajudar com mais alguma coisa?\n\n"
+                    "1 - Agendar revisão\n"
+                    "2 - Peças\n"
+                    "3 - Acessórios\n"
+                    "4 - Garantia\n"
+                    "5 - Atendimento humano\n"
+                    "6 - Menu principal"
+                )
+
+            return True
+
+        except Exception as e:
+            log_erro("Erro IA dúvidas manual:", repr(e))
 
     if confianca < 0.55 and intencao not in intencoes_validas:
         return False
