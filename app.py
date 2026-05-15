@@ -6012,7 +6012,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
             return True
 
     # ==========================================
-    # OPÇÕES GERAIS FORA DO MENU 1
+    # OPÇÕES GERAIS FORA DO MENU
     # ==========================================
     if opcao_normalizada in ["MENU_REVISAO", "AGENDAR_REVISAO", "OPCAO_1"]:
         iniciar_fluxo_revisao_por_intencao(telefone, {})
