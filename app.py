@@ -1771,13 +1771,19 @@ def extrair_button_id(payload):
             payload.get("selectedButtonId"),
             payload.get("selectedId"),
             payload.get("selectedRowId"),
-            payload.get("listResponseMessage", {}).get("singleSelectReply", {}).get("selectedRowId")
-            if isinstance(payload.get("listResponseMessage"), dict) else None,
+
+            payload.get("buttonsResponseMessage", {}).get("buttonId")
+            if isinstance(payload.get("buttonsResponseMessage"), dict) else None,
+
             payload.get("buttonsResponseMessage", {}).get("selectedButtonId")
             if isinstance(payload.get("buttonsResponseMessage"), dict) else None,
+
+            payload.get("listResponseMessage", {})
+            .get("singleSelectReply", {})
+            .get("selectedRowId")
+            if isinstance(payload.get("listResponseMessage"), dict) else None,
+
             payload.get("button", {}).get("id")
-            if isinstance(payload.get("button"), dict) else None,
-            payload.get("button", {}).get("text")
             if isinstance(payload.get("button"), dict) else None,
         ]
 
@@ -1787,9 +1793,16 @@ def extrair_button_id(payload):
                 message.get("selectedButtonId"),
                 message.get("selectedId"),
                 message.get("selectedRowId"),
+
+                message.get("buttonsResponseMessage", {}).get("buttonId")
+                if isinstance(message.get("buttonsResponseMessage"), dict) else None,
+
                 message.get("buttonsResponseMessage", {}).get("selectedButtonId")
                 if isinstance(message.get("buttonsResponseMessage"), dict) else None,
-                message.get("listResponseMessage", {}).get("singleSelectReply", {}).get("selectedRowId")
+
+                message.get("listResponseMessage", {})
+                .get("singleSelectReply", {})
+                .get("selectedRowId")
                 if isinstance(message.get("listResponseMessage"), dict) else None,
             ])
 
@@ -1801,13 +1814,19 @@ def extrair_button_id(payload):
                 data.get("selectedButtonId"),
                 data.get("selectedId"),
                 data.get("selectedRowId"),
-                data.get("listResponseMessage", {}).get("singleSelectReply", {}).get("selectedRowId")
-                if isinstance(data.get("listResponseMessage"), dict) else None,
+
+                data.get("buttonsResponseMessage", {}).get("buttonId")
+                if isinstance(data.get("buttonsResponseMessage"), dict) else None,
+
                 data.get("buttonsResponseMessage", {}).get("selectedButtonId")
                 if isinstance(data.get("buttonsResponseMessage"), dict) else None,
+
+                data.get("listResponseMessage", {})
+                .get("singleSelectReply", {})
+                .get("selectedRowId")
+                if isinstance(data.get("listResponseMessage"), dict) else None,
+
                 data.get("button", {}).get("id")
-                if isinstance(data.get("button"), dict) else None,
-                data.get("button", {}).get("text")
                 if isinstance(data.get("button"), dict) else None,
             ])
 
@@ -1817,15 +1836,21 @@ def extrair_button_id(payload):
                     data_message.get("selectedButtonId"),
                     data_message.get("selectedId"),
                     data_message.get("selectedRowId"),
+
+                    data_message.get("buttonsResponseMessage", {}).get("buttonId")
+                    if isinstance(data_message.get("buttonsResponseMessage"), dict) else None,
+
                     data_message.get("buttonsResponseMessage", {}).get("selectedButtonId")
                     if isinstance(data_message.get("buttonsResponseMessage"), dict) else None,
-                    data_message.get("listResponseMessage", {}).get("singleSelectReply", {}).get("selectedRowId")
+
+                    data_message.get("listResponseMessage", {})
+                    .get("singleSelectReply", {})
+                    .get("selectedRowId")
                     if isinstance(data_message.get("listResponseMessage"), dict) else None,
                 ])
 
         for valor in candidatos:
             valor = limpar_texto(valor)
-
             if valor:
                 return valor
 
@@ -1863,7 +1888,6 @@ def extrair_telefone(payload):
 
         for telefone in candidatos:
             telefone_limpo = limpar_telefone(telefone)
-
             if telefone_limpo:
                 return telefone_limpo
 
@@ -1886,18 +1910,27 @@ def extrair_texto(payload):
         candidatos = [
             payload.get("text", {}).get("message")
             if isinstance(payload.get("text"), dict) else None,
+
             payload.get("text")
             if isinstance(payload.get("text"), str) else None,
+
             payload.get("message")
             if isinstance(payload.get("message"), str) else None,
+
             payload.get("body"),
             payload.get("caption"),
             payload.get("messageBody"),
             payload.get("content"),
+
+            payload.get("buttonsResponseMessage", {}).get("message")
+            if isinstance(payload.get("buttonsResponseMessage"), dict) else None,
+
             payload.get("image", {}).get("caption")
             if isinstance(payload.get("image"), dict) else None,
+
             payload.get("video", {}).get("caption")
             if isinstance(payload.get("video"), dict) else None,
+
             payload.get("document", {}).get("caption")
             if isinstance(payload.get("document"), dict) else None,
         ]
@@ -1906,25 +1939,33 @@ def extrair_texto(payload):
             candidatos.extend([
                 data.get("text", {}).get("message")
                 if isinstance(data.get("text"), dict) else None,
+
                 data.get("text")
                 if isinstance(data.get("text"), str) else None,
+
                 data.get("message")
                 if isinstance(data.get("message"), str) else None,
+
                 data.get("body"),
                 data.get("caption"),
                 data.get("messageBody"),
                 data.get("content"),
+
+                data.get("buttonsResponseMessage", {}).get("message")
+                if isinstance(data.get("buttonsResponseMessage"), dict) else None,
+
                 data.get("image", {}).get("caption")
                 if isinstance(data.get("image"), dict) else None,
+
                 data.get("video", {}).get("caption")
                 if isinstance(data.get("video"), dict) else None,
+
                 data.get("document", {}).get("caption")
                 if isinstance(data.get("document"), dict) else None,
             ])
 
         for valor in candidatos:
             valor = limpar_texto(valor)
-
             if valor:
                 return valor
 
@@ -1957,11 +1998,7 @@ def extrair_message_id(payload):
         if not message_id:
             telefone = extrair_telefone(payload)
             texto = extrair_texto(payload)
-            tipo = str(
-                payload.get("type")
-                or payload.get("event")
-                or ""
-            )
+            tipo = str(payload.get("type") or payload.get("event") or "")
 
             timestamp = str(
                 payload.get("momment")
@@ -2020,13 +2057,7 @@ def valor_verdadeiro(valor):
 
         texto = str(valor or "").strip().lower()
 
-        return texto in [
-            "true",
-            "1",
-            "sim",
-            "yes",
-            "y",
-        ]
+        return texto in ["true", "1", "sim", "yes", "y"]
 
     except Exception:
         return False
@@ -2043,6 +2074,7 @@ def evento_eh_do_proprio_bot(payload):
             payload.get("fromApi"),
             payload.get("isNewsletter"),
             payload.get("isStatusReply"),
+
             data.get("fromMe") if isinstance(data, dict) else None,
             data.get("isFromMe") if isinstance(data, dict) else None,
             data.get("sentByMe") if isinstance(data, dict) else None,
@@ -2160,6 +2192,11 @@ def extrair_tipo_mensagem(payload):
 
 def evento_deve_ser_ignorado(payload):
     try:
+        button_id = extrair_button_id(payload)
+
+        if button_id:
+            return False
+
         if evento_eh_do_proprio_bot(payload):
             log_info("Evento do próprio bot/API ignorado.")
             return True
