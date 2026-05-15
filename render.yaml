@@ -7,7 +7,7 @@ services:
 
     buildCommand: pip install -r requirements.txt
 
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --timeout 120 --workers 1 --threads 2
 
     autoDeploy: true
 
@@ -19,8 +19,11 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
 
+      - key: PYTHONUNBUFFERED
+        value: true
+
       # ==========================================
-      # URL BOT
+      # BASE URL
       # ==========================================
       - key: BASE_URL
         value: https://yamaha-bot-1.onrender.com
@@ -52,6 +55,27 @@ services:
         sync: false
 
       # ==========================================
+      # IA
+      # ==========================================
+      - key: IA_ATIVA
+        value: true
+
+      - key: IA_COMERCIAL_ATIVA
+        value: true
+
+      - key: IA_DUVIDAS_ATIVA
+        value: true
+
+      # ==========================================
+      # MANUAIS / PDF
+      # ==========================================
+      - key: CAMINHO_MANUAIS
+        value: templates/data/manuais
+
+      - key: CAMINHO_PLANILHA_REVISOES
+        value: templates/data/revisoes_yamaha.xlsx
+
+      # ==========================================
       # INATIVIDADE
       # ==========================================
       - key: TEMPO_INATIVIDADE
@@ -78,6 +102,9 @@ services:
       - key: INTERVALO_WORKER_SANCES
         value: 60
 
+      - key: WORKER_ATIVO
+        value: true
+
       # ==========================================
       # SANCES
       # ==========================================
@@ -96,20 +123,18 @@ services:
       - key: WEB_CONCURRENCY
         value: 1
 
-      # ==========================================
-      # LOG
-      # ==========================================
-      - key: PYTHONUNBUFFERED
-        value: true
-        
-      # ==========================================
-      # IA / BASE DE CONHECIMENTO
-      # ==========================================
-      - key: CAMINHO_MANUAIS
-        value: manuais
+      - key: GUNICORN_CMD_ARGS
+        value: --timeout 120
 
-      - key: CAMINHO_PLANILHA_REVISOES
-        value: templates/data/revisoes_yamaha.xlsx
+      # ==========================================
+      # PERFORMANCE
+      # ==========================================
+      - key: MALLOC_ARENA_MAX
+        value: 2
 
-      - key: IA_ATIVA
-        value: true
+      # ==========================================
+      # LOGS
+      # ==========================================
+      - key: LOG_LEVEL
+        value: INFO
+```

@@ -22,10 +22,10 @@ INTERVALO_ENTRE_ENVIOS = 90
 HORARIO_INICIO = 8
 HORARIO_FIM = 20
 
-URL_ENVIO_TEXTO = (
-    f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}"
-    f"/token/{ZAPI_TOKEN}/send-text"
-)
+URL_BASE = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}"
+
+URL_ENVIO_TEXTO = f"{URL_BASE}/send-text"
+URL_ENVIO_BOTOES = f"{URL_BASE}/send-button-list"
 
 COLUNAS_OBRIGATORIAS = [
     "EMPRESA",
@@ -45,16 +45,23 @@ COLUNAS_OBRIGATORIAS = [
     "PROXIMA_ACAO",
     "NIVEL_INTERESSE",
     "ID_ENVIO",
+    "TIPO_ENVIO",
 ]
 
 STATUS_ENVIO_PERMITIDOS = ["", "PENDENTE"]
 
 
+# ==========================================
+# HORÁRIO
+# ==========================================
 def dentro_horario_comercial():
     agora = datetime.now()
     return HORARIO_INICIO <= agora.hour < HORARIO_FIM
 
 
+# ==========================================
+# MENSAGEM
+# ==========================================
 def criar_mensagem(empresa="", responsavel="", cidade=""):
     empresa = str(empresa or "").strip()
     responsavel = str(responsavel or "").strip()
@@ -63,43 +70,66 @@ def criar_mensagem(empresa="", responsavel="", cidade=""):
     nome_destino = responsavel or empresa
 
     saudacao = "Olá, tudo bem? 👋"
+
     if nome_destino:
-        saudacao = f"Olá {nome_destino}, tudo bem? 👋"
+        saudacao = f"Olá, {nome_destino}! Tudo bem? 👋"
 
     cidade_txt = f" em {cidade} e região" if cidade else " na sua região"
 
     return f"""{saudacao}
 
-Aqui é da Motoshow Yamaha 🏍️
+Aqui é da *Motoshow Yamaha* 🏍️
 
-Estamos selecionando oficinas e lojas parceiras{cidade_txt} para fornecimento de peças, óleo Yamalube e acessórios Yamaha.
+Estamos selecionando oficinas, lojas e revendedores{cidade_txt} para uma parceria de fornecimento no atacado.
 
-✅ Condições especiais para atacado
-✅ Produtos originais Yamaha
-✅ Entrega rápida conforme região
-✅ Atendimento direto com nossa equipe
+Trabalhamos com:
 
-Posso te enviar nossa tabela e condições de parceria?
+✅ peças Yamaha
+✅ óleo Yamalube
+✅ acessórios
+✅ suporte para orçamento
+✅ atendimento comercial direto
+
+Tenho um catálogo de atacado para te enviar agora.
+
+Como deseja continuar?"""
+
+
+def criar_mensagem_fallback(empresa="", responsavel="", cidade=""):
+    mensagem = criar_mensagem(
+        empresa=empresa,
+        responsavel=responsavel,
+        cidade=cidade,
+    )
+
+    return mensagem + """
 
 Responda com o número da opção desejada:
 
-1 - Quero tabela
+1 - Receber catálogo de atacado
 2 - Falar com consultor
-3 - Depois"""
+3 - Ver depois"""
 
 
+# ==========================================
+# PLANILHA
+# ==========================================
 def garantir_colunas(df):
     for coluna in COLUNAS_OBRIGATORIAS:
         if coluna not in df.columns:
             df[coluna] = ""
+
     return df
 
 
+# ==========================================
+# TELEFONE
+# ==========================================
 def normalizar_telefone(numero):
     numero = str(numero or "").strip()
     numero = re.sub(r"\D", "", numero)
 
-    if numero.startswith("0"):
+    while numero.startswith("0"):
         numero = numero[1:]
 
     if numero and not numero.startswith("55"):
@@ -113,11 +143,27 @@ def telefone_valido(numero):
     return numero.startswith("55") and len(numero) in [12, 13]
 
 
+# ==========================================
+# Z-API
+# ==========================================
 def headers_zapi():
     return {
         "Content-Type": "application/json",
         "Client-Token": ZAPI_CLIENT_TOKEN,
     }
+
+
+def credenciais_validas():
+    if not ZAPI_INSTANCE_ID:
+        return False, "ZAPI_INSTANCE_ID não configurado"
+
+    if not ZAPI_TOKEN:
+        return False, "ZAPI_TOKEN não configurado"
+
+    if not ZAPI_CLIENT_TOKEN:
+        return False, "ZAPI_CLIENT_TOKEN não configurado"
+
+    return True, ""
 
 
 def resposta_zapi_sucesso(status_code, resposta):
@@ -130,6 +176,9 @@ def resposta_zapi_sucesso(status_code, resposta):
                 return False
 
             if resposta.get("success") is False:
+                return False
+
+            if resposta.get("message") == "Instance not connected":
                 return False
 
         return True
@@ -147,67 +196,160 @@ def extrair_id_envio(resposta):
         or resposta.get("id")
         or resposta.get("zaapId")
         or resposta.get("messageID")
+        or resposta.get("message_id")
         or ""
     )
 
 
+# ==========================================
+# ENVIO COM BOTÕES
+# ==========================================
+def enviar_mensagem_botoes(numero, mensagem):
+    ok, erro = credenciais_validas()
+
+    if not ok:
+        return False, erro, ""
+
+    payload = {
+        "phone": numero,
+        "message": mensagem,
+        "buttonList": {
+            "buttons": [
+                {
+                    "id": "ATACADO_TABELA",
+                    "label": "1 - Receber catálogo"
+                },
+                {
+                    "id": "ATACADO_CONSULTOR",
+                    "label": "2 - Falar com consultor"
+                },
+                {
+                    "id": "ATACADO_DEPOIS",
+                    "label": "3 - Ver depois"
+                },
+            ]
+        }
+    }
+
+    try:
+        response = requests.post(
+            URL_ENVIO_BOTOES,
+            json=payload,
+            headers=headers_zapi(),
+            timeout=30,
+        )
+
+        try:
+            resposta = response.json()
+        except Exception:
+            resposta = response.text
+
+        print("Status Code Botões:", response.status_code)
+        print("Resposta Botões:", resposta)
+
+        id_envio = extrair_id_envio(resposta)
+
+        if resposta_zapi_sucesso(response.status_code, resposta):
+            return True, "Disparo atacado enviado com sucesso via botões Z-API", id_envio
+
+        return False, f"Erro Z-API botões status {response.status_code}: {resposta}", id_envio
+
+    except Exception as e:
+        return False, f"Erro ao enviar botões: {repr(e)}", ""
+
+
+# ==========================================
+# ENVIO TEXTO FALLBACK
+# ==========================================
 def enviar_mensagem_texto(numero, mensagem):
+    ok, erro = credenciais_validas()
+
+    if not ok:
+        return False, erro, ""
+
     payload = {
         "phone": numero,
         "message": mensagem,
     }
 
-    response = requests.post(
-        URL_ENVIO_TEXTO,
-        json=payload,
-        headers=headers_zapi(),
-        timeout=30,
-    )
-
     try:
-        resposta = response.json()
-    except Exception:
-        resposta = response.text
+        response = requests.post(
+            URL_ENVIO_TEXTO,
+            json=payload,
+            headers=headers_zapi(),
+            timeout=30,
+        )
 
-    print("Status Code Texto:", response.status_code)
-    print("Resposta Texto:", resposta)
+        try:
+            resposta = response.json()
+        except Exception:
+            resposta = response.text
 
-    id_envio = extrair_id_envio(resposta)
+        print("Status Code Texto:", response.status_code)
+        print("Resposta Texto:", resposta)
 
-    if resposta_zapi_sucesso(response.status_code, resposta):
-        return True, "Disparo atacado enviado com sucesso via Z-API texto simples", id_envio
+        id_envio = extrair_id_envio(resposta)
 
-    return False, f"Erro Z-API texto status {response.status_code}: {resposta}", id_envio
+        if resposta_zapi_sucesso(response.status_code, resposta):
+            return True, "Disparo atacado enviado com sucesso via texto simples", id_envio
 
-
-def enviar_mensagem(numero, mensagem):
-    if not ZAPI_INSTANCE_ID:
-        return False, "ZAPI_INSTANCE_ID não configurado", ""
-
-    if not ZAPI_TOKEN:
-        return False, "ZAPI_TOKEN não configurado", ""
-
-    if not ZAPI_CLIENT_TOKEN:
-        return False, "ZAPI_CLIENT_TOKEN não configurado", ""
-
-    try:
-        return enviar_mensagem_texto(numero, mensagem)
+        return False, f"Erro Z-API texto status {response.status_code}: {resposta}", id_envio
 
     except Exception as e:
         return False, f"Erro ao enviar texto simples: {repr(e)}", ""
 
 
+# ==========================================
+# ENVIO PRINCIPAL
+# ==========================================
+def enviar_mensagem(numero, mensagem_botoes, mensagem_fallback):
+    enviado, observacao, id_envio = enviar_mensagem_botoes(
+        numero,
+        mensagem_botoes,
+    )
+
+    if enviado:
+        return True, observacao, id_envio, "BOTOES"
+
+    print("⚠️ Falha ao enviar botões. Tentando fallback em texto...")
+
+    enviado_texto, obs_texto, id_texto = enviar_mensagem_texto(
+        numero,
+        mensagem_fallback,
+    )
+
+    if enviado_texto:
+        return (
+            True,
+            f"Fallback texto enviado. Motivo botões: {observacao}",
+            id_texto,
+            "TEXTO",
+        )
+
+    return (
+        False,
+        f"Botões falharam: {observacao} | Texto falhou: {obs_texto}",
+        id_texto,
+        "ERRO",
+    )
+
+
+# ==========================================
+# DISPARO
+# ==========================================
 def disparar():
     print("===================================")
-    print("🚀 Iniciando disparo atacado Z-API texto simples...")
+    print("🚀 Iniciando disparo atacado Z-API...")
     print("===================================")
 
     if not dentro_horario_comercial():
         print("⏸ Fora do horário comercial. Envio permitido apenas das 08:00 às 20:00.")
         return
 
-    if not ZAPI_INSTANCE_ID or not ZAPI_TOKEN or not ZAPI_CLIENT_TOKEN:
-        print("❌ Erro: credenciais Z-API não carregadas do .env ou Render.")
+    ok, erro = credenciais_validas()
+
+    if not ok:
+        print("❌ Erro:", erro)
         return
 
     try:
@@ -236,6 +378,8 @@ def disparar():
             "RESPONDEU",
             "INTERESSADO",
             "QUER_TABELA",
+            "CATALOGO_ENVIADO",
+            "CATÁLOGO_ENVIADO",
             "FALAR_CONSULTOR",
             "DEPOIS",
             "NAO_INTERESSADO",
@@ -269,7 +413,13 @@ def disparar():
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             continue
 
-        mensagem = criar_mensagem(
+        mensagem_botoes = criar_mensagem(
+            empresa=empresa,
+            responsavel=responsavel,
+            cidade=cidade,
+        )
+
+        mensagem_fallback = criar_mensagem_fallback(
             empresa=empresa,
             responsavel=responsavel,
             cidade=cidade,
@@ -277,7 +427,11 @@ def disparar():
 
         print(f"📤 Enviando para: {nome_exibicao} - {telefone}")
 
-        enviado, observacao, id_envio = enviar_mensagem(telefone, mensagem)
+        enviado, observacao, id_envio, tipo_envio = enviar_mensagem(
+            telefone,
+            mensagem_botoes,
+            mensagem_fallback,
+        )
 
         agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
@@ -289,11 +443,12 @@ def disparar():
             df.at[index, "FOLLOWUP_1"] = ""
             df.at[index, "FOLLOWUP_2"] = ""
             df.at[index, "OBS"] = observacao
-            df.at[index, "LINK_ORIGEM"] = "CAMPANHA_ATACADO_TEXTO"
-            df.at[index, "INTENCAO_IA"] = ""
+            df.at[index, "LINK_ORIGEM"] = f"CAMPANHA_ATACADO_{tipo_envio}"
+            df.at[index, "INTENCAO_IA"] = "atacado"
             df.at[index, "PROXIMA_ACAO"] = "AGUARDAR_RETORNO"
-            df.at[index, "NIVEL_INTERESSE"] = ""
+            df.at[index, "NIVEL_INTERESSE"] = "MORNO"
             df.at[index, "ID_ENVIO"] = id_envio
+            df.at[index, "TIPO_ENVIO"] = tipo_envio
 
             telefones_enviados_nesta_execucao.add(telefone)
 
@@ -304,6 +459,7 @@ def disparar():
             df.at[index, "STATUS_ENVIO"] = "ERRO"
             df.at[index, "OBS"] = observacao
             df.at[index, "ID_ENVIO"] = id_envio
+            df.at[index, "TIPO_ENVIO"] = tipo_envio
 
             print("❌ Falha no envio:", nome_exibicao)
             print("Motivo:", observacao)

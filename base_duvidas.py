@@ -12,17 +12,9 @@ except ImportError:
     PdfReader = None
 
 
-# ==========================================
-# PASTA DOS MANUAIS
-# Ajuste conforme onde seus PDFs estão.
-# Se seus PDFs estão em static/manuais, mantenha assim.
-# ==========================================
-PASTA_MANUAIS = os.path.join("static", "manuais")
+PASTA_MANUAIS = os.getenv("CAMINHO_MANUAIS", os.path.join("static", "manuais"))
 
 
-# ==========================================
-# MANUAIS DISPONÍVEIS
-# ==========================================
 MANUAIS_YAMAHA = {
     "crosser": "manual_crosser150_2025_eta.pdf",
     "crypton": "manual_crypton_2015.pdf",
@@ -69,20 +61,14 @@ MANUAIS_YAMAHA = {
 CACHE_MANUAIS = {}
 
 
-# ==========================================
-# LOG
-# ==========================================
 def log_info(*args):
-    print("[INFO]", *args, flush=True)
+    print("[IA DÚVIDAS][INFO]", *args, flush=True)
 
 
 def log_erro(*args):
-    print("[ERRO]", *args, flush=True)
+    print("[IA DÚVIDAS][ERRO]", *args, flush=True)
 
 
-# ==========================================
-# NORMALIZAÇÃO
-# ==========================================
 def normalizar_texto(texto):
     texto = str(texto or "").lower().strip()
 
@@ -111,16 +97,11 @@ def normalizar_nome_arquivo(nome):
 
 def limpar_trecho(texto):
     texto = str(texto or "")
+    texto = re.sub(r"ubf\w*\.book page \d+.*?(am|pm)?", " ", texto, flags=re.I)
+    texto = re.sub(r"\.{4,}", " ", texto)
     texto = re.sub(r"\s+", " ", texto)
     texto = texto.replace(" ,", ",").replace(" .", ".")
     texto = texto.replace(" :", ":").replace(" ;", ";")
-    texto = texto.strip()
-
-    # Remove marcas comuns extraídas de PDF
-    texto = re.sub(r"ubf\w*\.book page \d+.*?\d{1,2}:\d{2}.*?(am|pm)?", "", texto)
-    texto = re.sub(r"\.{4,}", " ", texto)
-    texto = re.sub(r"\s+", " ", texto)
-
     return texto.strip()
 
 
@@ -134,8 +115,9 @@ def cortar_em_frases(texto, limite=650):
     saida = ""
 
     for parte in partes:
-        if len(saida + " " + parte) > limite:
+        if len((saida + " " + parte).strip()) > limite:
             break
+
         saida = (saida + " " + parte).strip()
 
     if not saida:
@@ -144,22 +126,13 @@ def cortar_em_frases(texto, limite=650):
     return saida.strip()
 
 
-# ==========================================
-# IDENTIFICAR MODELO
-# ==========================================
 def identificar_modelo(modelo):
     modelo = normalizar_texto(modelo)
 
     if not modelo:
         return ""
 
-    chaves_ordenadas = sorted(
-        MANUAIS_YAMAHA.keys(),
-        key=len,
-        reverse=True
-    )
-
-    for chave in chaves_ordenadas:
+    for chave in sorted(MANUAIS_YAMAHA.keys(), key=len, reverse=True):
         chave_norm = normalizar_texto(chave)
 
         if chave_norm and chave_norm in modelo:
@@ -168,9 +141,6 @@ def identificar_modelo(modelo):
     return ""
 
 
-# ==========================================
-# LOCALIZAR PDF COM TOLERÂNCIA
-# ==========================================
 def localizar_pdf(nome_arquivo):
     caminho_pdf = os.path.join(PASTA_MANUAIS, nome_arquivo)
 
@@ -184,9 +154,7 @@ def localizar_pdf(nome_arquivo):
     alvo_norm = normalizar_nome_arquivo(nome_arquivo)
 
     for arquivo in os.listdir(PASTA_MANUAIS):
-        arquivo_norm = normalizar_nome_arquivo(arquivo)
-
-        if arquivo_norm == alvo_norm:
+        if normalizar_nome_arquivo(arquivo) == alvo_norm:
             return os.path.join(PASTA_MANUAIS, arquivo)
 
     partes_alvo = [
@@ -211,9 +179,6 @@ def localizar_pdf(nome_arquivo):
     return ""
 
 
-# ==========================================
-# CARREGAR MANUAL PDF
-# ==========================================
 def carregar_manual_pdf(modelo):
     if PdfReader is None:
         log_erro("PyPDF2 não instalado. Adicione PyPDF2 no requirements.txt")
@@ -222,6 +187,7 @@ def carregar_manual_pdf(modelo):
     modelo_id = identificar_modelo(modelo)
 
     if not modelo_id:
+        log_erro("Modelo não identificado:", modelo)
         return ""
 
     if modelo_id in CACHE_MANUAIS:
@@ -230,6 +196,7 @@ def carregar_manual_pdf(modelo):
     nome_arquivo = MANUAIS_YAMAHA.get(modelo_id)
 
     if not nome_arquivo:
+        log_erro("Manual não mapeado:", modelo_id)
         return ""
 
     caminho_pdf = localizar_pdf(nome_arquivo)
@@ -252,11 +219,9 @@ def carregar_manual_pdf(modelo):
                 log_erro("Erro ao ler página PDF:", repr(e))
 
         texto_manual = normalizar_texto(texto_manual)
-
         CACHE_MANUAIS[modelo_id] = texto_manual
 
         log_info("Manual carregado:", modelo_id)
-
         return texto_manual
 
     except Exception as e:
@@ -264,68 +229,39 @@ def carregar_manual_pdf(modelo):
         return ""
 
 
-# ==========================================
-# ASSUNTOS
-# ==========================================
 def identificar_assunto(pergunta):
     pergunta = normalizar_texto(pergunta)
 
     assuntos = {
         "garantia": [
-            "garantia",
-            "perde garantia",
-            "cobertura",
-            "defeito",
+            "garantia", "perde garantia", "cobertura", "defeito",
             "termo de garantia",
         ],
 
         "oleo": [
-            "oleo",
-            "lubrificante",
-            "viscosidade",
-            "yamalube",
-            "sae",
-            "jaso",
-            "api",
+            "oleo", "lubrificante", "viscosidade", "yamalube",
+            "sae", "jaso", "api",
         ],
 
         "revisao": [
-            "revisao",
-            "manutencao",
-            "troca",
-            "periodica",
-            "quilometragem",
-            "km",
+            "revisao", "manutencao", "troca", "periodica",
+            "quilometragem", "km",
         ],
 
         "pneu": [
-            "pneu",
-            "calibragem",
-            "pressao",
-            "libras",
+            "pneu", "calibragem", "pressao", "libras",
         ],
 
         "combustivel": [
-            "combustivel",
-            "gasolina",
-            "etanol",
-            "alcool",
+            "combustivel", "gasolina", "etanol", "alcool",
         ],
 
         "painel": [
-            "painel",
-            "luz",
-            "indicador",
-            "injeção",
-            "injecao",
-            "alerta",
+            "painel", "luz", "indicador", "injecao", "alerta",
         ],
 
         "bateria": [
-            "bateria",
-            "partida",
-            "eletrica",
-            "elétrica",
+            "bateria", "partida", "eletrica",
         ],
     }
 
@@ -337,9 +273,6 @@ def identificar_assunto(pergunta):
     return ""
 
 
-# ==========================================
-# RESPOSTAS PADRÃO
-# ==========================================
 RESPOSTAS_PADRAO = {
     "garantia": (
         "A garantia Yamaha cobre defeitos de fabricação conforme as condições do manual do proprietário. "
@@ -377,10 +310,6 @@ RESPOSTAS_PADRAO = {
 }
 
 
-# ==========================================
-# RESPOSTAS DIRETAS SEGURAS
-# Evita enviar trecho errado ou muito técnico do PDF
-# ==========================================
 def resposta_direta_por_assunto(modelo_detectado, assunto):
     modelo_formatado = str(modelo_detectado or "").upper()
 
@@ -415,9 +344,6 @@ def resposta_direta_por_assunto(modelo_detectado, assunto):
     return ""
 
 
-# ==========================================
-# EXTRAIR TRECHO RELEVANTE
-# ==========================================
 def extrair_trecho_relevante(texto_manual, pergunta):
     pergunta = normalizar_texto(pergunta)
     assunto = identificar_assunto(pergunta)
@@ -444,30 +370,17 @@ def extrair_trecho_relevante(texto_manual, pergunta):
 
     palavras_por_assunto = {
         "pneu": [
-            "pneu",
-            "pneus",
-            "pressao",
-            "pressao dos pneus",
-            "calibragem",
-            "calibre",
-            "libras",
+            "pneu", "pneus", "pressao", "pressao dos pneus",
+            "calibragem", "calibre", "libras",
         ],
 
         "revisao": [
-            "manutencao periodica",
-            "tabela de manutencao",
-            "revisao",
-            "quilometragem",
-            "troca",
-            "km",
+            "manutencao periodica", "tabela de manutencao",
+            "revisao", "quilometragem", "troca", "km",
         ],
 
         "combustivel": [
-            "combustivel",
-            "gasolina",
-            "etanol",
-            "alcool",
-            "tanque",
+            "combustivel", "gasolina", "etanol", "alcool", "tanque",
         ],
     }
 
@@ -477,21 +390,18 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     if not palavras:
         return ""
 
-    blocos = []
     tamanho_bloco = 1500
     passo = 500
-
-    for i in range(0, len(texto_manual), passo):
-        blocos.append(texto_manual[i:i + tamanho_bloco])
 
     melhor_trecho = ""
     melhor_pontuacao = 0
 
-    for trecho in blocos:
+    for i in range(0, len(texto_manual), passo):
+        trecho = texto_manual[i:i + tamanho_bloco]
         trecho_limpo = limpar_trecho(trecho)
+
         pontuacao = 0
 
-        # Penaliza sumário/índice
         if "........................" in trecho_limpo:
             pontuacao -= 10
 
@@ -530,9 +440,6 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     return cortar_em_frases(melhor_trecho, limite=650)
 
 
-# ==========================================
-# BUSCA NO MANUAL
-# ==========================================
 def buscar_resposta_manual(modelo, pergunta):
     texto_manual = carregar_manual_pdf(modelo)
 
@@ -541,13 +448,10 @@ def buscar_resposta_manual(modelo, pergunta):
 
     return extrair_trecho_relevante(
         texto_manual,
-        pergunta
+        pergunta,
     )
 
 
-# ==========================================
-# MONTAR RESPOSTA FINAL PARA WHATSAPP
-# ==========================================
 def montar_resposta_whatsapp(modelo_detectado, assunto, trecho):
     modelo_formatado = str(modelo_detectado or "").upper()
     trecho = cortar_em_frases(trecho, limite=650)
@@ -572,15 +476,12 @@ def montar_resposta_whatsapp(modelo_detectado, assunto, trecho):
     )
 
 
-# ==========================================
-# RESPOSTA PRINCIPAL
-# ==========================================
 def responder_duvida_manual(modelo, pergunta_cliente):
     modelo_original = str(modelo or "").strip()
     pergunta_original = str(pergunta_cliente or "").strip()
 
-    modelo = normalizar_texto(modelo)
-    pergunta_cliente = normalizar_texto(pergunta_cliente)
+    modelo = normalizar_texto(modelo_original)
+    pergunta_cliente = normalizar_texto(pergunta_original)
 
     if not pergunta_cliente:
         return {
@@ -626,7 +527,7 @@ def responder_duvida_manual(modelo, pergunta_cliente):
 
     trecho = buscar_resposta_manual(
         modelo_detectado,
-        pergunta_cliente
+        pergunta_cliente,
     )
 
     if trecho:
@@ -641,7 +542,7 @@ def responder_duvida_manual(modelo, pergunta_cliente):
             "modelo": modelo_detectado,
             "assunto": assunto,
             "fonte": "manual_pdf",
-            "resposta": resposta
+            "resposta": resposta,
         }
 
     if assunto in RESPOSTAS_PADRAO:
@@ -650,7 +551,7 @@ def responder_duvida_manual(modelo, pergunta_cliente):
             "modelo": modelo_detectado,
             "assunto": assunto,
             "fonte": "resposta_padrao",
-            "resposta": RESPOSTAS_PADRAO[assunto]
+            "resposta": RESPOSTAS_PADRAO[assunto],
         }
 
     return {
@@ -661,20 +562,17 @@ def responder_duvida_manual(modelo, pergunta_cliente):
         "resposta": (
             "Não encontrei essa informação com segurança no manual. "
             "Vou encaminhar sua dúvida para o pós-venda."
-        )
+        ),
     }
 
 
-# ==========================================
-# TESTE LOCAL
-# ==========================================
 if __name__ == "__main__":
     modelo = "FZ15"
     pergunta = "qual oleo usar?"
 
     resultado = responder_duvida_manual(
         modelo,
-        pergunta
+        pergunta,
     )
 
     print("\n")

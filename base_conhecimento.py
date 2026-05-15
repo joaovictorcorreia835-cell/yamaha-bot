@@ -3,6 +3,13 @@
 # Pós-venda / Revisão / Garantia
 # ==========================================
 
+import re
+from difflib import SequenceMatcher
+
+
+# ==========================================
+# BASE FIXA
+# ==========================================
 BASE_CONHECIMENTO = {
 
     "valor_revisao": {
@@ -10,13 +17,17 @@ BASE_CONHECIMENTO = {
             "quanto custa a revisao",
             "valor da revisao",
             "preco da revisao",
+            "preço da revisão",
             "revisao da fz15",
-            "quanto fica revisao"
+            "quanto fica revisao",
+            "quanto fica a revisao",
+            "valor revisao",
+            "valor revisão",
         ],
         "resposta": (
-            "O valor da revisão depende do pacote da revisão e se a moto está ou não na garantia. "
-            "Se estiver na garantia, os valores de cada revisão podem ser consultados no site da Yamaha, "
-            "na aba Serviços."
+            "O valor da revisão depende do modelo, número da revisão e se a moto está na garantia.\n\n"
+            "Se estiver na garantia, os valores podem ser consultados no site da Yamaha, na aba Serviços, "
+            "ou confirmados diretamente com o pós-venda da concessionária."
         )
     },
 
@@ -26,11 +37,13 @@ BASE_CONHECIMENTO = {
             "5000 km",
             "minha moto chegou nos 5 mil",
             "preciso revisar",
-            "quando fazer revisao"
+            "quando fazer revisao",
+            "quando fazer revisão",
         ],
         "resposta": (
-            "As revisões são feitas de acordo com o manual do proprietário. "
-            "Lá constam todas as revisões por tempo ou quilometragem."
+            "As revisões devem seguir o manual do proprietário, considerando tempo ou quilometragem, "
+            "o que ocorrer primeiro.\n\n"
+            "Se sua moto chegou próximo da quilometragem da revisão, o ideal é agendar para evitar perda de prazo."
         )
     },
 
@@ -39,10 +52,12 @@ BASE_CONHECIMENTO = {
             "posso fazer revisao sem agendar",
             "sem agendamento",
             "precisa agendar",
-            "revisao sem marcar"
+            "revisao sem marcar",
+            "posso ir sem marcar",
         ],
         "resposta": (
-            "De preferência, as revisões devem ser agendadas com antecedência para garantir melhor atendimento."
+            "De preferência, as revisões devem ser agendadas com antecedência para garantir melhor atendimento, "
+            "organização da oficina e disponibilidade de horário."
         )
     },
 
@@ -52,11 +67,12 @@ BASE_CONHECIMENTO = {
             "demora revisao",
             "tempo da revisao",
             "quantas horas revisao",
-            "lander demora quantas horas"
+            "lander demora quantas horas",
+            "quanto tempo leva",
         ],
         "resposta": (
-            "O tempo da revisão depende de qual revisão será realizada. "
-            "Cada revisão tem uma estimativa de tempo conforme o manual de serviços."
+            "O tempo da revisão depende do modelo e de qual revisão será realizada.\n\n"
+            "A primeira e segunda revisão costumam ser mais rápidas, mas revisões maiores podem exigir mais tempo."
         )
     },
 
@@ -65,10 +81,11 @@ BASE_CONHECIMENTO = {
             "troca oleo na revisao",
             "trocam oleo",
             "oleo na revisao",
-            "substitui oleo"
+            "substitui oleo",
+            "troca óleo revisão",
         ],
         "resposta": (
-            "Sim. Em toda revisão é feita a substituição do óleo."
+            "Sim. Nas revisões é feita a substituição do óleo conforme o plano de manutenção do modelo."
         )
     },
 
@@ -76,23 +93,28 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "qual oleo crosser",
             "oleo da crosser",
+            "óleo da crosser",
             "yamalube crosser",
-            "20w50 crosser"
+            "20w50 crosser",
         ],
         "resposta": (
-            "Para a Crosser, utilizamos Yamalube 20W50."
+            "Para a Crosser, normalmente utilizamos Yamalube 20W50.\n\n"
+            "Mesmo assim, o ideal é confirmar a especificação conforme o ano/modelo da moto."
         )
     },
 
     "oleo_proprio_cliente": {
         "keywords": [
             "posso levar meu proprio oleo",
+            "posso levar meu próprio óleo",
             "levar oleo",
             "meu oleo",
-            "oleo proprio"
+            "oleo proprio",
+            "óleo próprio",
         ],
         "resposta": (
-            "Pode sim, desde que seja óleo Yamalube."
+            "Pode sim, desde que seja óleo adequado e dentro da especificação recomendada pela Yamaha. "
+            "Para maior segurança, confirme com o pós-venda antes do atendimento."
         )
     },
 
@@ -101,10 +123,13 @@ BASE_CONHECIMENTO = {
             "revisao perde garantia se atrasar",
             "atrasar revisao perde garantia",
             "passei do km da revisao",
-            "limite da revisao"
+            "limite da revisao",
+            "passei da revisão",
+            "perdi a garantia",
         ],
         "resposta": (
-            "Sim. Se ultrapassar o limite estabelecido pelo fabricante, pode haver perda da garantia."
+            "Se ultrapassar o limite estabelecido pelo fabricante, pode haver restrição ou perda da garantia.\n\n"
+            "O ideal é verificar o histórico da moto e o prazo exato com o pós-venda."
         )
     },
 
@@ -113,8 +138,10 @@ BASE_CONHECIMENTO = {
             "quantos km primeira revisao",
             "primeira revisao",
             "1 revisao",
+            "1ª revisão",
             "1000 km",
-            "seis meses"
+            "seis meses",
+            "6 meses",
         ],
         "resposta": (
             "A primeira revisão deve ser feita com 1.000 km ou 6 meses da data da compra, "
@@ -126,11 +153,12 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "900 km posso agendar",
             "tolerancia primeira revisao",
+            "tolerância primeira revisão",
             "minha moto ta com 900 km",
-            "900 a 1100"
+            "900 a 1100",
         ],
         "resposta": (
-            "Sim. Para a primeira revisão, a tolerância é de 900 km a 1.100 km."
+            "Sim. Para a primeira revisão, a tolerância normalmente é de 900 km a 1.100 km."
         )
     },
 
@@ -138,10 +166,10 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "revisao inclui lavagem",
             "lava a moto",
-            "lavagem na revisao"
+            "lavagem na revisao",
         ],
         "resposta": (
-            "Sim. A revisão inclui lavagem."
+            "Sim. A revisão inclui lavagem, conforme disponibilidade e fluxo da oficina."
         )
     },
 
@@ -150,10 +178,10 @@ BASE_CONHECIMENTO = {
             "posso esperar a moto ficar pronta",
             "sala de espera",
             "aguardar revisao",
-            "esperar a moto"
+            "esperar a moto",
         ],
         "resposta": (
-            "Pode sim. Temos sala de espera para clientes."
+            "Pode sim. Temos sala de espera para clientes, principalmente em revisões mais rápidas."
         )
     },
 
@@ -161,7 +189,7 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "tem revisao no sabado",
             "revisao sabado",
-            "sabado faz revisao"
+            "sabado faz revisao",
         ],
         "resposta": (
             "Aos sábados realizamos somente a primeira e segunda revisão, dependendo do fluxo de agendamento."
@@ -173,7 +201,7 @@ BASE_CONHECIMENTO = {
             "voces buscam a moto",
             "buscar moto em casa",
             "leva e traz",
-            "busca em casa"
+            "busca em casa",
         ],
         "resposta": (
             "No momento não buscamos a moto em casa."
@@ -184,10 +212,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "posso deixar a moto",
             "buscar depois",
-            "deixar e buscar depois"
+            "deixar e buscar depois",
+            "deixar a moto e retirar depois",
         ],
         "resposta": (
-            "Pode sim. Você pode deixar a moto e buscar depois."
+            "Pode sim. Você pode deixar a moto na concessionária e buscar depois."
         )
     },
 
@@ -196,10 +225,10 @@ BASE_CONHECIMENTO = {
             "tem revisao rapida",
             "revisao rapida",
             "1 revisao demora",
-            "2 revisao demora"
+            "2 revisao demora",
         ],
         "resposta": (
-            "A primeira e segunda revisão têm média de tempo de 1h30 a 2h."
+            "A primeira e segunda revisão têm média de tempo de 1h30 a 2h, dependendo do fluxo da oficina."
         )
     },
 
@@ -207,7 +236,7 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "qual revisao faz regulagem de valvula",
             "regulagem de valvula",
-            "ajuste de valvula"
+            "ajuste de valvula",
         ],
         "resposta": (
             "A partir da primeira revisão é feita a verificação. "
@@ -220,8 +249,9 @@ BASE_CONHECIMENTO = {
             "faz alinhamento",
             "faz limpeza de bico",
             "troca relacao",
+            "troca relação",
             "troca de pneu",
-            "tem troca de pneu"
+            "tem troca de pneu",
         ],
         "resposta": (
             "Sim. Realizamos alinhamento, limpeza de bico, troca de relação e troca de pneu."
@@ -232,10 +262,12 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "quanto fica a mao de obra",
             "valor da mao de obra",
-            "preco mao de obra"
+            "preco mao de obra",
+            "preço mão de obra",
         ],
         "resposta": (
-            "O valor da mão de obra depende do serviço a ser executado."
+            "O valor da mão de obra depende do serviço a ser executado. "
+            "Nossa equipe pode verificar o orçamento conforme o modelo e serviço necessário."
         )
     },
 
@@ -243,10 +275,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "revisao da nmax e mais cara",
             "nmax revisao cara",
-            "valor revisao nmax"
+            "valor revisao nmax",
         ],
         "resposta": (
-            "Não. As revisões na garantia possuem preço fixo."
+            "As revisões na garantia possuem preço fixo conforme tabela da Yamaha. "
+            "O valor pode variar conforme a revisão e itens necessários."
         )
     },
 
@@ -254,7 +287,7 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "qual revisao troca filtro de ar",
             "troca filtro de ar",
-            "filtro de ar"
+            "filtro de ar",
         ],
         "resposta": (
             "Depende da necessidade de substituição. Em todas as revisões é feita a verificação."
@@ -264,15 +297,14 @@ BASE_CONHECIMENTO = {
     # ==========================================
     # GARANTIA
     # ==========================================
-
     "garantia_status": {
         "keywords": [
             "minha moto ainda ta na garantia",
             "esta na garantia",
-            "garantia da minha moto"
+            "garantia da minha moto",
         ],
         "resposta": (
-            "Precisamos verificar o manual e o histórico de revisões para confirmar se a moto ainda está na garantia."
+            "Precisamos verificar o modelo, data da compra e histórico de revisões para confirmar se a moto ainda está na garantia."
         )
     },
 
@@ -280,7 +312,7 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "escapamento enferrujado garantia",
             "escapamento enferrujou",
-            "ferrugem escapamento"
+            "ferrugem escapamento",
         ],
         "resposta": (
             "Depende do uso e do estado da peça. É necessário avaliar na concessionária."
@@ -291,12 +323,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "escapamento esportivo perde garantia",
             "colocar escapamento perde garantia",
-            "escape esportivo"
+            "escape esportivo",
         ],
         "resposta": (
-            "A instalação de escapamento esportivo não anula automaticamente toda a garantia de fábrica, "
-            "mas pode restringir a cobertura. A garantia pode ser negada se a modificação for considerada "
-            "causa direta de um defeito."
+            "A instalação de escapamento esportivo não anula automaticamente toda a garantia, "
+            "mas pode restringir a cobertura se a modificação for considerada causa direta de algum defeito."
         )
     },
 
@@ -304,12 +335,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "garantia cobre bateria",
             "bateria tem garantia",
-            "garantia da bateria"
+            "garantia da bateria",
         ],
         "resposta": (
             "A bateria geralmente não possui a mesma cobertura contratual da motocicleta, por ser item de desgaste. "
-            "Ela possui garantia legal obrigatória de 90 dias, desde que seja constatado vício de fabricação. "
-            "Bateria descarregada por mau uso ou moto parada por muito tempo normalmente não é coberta."
+            "Ela pode ter garantia legal obrigatória de 90 dias, desde que seja constatado vício de fabricação."
         )
     },
 
@@ -317,10 +347,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "quanto tempo dura a garantia yamaha",
             "tempo de garantia",
-            "garantia yamaha dura quanto"
+            "garantia yamaha dura quanto",
         ],
         "resposta": (
-            "O tempo de garantia depende do modelo da motocicleta."
+            "O tempo de garantia depende do modelo da motocicleta. "
+            "Para confirmar corretamente, informe o modelo e ano da moto."
         )
     },
 
@@ -328,7 +359,7 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "posso fazer revisao fora da concessionaria",
             "revisao fora perde garantia",
-            "oficina fora da yamaha"
+            "oficina fora da yamaha",
         ],
         "resposta": (
             "Fazer revisão fora da concessionária Yamaha pode resultar na perda da garantia de fábrica. "
@@ -339,8 +370,9 @@ BASE_CONHECIMENTO = {
     "garantia_guidao": {
         "keywords": [
             "trocar guidao perde garantia",
+            "guidão perde garantia",
             "guidao perde garantia",
-            "instalar guidao"
+            "instalar guidao",
         ],
         "resposta": (
             "A troca do guidão não anula automaticamente toda a garantia, mas pode restringir a cobertura. "
@@ -352,11 +384,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "garantia cobre problema eletrico",
             "problema eletrico garantia",
-            "sistema eletrico garantia"
+            "sistema eletrico garantia",
         ],
         "resposta": (
-            "Sim. Problemas no sistema elétrico, como injeção, sensores, ECU ou alternador, podem ser cobertos, "
-            "desde que sejam causados por defeito de fabricação e não por instalação de acessórios indevidos."
+            "Problemas no sistema elétrico podem ser cobertos quando causados por defeito de fabricação, "
+            "desde que o sistema original não tenha sido alterado."
         )
     },
 
@@ -364,11 +396,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "moto falhando entra garantia",
             "moto falhando garantia",
-            "falha no motor garantia"
+            "falha no motor garantia",
         ],
         "resposta": (
-            "Sim, falhas no motor ou sistema de injeção podem ser cobertas. "
-            "A concessionária fará um diagnóstico para confirmar se não há mau uso ou combustível adulterado."
+            "Falhas no motor ou sistema de injeção podem ser avaliadas em garantia. "
+            "A concessionária fará um diagnóstico para verificar se há defeito de fabricação, mau uso ou combustível adulterado."
         )
     },
 
@@ -376,10 +408,10 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "garantia cobre painel apagando",
             "painel apagou garantia",
-            "painel apagando"
+            "painel apagando",
         ],
         "resposta": (
-            "Sim. O painel de instrumentos pode ser coberto se apagar por defeito interno, "
+            "O painel de instrumentos pode ser coberto se apagar por defeito interno, "
             "desde que o sistema elétrico original não tenha sido alterado."
         )
     },
@@ -389,7 +421,7 @@ BASE_CONHECIMENTO = {
             "posso instalar farol auxiliar",
             "farol auxiliar perde garantia",
             "instalar led",
-            "instalar farol"
+            "instalar farol",
         ],
         "resposta": (
             "Não é recomendado instalar acessórios não originais no sistema elétrico, como faróis auxiliares, "
@@ -400,12 +432,13 @@ BASE_CONHECIMENTO = {
     "peca_paralela_garantia": {
         "keywords": [
             "peca paralela perde garantia",
+            "peça paralela perde garantia",
             "usar peca paralela",
-            "peca nao original"
+            "peca nao original",
         ],
         "resposta": (
-            "Sim. O uso de peças, acessórios ou componentes não autorizados pela marca pode invalidar "
-            "a garantia da parte afetada e, em alguns casos, de outros sistemas relacionados."
+            "O uso de peças, acessórios ou componentes não autorizados pela marca pode invalidar a garantia da parte afetada "
+            "e, em alguns casos, de sistemas relacionados."
         )
     },
 
@@ -413,11 +446,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "garantia cobre vazamento",
             "vazamento garantia",
-            "vazando oleo garantia"
+            "vazando oleo garantia",
         ],
         "resposta": (
-            "Sim. Vazamentos de óleo ou fluidos causados por falha de vedação, juntas ou retentores "
-            "dentro do período de garantia podem ser cobertos, após análise técnica."
+            "Vazamentos de óleo ou fluidos causados por falha de vedação, juntas ou retentores podem ser avaliados em garantia, "
+            "após análise técnica."
         )
     },
 
@@ -425,11 +458,11 @@ BASE_CONHECIMENTO = {
         "keywords": [
             "garantia cobre embreagem",
             "embreagem garantia",
-            "disco de embreagem garantia"
+            "disco de embreagem garantia",
         ],
         "resposta": (
-            "Geralmente não. Peças de desgaste natural, como discos de embreagem, pastilhas de freio, relação e pneus, "
-            "normalmente não são cobertas. Porém, defeitos em componentes estruturais podem ser avaliados."
+            "Peças de desgaste natural, como discos de embreagem, pastilhas de freio, relação e pneus, normalmente não são cobertas. "
+            "Porém, defeitos em componentes estruturais podem ser avaliados."
         )
     },
 
@@ -438,20 +471,19 @@ BASE_CONHECIMENTO = {
             "yamaha cobre defeito de pintura",
             "garantia pintura",
             "pintura descascando",
-            "bolha na pintura"
+            "bolha na pintura",
         ],
         "resposta": (
-            "Sim. Defeitos de fabricação na pintura original, como descascamento, bolhas ou falhas no verniz, "
-            "podem ser cobertos, desde que não sejam causados por agentes externos."
+            "Defeitos de fabricação na pintura original, como descascamento, bolhas ou falhas no verniz, podem ser avaliados, "
+            "desde que não sejam causados por agentes externos."
         )
-    }
+    },
 }
 
 
 # ==========================================
-# FUNÇÃO PARA BUSCAR RESPOSTA
+# NORMALIZAÇÃO
 # ==========================================
-
 def normalizar_texto(texto):
     texto = str(texto or "").lower().strip()
 
@@ -461,59 +493,107 @@ def normalizar_texto(texto):
         "í": "i",
         "ó": "o", "ô": "o", "õ": "o",
         "ú": "u",
-        "ç": "c"
+        "ç": "c",
     }
 
     for antigo, novo in substituicoes.items():
         texto = texto.replace(antigo, novo)
 
-    return texto
+    texto = re.sub(r"[^a-z0-9\s]", " ", texto)
+    texto = re.sub(r"\s+", " ", texto)
+
+    return texto.strip()
 
 
+def similaridade(a, b):
+    a = normalizar_texto(a)
+    b = normalizar_texto(b)
+
+    if not a or not b:
+        return 0.0
+
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def pontuar(pergunta_norm, keyword_norm):
+    if not pergunta_norm or not keyword_norm:
+        return 0
+
+    pontos = 0
+
+    if keyword_norm in pergunta_norm:
+        pontos += 6
+
+    palavras_keyword = [
+        p for p in keyword_norm.split()
+        if len(p) > 3
+    ]
+
+    for palavra in palavras_keyword:
+        if palavra in pergunta_norm:
+            pontos += 1
+
+    sim = similaridade(pergunta_norm, keyword_norm)
+
+    if sim >= 0.85:
+        pontos += 5
+    elif sim >= 0.70:
+        pontos += 3
+    elif sim >= 0.55:
+        pontos += 1
+
+    return pontos
+
+
+# ==========================================
+# BUSCAR RESPOSTA
+# ==========================================
 def buscar_na_base_conhecimento(pergunta):
     pergunta_norm = normalizar_texto(pergunta)
+
+    if not pergunta_norm:
+        return {
+            "encontrou": False,
+            "categoria": "",
+            "resposta": "",
+            "pontuacao": 0,
+        }
 
     melhor_resposta = ""
     melhor_pontuacao = 0
     melhor_categoria = ""
 
     for categoria, dados in BASE_CONHECIMENTO.items():
-        pontuacao = 0
+        pontuacao_categoria = 0
 
         for keyword in dados.get("keywords", []):
             keyword_norm = normalizar_texto(keyword)
+            pontuacao_categoria += pontuar(pergunta_norm, keyword_norm)
 
-            if keyword_norm in pergunta_norm:
-                pontuacao += 3
-            else:
-                palavras = keyword_norm.split()
-                for palavra in palavras:
-                    if len(palavra) > 3 and palavra in pergunta_norm:
-                        pontuacao += 1
-
-        if pontuacao > melhor_pontuacao:
-            melhor_pontuacao = pontuacao
+        if pontuacao_categoria > melhor_pontuacao:
+            melhor_pontuacao = pontuacao_categoria
             melhor_resposta = dados.get("resposta", "")
             melhor_categoria = categoria
 
-    if melhor_pontuacao <= 0:
+    if melhor_pontuacao <= 1:
         return {
             "encontrou": False,
             "categoria": "",
-            "resposta": ""
+            "resposta": "",
+            "pontuacao": melhor_pontuacao,
         }
 
     return {
         "encontrou": True,
         "categoria": melhor_categoria,
-        "resposta": melhor_resposta
+        "resposta": melhor_resposta,
+        "pontuacao": melhor_pontuacao,
     }
 
 
 # ==========================================
 # TESTE LOCAL
 # ==========================================
-
 if __name__ == "__main__":
     pergunta = "quanto custa a revisão da minha fz15?"
 

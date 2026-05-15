@@ -63,12 +63,10 @@ class Atendimento(Base):
     atendimento_humano = Column(Boolean, default=False)
     concluido = Column(Boolean, default=False)
 
-    # ==========================================
-    # IA / BOTÕES / INTERAÇÃO
-    # ==========================================
     button_id = Column(String, nullable=True)
     intencao_ia = Column(String, nullable=True)
     id_envio_zapi = Column(String, nullable=True)
+    tipo_envio = Column(String, nullable=True)
     status_retorno = Column(String, nullable=True)
     proxima_acao = Column(String, nullable=True)
 
@@ -80,9 +78,6 @@ class Atendimento(Base):
     valor_estimado = Column(Float, default=0)
     origem_ia = Column(String, nullable=True)
 
-    # ==========================================
-    # FOLLOW-UP
-    # ==========================================
     followup_1 = Column(Boolean, default=False)
     followup_2 = Column(Boolean, default=False)
     followup_3 = Column(Boolean, default=False)
@@ -90,7 +85,7 @@ class Atendimento(Base):
     followup_recuperado = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
-    ultima_mensagem_cliente = Column(DateTime, nullable=True)
+    ultima_mensagem_cliente = Column(Text, nullable=True)
 
     data = Column(DateTime, default=datetime.now, index=True)
 
@@ -118,6 +113,7 @@ class Disparo(Base):
 
     button_id = Column(String, nullable=True)
     id_envio_zapi = Column(String, nullable=True)
+    tipo_envio = Column(String, nullable=True)
     intencao_ia = Column(String, nullable=True)
     proxima_acao = Column(String, nullable=True)
     nivel_interesse = Column(String, nullable=True)
@@ -129,12 +125,7 @@ class Disparo(Base):
     ultima_interacao = Column(DateTime, nullable=True)
 
     criado_em = Column(DateTime, default=datetime.now, index=True)
-
-    atualizado_em = Column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now
-    )
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================
@@ -161,9 +152,13 @@ class LeadAtacado(Base):
 
     button_id = Column(String, nullable=True)
     id_envio_zapi = Column(String, nullable=True)
+    tipo_envio = Column(String, nullable=True)
     intencao_ia = Column(String, nullable=True)
     proxima_acao = Column(String, nullable=True)
     nivel_interesse = Column(String, nullable=True)
+
+    catalogo_enviado = Column(Boolean, default=False)
+    data_catalogo_enviado = Column(DateTime, nullable=True)
 
     observacoes = Column(Text, nullable=True)
 
@@ -172,12 +167,7 @@ class LeadAtacado(Base):
     ultima_interacao = Column(DateTime, nullable=True)
 
     data = Column(DateTime, default=datetime.now, index=True)
-
-    atualizado_em = Column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now
-    )
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================
@@ -212,29 +202,18 @@ class AgendamentoRevisao(Base):
 
     lembrete_enviado = Column(Boolean, default=False)
 
-    # ==========================================
-    # SANCES
-    # ==========================================
     sances_status = Column(String, default="PENDENTE", index=True)
     sances_enviado = Column(Boolean, default=False)
     sances_protocolo = Column(String, default="")
     sances_erro = Column(Text, default="")
     sances_data_envio = Column(DateTime, nullable=True)
 
-    # ==========================================
-    # FILA / RETRY
-    # ==========================================
     sances_tentativas = Column(Integer, default=0)
     sances_ultima_tentativa = Column(DateTime, nullable=True)
     sances_ultimo_retorno = Column(Text, default="")
 
     criado_em = Column(DateTime, default=datetime.now, index=True)
-
-    atualizado_em = Column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now
-    )
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================
@@ -246,7 +225,6 @@ class RevisaoCatalogo(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     modelo = Column(String, index=True, nullable=False)
-
     revisao_numero = Column(String, index=True, nullable=False)
 
     valor = Column(Float, nullable=True)
@@ -260,12 +238,7 @@ class RevisaoCatalogo(Base):
     ativo = Column(Boolean, default=True, index=True)
 
     criado_em = Column(DateTime, default=datetime.now)
-
-    atualizado_em = Column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now
-    )
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================
@@ -283,12 +256,7 @@ class FaqRevisao(Base):
     ativo = Column(Boolean, default=True, index=True)
 
     criado_em = Column(DateTime, default=datetime.now)
-
-    atualizado_em = Column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now
-    )
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================
@@ -310,16 +278,10 @@ class SugestaoVenda(Base):
     mensagem = Column(Text, nullable=False)
 
     prioridade = Column(Integer, default=1)
-
     ativo = Column(Boolean, default=True)
 
     criado_em = Column(DateTime, default=datetime.now)
-
-    atualizado_em = Column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now
-    )
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 # ==========================================

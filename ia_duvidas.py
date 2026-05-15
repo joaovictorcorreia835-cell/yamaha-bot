@@ -12,34 +12,45 @@ except ImportError:
     PdfReader = None
 
 
-PASTA_MANUAIS = os.path.join("static", "manuais")
+PASTA_MANUAIS = os.getenv("CAMINHO_MANUAIS", os.path.join("static", "manuais"))
 
 MANUAIS_YAMAHA = {
     "crosser": "manual_crosser150_2025_eta.pdf",
     "crypton": "manual_crypton_2015.pdf",
+
     "factor125": "manual_factor125_2025.pdf",
     "factor 125": "manual_factor125_2025.pdf",
+
     "factor150": "manual_factor150_2025.v2.pdf",
     "factor 150": "manual_factor150_2025.v2.pdf",
     "factor": "manual_factor150_2025.v2.pdf",
+
     "fz15": "manual_fazerfz15abs_2025_W2.pdf",
     "fz 15": "manual_fazerfz15abs_2025_W2.pdf",
     "fazer 150": "manual_fazerfz15abs_2025_W2.pdf",
+
     "fazer250": "manual_fazerfz25abs_2025.pdf",
     "fazer 250": "manual_fazerfz25abs_2025.pdf",
     "fz25": "manual_fazerfz25abs_2025.pdf",
     "fz 25": "manual_fazerfz25abs_2025.pdf",
+
     "fluo": "manual_fluoabs_2025.pdf",
     "fluo hybrid": "manual_fluoabshybridconnected_2026.pdf",
+
     "lander": "manual_landerxtz250_2025.pdf",
     "lander 250": "manual_landerxtz250_2025.pdf",
+
     "mt03": "manual_mt03absconnected_2026.pdf",
     "mt 03": "manual_mt03absconnected_2026.pdf",
+
     "mt07": "manual_mt07absconnected_2026.pdf",
     "mt 07": "manual_mt07absconnected_2026.pdf",
+
     "nmax": "manual_nmaxconnected_2025_eta.pdf",
+
     "r3": "manual_r3abs_2026.pdf",
     "r 3": "manual_r3abs_2026.pdf",
+
     "r15": "manual_r15abs_2025.pdf",
     "r 15": "manual_r15abs_2025.pdf",
 }
@@ -48,11 +59,11 @@ CACHE_MANUAIS = {}
 
 
 def log_info(*args):
-    print("[INFO]", *args, flush=True)
+    print("[IA DÚVIDAS][INFO]", *args, flush=True)
 
 
 def log_erro(*args):
-    print("[ERRO]", *args, flush=True)
+    print("[IA DÚVIDAS][ERRO]", *args, flush=True)
 
 
 def normalizar_texto(texto):
@@ -71,6 +82,14 @@ def normalizar_texto(texto):
         texto = texto.replace(antigo, novo)
 
     texto = re.sub(r"\s+", " ", texto)
+    return texto.strip()
+
+
+def limpar_trecho(texto):
+    texto = str(texto or "")
+    texto = re.sub(r"\s+", " ", texto)
+    texto = texto.replace(" ,", ",").replace(" .", ".")
+    texto = texto.replace(" :", ":").replace(" ;", ";")
     return texto.strip()
 
 
@@ -107,9 +126,7 @@ def localizar_pdf(nome_arquivo):
     alvo_norm = normalizar_nome_arquivo(nome_arquivo)
 
     for arquivo in os.listdir(PASTA_MANUAIS):
-        arquivo_norm = normalizar_nome_arquivo(arquivo)
-
-        if arquivo_norm == alvo_norm:
+        if normalizar_nome_arquivo(arquivo) == alvo_norm:
             return os.path.join(PASTA_MANUAIS, arquivo)
 
     partes_alvo = [
@@ -191,27 +208,28 @@ def identificar_assunto(pergunta):
     assuntos = {
         "garantia": [
             "garantia", "perde garantia", "cobertura", "termo de garantia",
+            "defeito", "fabrica",
         ],
         "oleo": [
-            "oleo", "óleo", "lubrificante", "viscosidade",
-            "yamalube", "sae", "jaso", "api",
+            "oleo", "lubrificante", "viscosidade", "yamalube",
+            "sae", "jaso", "api",
         ],
         "revisao": [
-            "revisao", "revisão", "manutencao", "manutenção",
-            "troca", "quilometragem", "periodica", "periódica",
+            "revisao", "manutencao", "troca", "quilometragem",
+            "periodica", "km", "revisar",
         ],
         "pneu": [
-            "pneu", "calibragem", "pressao", "pressão", "libras",
+            "pneu", "calibragem", "pressao", "libras",
         ],
         "combustivel": [
-            "combustivel", "combustível", "gasolina", "etanol",
-            "alcool", "álcool",
+            "combustivel", "gasolina", "etanol", "alcool",
         ],
         "bateria": [
-            "bateria", "partida", "eletrica", "elétrica",
+            "bateria", "partida", "eletrica", "sistema eletrico",
         ],
         "painel": [
-            "painel", "luz", "indicador", "injecao", "injeção", "alerta",
+            "painel", "luz", "indicador", "injecao", "alerta",
+            "advertencia",
         ],
     }
 
@@ -227,12 +245,12 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     pergunta = normalizar_texto(pergunta)
     assunto = identificar_assunto(pergunta)
 
-    palavras_ignoradas = [
+    palavras_ignoradas = {
         "minha", "meu", "moto", "yamaha", "quanto", "como",
         "qual", "onde", "porque", "pra", "para", "com",
         "tem", "esta", "esse", "essa", "isso", "quero",
         "preciso", "pode", "usar", "saber", "devo",
-    ]
+    }
 
     palavras = []
 
@@ -250,14 +268,15 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     palavras_por_assunto = {
         "pneu": [
             "pneu", "pressao", "pressao dos pneus", "calibragem",
-            "calibre", "libras",
+            "calibre",
         ],
         "revisao": [
             "manutencao periodica", "tabela de manutencao",
             "revisao", "quilometragem", "troca",
         ],
         "garantia": [
-            "garantia", "termo de garantia", "cobertura", "perda da garantia",
+            "garantia", "termo de garantia", "cobertura",
+            "perda da garantia",
         ],
         "combustivel": [
             "combustivel", "gasolina", "etanol", "alcool",
@@ -284,6 +303,7 @@ def extrair_trecho_relevante(texto_manual, pergunta):
         "informacoes de seguranca",
         "descricao",
         "pagina",
+        "................",
     ]
 
     melhor_trecho = ""
@@ -293,37 +313,32 @@ def extrair_trecho_relevante(texto_manual, pergunta):
 
     for i in range(0, len(texto_manual), passo):
         trecho = texto_manual[i:i + tamanho_bloco]
-        trecho_limpo = re.sub(r"\s+", " ", trecho)
+        trecho_limpo = limpar_trecho(trecho)
 
         pontuacao = 0
 
         for ruim in blocos_ruins:
-            if ruim in trecho_limpo[:500]:
-                pontuacao -= 5
-
-        if "........................" in trecho_limpo:
-            pontuacao -= 8
+            if ruim in trecho_limpo[:600]:
+                pontuacao -= 6
 
         for palavra in palavras:
             palavra_norm = normalizar_texto(palavra)
 
-            if palavra_norm in trecho_limpo:
+            if palavra_norm and palavra_norm in trecho_limpo:
                 pontuacao += 3
 
-        bonus = [
-            "manutencao periodica",
-            "tabela de manutencao",
-            "pressao dos pneus",
-            "garantia",
-            "termo de garantia",
-            "combustivel",
-            "bateria",
-            "painel",
-        ]
+        bonus_por_assunto = {
+            "pneu": ["pressao dos pneus", "calibragem", "pneu"],
+            "revisao": ["manutencao periodica", "tabela de manutencao", "revisao"],
+            "garantia": ["garantia", "termo de garantia", "cobertura"],
+            "combustivel": ["combustivel", "gasolina"],
+            "bateria": ["bateria", "partida"],
+            "painel": ["painel", "luz indicadora", "advertencia"],
+        }
 
-        for termo in bonus:
+        for termo in bonus_por_assunto.get(assunto, []):
             if termo in trecho_limpo:
-                pontuacao += 4
+                pontuacao += 5
 
         if pontuacao > melhor_pontuacao:
             melhor_pontuacao = pontuacao
@@ -332,26 +347,26 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     if not melhor_trecho or melhor_pontuacao <= 0:
         return ""
 
-    melhor_trecho = re.sub(r"\s+", " ", melhor_trecho)
     return melhor_trecho[:1500]
 
 
 RESPOSTAS_PADRAO = {
     "garantia": (
         "A garantia Yamaha cobre defeitos de fabricação conforme o manual do proprietário. "
-        "Alterações elétricas, escapamentos não homologados e revisões fora da concessionária "
-        "podem impactar a garantia."
+        "Alterações elétricas, escapamentos não homologados, uso de peças paralelas "
+        "e revisões fora da concessionária podem impactar a cobertura."
     ),
     "oleo": (
         "Utilize sempre o óleo recomendado no manual da Yamaha e respeite a viscosidade indicada "
-        "para o modelo."
+        "para o modelo. Para evitar erro de aplicação, confirme a especificação com o pós-venda."
     ),
     "revisao": (
         "As revisões devem ser realizadas conforme quilometragem e prazo informados no manual "
-        "do proprietário."
+        "do proprietário. Manter as revisões em dia ajuda na segurança e na garantia."
     ),
     "pneu": (
-        "A calibragem correta dos pneus está especificada no manual da motocicleta."
+        "A calibragem correta dos pneus está especificada no manual da motocicleta e pode variar "
+        "conforme modelo, carga e condição de uso."
     ),
     "combustivel": (
         "Use sempre combustível de boa procedência e siga as orientações do manual da Yamaha."
@@ -367,6 +382,21 @@ RESPOSTAS_PADRAO = {
 }
 
 
+def resposta_oleo_segura(modelo_detectado):
+    return {
+        "encontrou": True,
+        "modelo": modelo_detectado,
+        "assunto": "oleo",
+        "fonte": "base_tecnica_oleo",
+        "resposta": (
+            f"🛢️ Para a Yamaha *{modelo_detectado.upper()}*, utilize o óleo recomendado no manual do proprietário.\n\n"
+            "O ideal é confirmar a especificação exata com o pós-venda antes de completar ou trocar o óleo, "
+            "para evitar uso de lubrificante incorreto.\n\n"
+            "Também posso te ajudar a agendar a revisão ou verificar peças e acessórios."
+        )
+    }
+
+
 def buscar_resposta_manual(modelo, pergunta):
     texto_manual = carregar_manual_pdf(modelo)
 
@@ -377,8 +407,20 @@ def buscar_resposta_manual(modelo, pergunta):
 
 
 def responder_duvida_manual(modelo, pergunta_cliente):
-    modelo = normalizar_texto(modelo)
-    pergunta_cliente = normalizar_texto(pergunta_cliente)
+    modelo_original = str(modelo or "").strip()
+    pergunta_original = str(pergunta_cliente or "").strip()
+
+    modelo = normalizar_texto(modelo_original)
+    pergunta_cliente = normalizar_texto(pergunta_original)
+
+    if not pergunta_cliente:
+        return {
+            "encontrou": False,
+            "modelo": modelo_original,
+            "assunto": "",
+            "fonte": "sem_pergunta",
+            "resposta": "Me envie sua dúvida para eu consultar a base Yamaha."
+        }
 
     if not modelo:
         return {
@@ -386,7 +428,7 @@ def responder_duvida_manual(modelo, pergunta_cliente):
             "modelo": "",
             "assunto": identificar_assunto(pergunta_cliente),
             "fonte": "sem_modelo",
-            "resposta": "Informe o modelo da sua Yamaha para eu consultar o manual."
+            "resposta": "Informe o modelo da sua Yamaha para eu consultar o manual correto."
         }
 
     modelo_detectado = identificar_modelo(modelo)
@@ -394,7 +436,7 @@ def responder_duvida_manual(modelo, pergunta_cliente):
     if not modelo_detectado:
         return {
             "encontrou": False,
-            "modelo": modelo,
+            "modelo": modelo_original,
             "assunto": identificar_assunto(pergunta_cliente),
             "fonte": "modelo_nao_encontrado",
             "resposta": "Ainda não encontrei o manual desse modelo na base."
@@ -402,26 +444,14 @@ def responder_duvida_manual(modelo, pergunta_cliente):
 
     assunto = identificar_assunto(pergunta_cliente)
 
-    # Resposta segura para óleo, evitando puxar trecho errado do PDF
     if assunto == "oleo":
-        return {
-            "encontrou": True,
-            "modelo": modelo_detectado,
-            "assunto": assunto,
-            "fonte": "base_tecnica_oleo",
-            "resposta": (
-                f"🛢️ Para a Yamaha *{modelo_detectado.upper()}*, utilize o óleo recomendado no manual do proprietário.\n\n"
-                "O ideal é confirmar a especificação exata com o pós-venda antes de completar ou trocar o óleo, "
-                "para evitar uso de lubrificante incorreto.\n\n"
-                "Também posso te ajudar a agendar a revisão ou verificar peças e acessórios."
-            )
-        }
+        return resposta_oleo_segura(modelo_detectado)
 
     trecho = buscar_resposta_manual(modelo_detectado, pergunta_cliente)
 
     if trecho:
         resposta = f"""
-📖 Encontrei uma informação no manual da Yamaha {modelo_detectado.upper()}:
+📖 Encontrei uma informação no manual da Yamaha *{modelo_detectado.upper()}*:
 
 {trecho}
 

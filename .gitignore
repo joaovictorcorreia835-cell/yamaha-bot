@@ -49,6 +49,15 @@ auth_info/
 .baileys/
 wwebjs_auth/
 wwebjs_cache/
+meta_sessions/
+
+# =========================================
+# Z-API / META TOKENS
+# =========================================
+*zapi*
+*meta_token*
+*access_token*
+*client_token*
 
 # =========================================
 # VS CODE / IDE
@@ -62,6 +71,7 @@ wwebjs_cache/
 # =========================================
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # =========================================
 # LOGS
@@ -69,6 +79,7 @@ Thumbs.db
 *.log
 logs/
 *.out
+uvicorn.log
 
 # =========================================
 # BANCO LOCAL
@@ -96,6 +107,8 @@ static/uploads/
 # =========================================
 temp_pdfs/
 downloads/
+pdf_cache/
+ocr_cache/
 
 # =========================================
 # RENDER
@@ -113,7 +126,8 @@ disparo_log.xlsx
 # =========================================
 # PLANILHAS INTERNAS
 # =========================================
-templates/data/*.xlsx
+templates/data/clientes*
+templates/data/disparo*
 templates/data/*.csv
 
 # =========================================
@@ -144,11 +158,14 @@ node_modules/
 # =========================================
 coverage/
 htmlcov/
+test-results/
+playwright-report/
 
 # =========================================
-# GUNICORN
+# GUNICORN / UVICORN
 # =========================================
 gunicorn.pid
+*.pid
 
 # =========================================
 # PYTHON ENV
@@ -165,12 +182,17 @@ vectorstore/
 embeddings/
 chroma_db/
 faiss_index/
+vector_cache/
+chunks_cache/
+processed_manuals/
 
 # =========================================
 # OPENAI CACHE
 # =========================================
 openai_cache/
 responses_cache/
+ia_cache/
+tmp_ia/
 
 # =========================================
 # IA BASE CONHECIMENTO
@@ -205,17 +227,6 @@ dashboard_cache/
 *.secret
 
 # =========================================
-# SESSÕES META CLOUD API
-# =========================================
-meta_sessions/
-
-# =========================================
-# IA TEMP
-# =========================================
-tmp_ia/
-ia_cache/
-
-# =========================================
 # WEBHOOK DEBUG
 # =========================================
 payloads_debug/
@@ -232,3 +243,50 @@ manuais_processados/
 models/
 checkpoints/
 training_data/
+
+# =========================================
+# REDIS / CELERY FUTURO
+# =========================================
+redis_dump.rdb
+celerybeat-schedule
+
+# =========================================
+# NGROK / TÚNEL
+# =========================================
+.ngrok2/
+ngrok.yml
+
+# =========================================
+# TESTE LOCAL WHATSAPP
+# =========================================
+qrcode.png
+qr.png
+
+# =========================================
+# PLAYWRIGHT / SELENIUM
+# =========================================
+browser_cache/
+
+# =========================================
+# BACKUPS
+# =========================================
+backup/
+backups/
+*.sql
+*.dump
+
+# =========================================
+# ARQUIVOS GRANDES
+# =========================================
+*.zip
+*.rar
+*.7z
+
+# =========================================
+# MANTER ARQUIVOS NECESSÁRIOS EM PRODUÇÃO
+# =========================================
+!static/manuais/
+!static/manuais/*.pdf
+!static/pdfs/
+!static/pdfs/*.pdf
+!templates/data/.gitkeep

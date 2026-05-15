@@ -28,6 +28,10 @@ def normalizar_texto(texto):
     return texto.strip()
 
 
+def limpar_texto(texto):
+    return str(texto or "").strip()
+
+
 # ==========================================
 # DETECÇÕES
 # ==========================================
@@ -35,25 +39,38 @@ def detectar_modelo(texto):
     texto = normalizar_texto(texto)
 
     modelos = {
-        "fz15": "FZ15",
-        "fazer 150": "FZ15",
+        "tenere 700": "TENERE 700",
+        "tenere": "TENERE 700",
+        "t7": "TENERE 700",
+
         "fazer 250": "FAZER 250",
         "fz25": "FAZER 250",
+        "fz 25": "FAZER 250",
+
+        "fz15": "FZ15",
+        "fz 15": "FZ15",
+        "fazer 150": "FZ15",
+
         "lander": "LANDER",
         "crosser": "CROSSER",
         "factor": "FACTOR",
         "nmax": "NMAX",
         "fluo": "FLUO",
         "neo": "NEO",
+        "aerox": "AEROX",
+
         "mt03": "MT-03",
         "mt 03": "MT-03",
+        "mt-03": "MT-03",
+
         "mt07": "MT-07",
         "mt 07": "MT-07",
+        "mt-07": "MT-07",
+
         "r15": "R15",
+        "r 15": "R15",
         "r3": "R3",
-        "aerox": "AEROX",
-        "tenere": "TENERE 700",
-        "tenere 700": "TENERE 700",
+        "r 3": "R3",
     }
 
     for chave, nome in modelos.items():
@@ -70,26 +87,46 @@ def detectar_interesse_comercial(texto, intencao=""):
     if intencao in ["valor_revisao", "agendar_revisao", "revisao"]:
         return "revisao"
 
-    if intencao in ["pecas", "peças", "orcamento", "orçamento"]:
+    if intencao in ["pecas", "pecas_orcamento", "orcamento"]:
         return "pecas"
 
-    if intencao in ["acessorios", "acessórios"]:
+    if intencao in ["acessorios", "acessorios_orcamento"]:
         return "acessorios"
 
     if intencao == "garantia":
         return "garantia"
 
-    if any(p in texto for p in ["revisao", "óleo", "oleo", "manutencao", "manutenção"]):
+    if intencao in ["atacado", "atacado_catalogo"]:
+        return "atacado"
+
+    if any(p in texto for p in [
+        "revisao", "oleo", "manutencao", "revisar", "km",
+    ]):
         return "revisao"
 
-    if any(p in texto for p in ["peca", "peça", "pastilha", "filtro", "relacao", "relação", "pneu"]):
+    if any(p in texto for p in [
+        "peca", "pastilha", "filtro", "relacao", "pneu",
+        "corrente", "coroa", "pinhao", "vela", "bateria",
+    ]):
         return "pecas"
 
-    if any(p in texto for p in ["acessorio", "acessório", "slider", "bau", "baú", "protetor", "suporte", "bolha"]):
+    if any(p in texto for p in [
+        "acessorio", "slider", "bau", "protetor", "suporte",
+        "bolha", "bagageiro",
+    ]):
         return "acessorios"
 
-    if any(p in texto for p in ["garantia", "falhando", "barulho", "vazando", "painel", "defeito"]):
+    if any(p in texto for p in [
+        "garantia", "falhando", "barulho", "vazando", "painel",
+        "defeito", "cobre", "cobertura",
+    ]):
         return "garantia"
+
+    if any(p in texto for p in [
+        "atacado", "lojista", "logista", "oficina", "revenda",
+        "catalogo", "tabela", "parceria", "yamalube",
+    ]):
+        return "atacado"
 
     return "geral"
 
@@ -101,21 +138,34 @@ def classificar_nivel_interesse(texto, intencao=""):
     texto = normalizar_texto(texto)
     intencao = normalizar_texto(intencao)
 
+    baixa = [
+        "depois vejo",
+        "vou pensar",
+        "mais tarde",
+        "agora nao",
+        "nao quero",
+        "so olhando",
+        "só olhando",
+        "so pesquisando",
+    ]
+
     alta = [
         "quero agendar",
         "pode marcar",
         "tem vaga",
         "hoje",
         "amanha",
-        "amanhã",
         "vou fazer",
         "preciso fazer",
         "quero fazer",
         "qual horario",
-        "qual horário",
         "agenda",
         "agendar",
         "marcar",
+        "quero comprar",
+        "pode separar",
+        "manda o catalogo",
+        "quero tabela",
     ]
 
     media = [
@@ -123,23 +173,12 @@ def classificar_nivel_interesse(texto, intencao=""):
         "qual valor",
         "quanto fica",
         "tem disponivel",
-        "tem disponível",
-        "faz orçamento",
         "faz orcamento",
         "queria saber",
         "preco",
-        "preço",
         "valor",
-    ]
-
-    baixa = [
-        "depois vejo",
-        "vou pensar",
-        "mais tarde",
-        "agora nao",
-        "agora não",
-        "nao quero",
-        "não quero",
+        "catalogo",
+        "tabela",
     ]
 
     if any(item in texto for item in baixa):
@@ -151,10 +190,10 @@ def classificar_nivel_interesse(texto, intencao=""):
     if any(item in texto for item in media):
         return "MEDIO"
 
-    if intencao in ["agendar_revisao", "revisao"]:
+    if intencao in ["agendar_revisao", "atacado_catalogo"]:
         return "ALTO"
 
-    if intencao in ["valor_revisao", "pecas", "acessorios", "garantia"]:
+    if intencao in ["valor_revisao", "pecas", "acessorios", "garantia", "atacado"]:
         return "MEDIO"
 
     return "MEDIO"
@@ -174,6 +213,10 @@ def classificar_temperatura_lead(texto, intencao=""):
 
 def proxima_acao_comercial(texto, intencao=""):
     nivel = classificar_nivel_interesse(texto, intencao)
+    intencao = normalizar_texto(intencao)
+
+    if intencao == "atacado_catalogo":
+        return "ENVIAR_CATALOGO_ATACADO"
 
     if nivel == "ALTO":
         return "OFERECER_AGENDAMENTO"
@@ -195,43 +238,43 @@ def sugestoes_por_modelo(modelo):
             "slider",
             "suporte de celular",
             "protetor de motor",
-            "lubrificação de corrente"
+            "lubrificação de corrente",
         ],
         "fazer 250": [
             "slider",
             "pastilha de freio",
             "kit relação",
-            "suporte de celular"
+            "suporte de celular",
         ],
         "fz25": [
             "slider",
             "pastilha de freio",
             "kit relação",
-            "suporte de celular"
+            "suporte de celular",
         ],
         "lander": [
             "protetor de motor",
             "baú",
             "farol auxiliar",
-            "lubrificação de corrente"
+            "lubrificação de corrente",
         ],
         "crosser": [
             "baú",
             "protetor de carenagem",
             "kit relação",
-            "lubrificação de corrente"
+            "lubrificação de corrente",
         ],
         "nmax": [
             "bolha",
             "suporte de celular",
             "pastilha de freio",
-            "limpeza do sistema CVT"
+            "limpeza do sistema CVT",
         ],
         "aerox": [
             "bolha",
             "pastilha de freio",
             "óleo",
-            "limpeza do sistema CVT"
+            "limpeza do sistema CVT",
         ],
     }
 
@@ -243,46 +286,50 @@ def sugestoes_por_modelo(modelo):
 
 
 # ==========================================
-# IA COMERCIAL
+# RESPOSTAS COMERCIAIS
 # ==========================================
 def montar_oferta_comercial(modelo="", interesse="geral"):
     modelo = modelo or "sua Yamaha"
-    modelo_norm = normalizar_texto(modelo)
     interesse = normalizar_texto(interesse)
 
-    sugestoes = sugestoes_por_modelo(modelo_norm)
+    sugestoes = sugestoes_por_modelo(modelo)
 
     if interesse == "revisao":
         base = (
-            f"A revisão da {modelo} é essencial para manter a moto segura, econômica "
-            f"e dentro do padrão Yamaha ✅\n\n"
-            f"Durante o atendimento, a equipe verifica itens importantes para evitar "
-            f"gastos maiores no futuro."
+            f"A revisão da *{modelo}* é essencial para manter a moto segura, econômica "
+            "e dentro do padrão Yamaha ✅\n\n"
+            "Durante o atendimento, nossa equipe verifica itens importantes para evitar "
+            "gastos maiores no futuro."
         )
 
     elif interesse == "pecas":
         base = (
-            f"Consigo te ajudar com peças para {modelo} ✅\n\n"
-            f"Trabalhamos com peças Yamaha e também podemos verificar disponibilidade, "
-            f"prazo de encomenda e instalação na oficina."
+            f"Consigo te ajudar com peças para *{modelo}* ✅\n\n"
+            "Podemos verificar disponibilidade, prazo de encomenda, valores e instalação na oficina."
         )
 
     elif interesse == "acessorios":
         base = (
-            f"Temos acessórios que podem deixar sua {modelo} mais completa, protegida "
-            f"e confortável ✅"
+            f"Temos acessórios que podem deixar sua *{modelo}* mais completa, protegida "
+            "e confortável ✅"
         )
 
     elif interesse == "garantia":
         base = (
-            f"Posso te orientar sobre garantia da {modelo} ✅\n\n"
-            f"Para verificar corretamente, preciso saber o modelo, ano, o que aconteceu "
-            f"e se as revisões estão em dia."
+            f"Posso te orientar sobre garantia da *{modelo}* ✅\n\n"
+            "Para verificar corretamente, preciso saber o modelo, ano, o que aconteceu "
+            "e se as revisões estão em dia."
+        )
+
+    elif interesse == "atacado":
+        base = (
+            "Temos condições comerciais para oficinas, lojistas e revendedores ✅\n\n"
+            "Trabalhamos com peças, óleo Yamalube e itens Yamaha para reposição e revenda."
         )
 
     else:
         base = (
-            "Posso te ajudar com revisão, peças, acessórios, garantia ou atendimento humano ✅"
+            "Posso te ajudar com revisão, peças, acessórios, garantia, atacado ou atendimento humano ✅"
         )
 
     if sugestoes:
@@ -293,6 +340,9 @@ def montar_oferta_comercial(modelo="", interesse="geral"):
 
 
 def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_atual="", nome=""):
+    texto = limpar_texto(texto)
+    nome = limpar_texto(nome)
+
     if not modelo:
         modelo = detectar_modelo(texto)
 
@@ -308,10 +358,16 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
 
     resposta = saudacao + montar_oferta_comercial(
         modelo=modelo,
-        interesse=interesse
+        interesse=interesse,
     )
 
-    if proxima_acao == "OFERECER_AGENDAMENTO":
+    if proxima_acao == "ENVIAR_CATALOGO_ATACADO":
+        resposta += (
+            "\n\nVou te enviar o catálogo de atacado agora. "
+            "Depois disso, um consultor pode te ajudar com valores, disponibilidade e condições comerciais."
+        )
+
+    elif proxima_acao == "OFERECER_AGENDAMENTO":
         resposta += "\n\nTenho horários disponíveis. Deseja que eu siga com o agendamento?"
 
     elif proxima_acao == "COLETAR_DADOS_OU_ORCAMENTO":
@@ -323,7 +379,7 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
         )
 
     else:
-        resposta += "\n\nQuando quiser, posso te ajudar a consultar opções ou iniciar o agendamento."
+        resposta += "\n\nQuando quiser, posso te ajudar a consultar opções ou iniciar o atendimento."
 
     return {
         "resposta": resposta,
@@ -336,6 +392,36 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
 
 
 # ==========================================
+# MENSAGEM ATACADO COM ENGAJAMENTO
+# ==========================================
+def gerar_mensagem_atacado(nome="", empresa=""):
+    nome = limpar_texto(nome)
+    empresa = limpar_texto(empresa)
+
+    saudacao = f"Olá, {nome}!" if nome else "Olá!"
+
+    complemento_empresa = (
+        f"\n\nVi aqui o contato da *{empresa}* e quero te apresentar uma oportunidade para compra no atacado."
+        if empresa else
+        "\n\nQuero te apresentar uma oportunidade para compra no atacado."
+    )
+
+    return (
+        f"{saudacao}{complemento_empresa}\n\n"
+        "A Motoshow Yamaha trabalha com peças, óleo Yamalube e itens para oficinas, lojistas e revendedores.\n\n"
+        "Temos atendimento comercial para quem busca:\n"
+        "✅ reposição com mais segurança\n"
+        "✅ produtos Yamaha/Yamalube\n"
+        "✅ suporte para orçamento\n"
+        "✅ melhores condições para compra em volume\n\n"
+        "Escolha uma opção:\n\n"
+        "1️⃣ Receber catálogo de atacado\n"
+        "2️⃣ Falar com consultor\n"
+        "3️⃣ Ver depois"
+    )
+
+
+# ==========================================
 # FOLLOW-UP
 # ==========================================
 def gerar_mensagem_followup(nivel, modelo="", etapa="", nome=""):
@@ -345,19 +431,19 @@ def gerar_mensagem_followup(nivel, modelo="", etapa="", nome=""):
     if nivel == 1:
         return (
             f"{nome}vi que você iniciou o atendimento, mas ainda não finalizou ✅\n\n"
-            f"Posso continuar seu atendimento agora?"
+            "Posso continuar seu atendimento agora?"
         )
 
     if nivel == 2:
         return (
-            f"{nome}ainda temos disponibilidade para atendimento da {modelo}.\n\n"
-            f"Deseja que eu verifique um horário para você?"
+            f"{nome}ainda temos disponibilidade para atendimento da *{modelo}*.\n\n"
+            "Deseja que eu verifique um horário para você?"
         )
 
     if nivel == 3:
         return (
-            f"{nome}sua {modelo} pode estar próxima da revisão preventiva.\n\n"
-            f"Fazer a revisão no prazo ajuda a evitar gastos maiores depois. Deseja agendar?"
+            f"{nome}sua *{modelo}* pode estar próxima da revisão preventiva.\n\n"
+            "Fazer a revisão no prazo ajuda a evitar gastos maiores depois. Deseja agendar?"
         )
 
     return f"{nome}posso te ajudar a concluir seu atendimento?"
@@ -371,9 +457,9 @@ def gerar_mensagem_recuperacao(modelo="", nome=""):
     nome = f"{nome}, " if nome else ""
 
     return (
-        f"{nome}estamos entrando em contato para lembrar da manutenção preventiva da {modelo} ✅\n\n"
-        f"Manter as revisões em dia ajuda na segurança, economia e valorização da sua moto.\n\n"
-        f"Deseja verificar uma vaga para revisão esta semana?"
+        f"{nome}estamos entrando em contato para lembrar da manutenção preventiva da *{modelo}* ✅\n\n"
+        "Manter as revisões em dia ajuda na segurança, economia e valorização da sua moto.\n\n"
+        "Deseja verificar uma vaga para revisão esta semana?"
     )
 
 
@@ -410,7 +496,12 @@ def gerar_mensagem_venda_adicional(modelo="", revisao="", km_atual=""):
             "Deseja incluir uma avaliação junto da revisão?"
         )
 
-    if "nmax" in modelo_norm or "neo" in modelo_norm or "fluo" in modelo_norm or "aerox" in modelo_norm:
+    if (
+        "nmax" in modelo_norm
+        or "neo" in modelo_norm
+        or "fluo" in modelo_norm
+        or "aerox" in modelo_norm
+    ):
         return (
             "Para scooters, é importante verificar correia, roletes, óleo e pneus conforme a quilometragem.\n\n"
             "Deseja incluir essa verificação?"
@@ -424,3 +515,6 @@ def gerar_mensagem_venda_adicional(modelo="", revisao="", km_atual=""):
 if __name__ == "__main__":
     teste = "quanto fica a revisão da minha fz15?"
     print(gerar_resposta_comercial(teste))
+
+    print("\n--- ATACADO ---\n")
+    print(gerar_mensagem_atacado(nome="João", empresa="Oficina Teste"))

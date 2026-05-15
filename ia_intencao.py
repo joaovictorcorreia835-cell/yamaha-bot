@@ -100,9 +100,7 @@ def normalizar_texto(texto):
 
 
 # ==========================================
-# NORMALIZAR OPÇÃO DIGITADA PELO CLIENTE
-# Substitui antiga função de botão.
-# Agora trabalha com texto simples/menu numérico.
+# NORMALIZAR OPÇÃO DIGITADA / BOTÃO
 # ==========================================
 def normalizar_opcao_menu(texto):
     texto_norm = normalizar_texto(texto)
@@ -110,6 +108,8 @@ def normalizar_opcao_menu(texto):
 
     mapa_opcoes = {
         "menu": "MENU",
+        "inicio": "MENU",
+        "voltar": "MENU",
         "voltar_menu": "MENU",
         "menu_principal": "MENU",
 
@@ -124,6 +124,7 @@ def normalizar_opcao_menu(texto):
         "agendar": "AGENDAR_REVISAO",
         "agendar_revisao": "AGENDAR_REVISAO",
         "marcar_revisao": "AGENDAR_REVISAO",
+        "revisao": "AGENDAR_REVISAO",
 
         "reagendar": "REAGENDAR_AGENDAMENTO",
         "reagendar_agendamento": "REAGENDAR_AGENDAMENTO",
@@ -140,6 +141,7 @@ def normalizar_opcao_menu(texto):
 
         "falar_consultor": "MENU_HUMANO",
         "falar_com_consultor": "MENU_HUMANO",
+        "falar_com_humano": "MENU_HUMANO",
         "consultor": "MENU_HUMANO",
         "humano": "MENU_HUMANO",
         "atendente": "MENU_HUMANO",
@@ -152,19 +154,23 @@ def normalizar_opcao_menu(texto):
         "quero_tabela": "ATACADO_TABELA",
         "tabela": "ATACADO_TABELA",
         "atacado_tabela": "ATACADO_TABELA",
+        "catalogo": "ATACADO_TABELA",
+        "catálogo": "ATACADO_TABELA",
+        "catalogo_atacado": "ATACADO_TABELA",
+        "catálogo_atacado": "ATACADO_TABELA",
+        "receber_catalogo": "ATACADO_TABELA",
+        "receber_catálogo": "ATACADO_TABELA",
 
         "atacado_consultor": "ATACADO_CONSULTOR",
         "consultor_atacado": "ATACADO_CONSULTOR",
 
-        "depois": "DEPOIS",
+        "depois": "ATACADO_DEPOIS",
         "atacado_depois": "ATACADO_DEPOIS",
     }
 
     return mapa_opcoes.get(texto_norm, "")
 
 
-# Compatibilidade com trechos antigos do app.py
-# Se ainda existir chamada antiga, não quebra o sistema.
 def normalizar_botao_zapi(texto):
     return normalizar_opcao_menu(texto)
 
@@ -207,9 +213,8 @@ def texto_parece_garantia(texto_normalizado):
         "garantia", "garantido", "cobertura", "cobre", "cobrir",
         "perde garantia", "perco garantia", "perder garantia",
         "entra na garantia", "cobre bateria", "garantia cobre",
-        "defeito", "defeito de fabrica",
-        "problema de fabrica", "painel apagando",
-        "vazamento", "motor falhando", "falhando",
+        "defeito", "defeito de fabrica", "problema de fabrica",
+        "painel apagando", "vazamento", "motor falhando", "falhando",
     ]
 
     return any(t in texto_normalizado for t in termos_garantia)
@@ -235,8 +240,15 @@ def texto_parece_valor_revisao(texto_normalizado):
         "revisao", "km", "quilometragem", "meses", "mes",
     ])
 
-    tem_km = re.search(r"\b\d{1,3}(?:[.\s]?\d{3})*\s*km\b", texto_normalizado) is not None
-    tem_meses = re.search(r"\b\d+\s*(?:meses|mes)\b", texto_normalizado) is not None
+    tem_km = re.search(
+        r"\b\d{1,3}(?:[.\s]?\d{3})*\s*km\b",
+        texto_normalizado
+    ) is not None
+
+    tem_meses = re.search(
+        r"\b\d+\s*(?:meses|mes)\b",
+        texto_normalizado
+    ) is not None
 
     return tem_valor and (tem_contexto_revisao or tem_km or tem_meses)
 
@@ -253,14 +265,13 @@ def texto_parece_valor_pecas(texto_normalizado):
     ]
 
     termos_pecas = [
-        "peca", "pecas", "oleo", "filtro",
-        "filtro de oleo", "filtro de ar", "pastilha",
-        "pastilha de freio", "pastilha dianteira", "pastilha traseira",
-        "vela", "vela de ignicao", "bateria", "relacao",
-        "kit transmissao", "corrente", "coroa",
-        "pinhao", "pneu", "camara", "retentor",
-        "amortecedor", "embreagem", "disco de freio", "lona de freio",
-        "sapata de freio",
+        "peca", "pecas", "oleo", "filtro", "filtro de oleo",
+        "filtro de ar", "pastilha", "pastilha de freio",
+        "pastilha dianteira", "pastilha traseira", "vela",
+        "vela de ignicao", "bateria", "relacao", "kit transmissao",
+        "corrente", "coroa", "pinhao", "pneu", "camara",
+        "retentor", "amortecedor", "embreagem", "disco de freio",
+        "lona de freio", "sapata de freio",
     ]
 
     return (
@@ -276,11 +287,10 @@ def texto_parece_consulta_pecas(texto_normalizado):
         return False
 
     termos_pecas = [
-        "peca", "pecas", "oleo", "filtro",
-        "filtro de oleo", "filtro de ar", "pastilha",
-        "vela", "bateria", "relacao", "kit transmissao",
-        "pneu", "corrente", "coroa", "pinhao",
-        "retentor", "embreagem",
+        "peca", "pecas", "oleo", "filtro", "filtro de oleo",
+        "filtro de ar", "pastilha", "vela", "bateria",
+        "relacao", "kit transmissao", "pneu", "corrente",
+        "coroa", "pinhao", "retentor", "embreagem",
     ]
 
     termos_consulta = [
@@ -306,11 +316,11 @@ def frase_parece_duvida(texto):
     gatilhos_duvida = [
         "qual o valor", "qual valor", "quanto custa", "quanto e",
         "o que troca", "o que inclui", "o que faz", "o que e verificado",
-        "quanto tempo", "quanto demora", "com quantos km",
-        "qual km", "quais itens", "quais pecas", "como funciona",
-        "me explica", "pode me explicar", "tenho uma duvida",
-        "duvida sobre", "garantia cobre", "entra na garantia",
-        "perde garantia", "perco garantia",
+        "quanto tempo", "quanto demora", "com quantos km", "qual km",
+        "quais itens", "quais pecas", "como funciona", "me explica",
+        "pode me explicar", "tenho uma duvida", "duvida sobre",
+        "garantia cobre", "entra na garantia", "perde garantia",
+        "perco garantia",
     ]
 
     marcadores_pergunta = [
@@ -447,18 +457,21 @@ def extrair_horario(texto):
     if match:
         hora = int(match.group(1))
         minuto = match.group(2)
+
         if 0 <= hora <= 23:
             return f"{hora:02d}:{minuto}"
 
     match = re.search(r"\b(\d{1,2})\s*h\b", texto)
     if match:
         hora = int(match.group(1))
+
         if 0 <= hora <= 23:
             return f"{hora:02d}:00"
 
     match = re.search(r"\b(?:as|às)\s*(\d{1,2})\b", texto)
     if match:
         hora = int(match.group(1))
+
         if 0 <= hora <= 23:
             return f"{hora:02d}:00"
 
@@ -469,11 +482,21 @@ def extrair_dia(texto):
     texto = normalizar_texto(texto)
 
     mapa = {
-        "segunda": "1", "segunda feira": "1", "segunda-feira": "1",
-        "terca": "2", "terca feira": "2", "terca-feira": "2",
-        "quarta": "3", "quarta feira": "3", "quarta-feira": "3",
-        "quinta": "4", "quinta feira": "4", "quinta-feira": "4",
-        "sexta": "5", "sexta feira": "5", "sexta-feira": "5",
+        "segunda": "1",
+        "segunda feira": "1",
+        "segunda-feira": "1",
+        "terca": "2",
+        "terca feira": "2",
+        "terca-feira": "2",
+        "quarta": "3",
+        "quarta feira": "3",
+        "quarta-feira": "3",
+        "quinta": "4",
+        "quinta feira": "4",
+        "quinta-feira": "4",
+        "sexta": "5",
+        "sexta feira": "5",
+        "sexta-feira": "5",
         "sabado": "6",
     }
 
@@ -515,32 +538,6 @@ def extrair_nome(texto):
             nome = re.sub(r"\s+", " ", match.group(1)).strip()
             if len(nome) >= 3:
                 return nome.upper()
-
-    texto_puro = re.sub(
-        r"[^a-zA-ZáàâãéèêíìîóòôõúùûçÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛÇ\s]",
-        " ",
-        texto_original
-    )
-    texto_puro = re.sub(r"\s+", " ", texto_puro).strip()
-
-    palavras = texto_puro.split()
-
-    if 2 <= len(palavras) <= 6:
-        bloqueadas = {
-            "quero", "agendar", "revisao", "revisão", "garantia", "peca", "peça",
-            "acessorio", "acessório", "menu", "atendente", "humano", "segunda",
-            "terca", "terça", "quarta", "quinta", "sexta", "sabado", "sábado",
-            "dia", "as", "às", "valor", "quanto", "custa", "fluo", "fazer",
-            "lander", "crosser", "mt03", "mt07", "r15", "r3", "neo", "nmax",
-            "aerox", "logista", "lojista", "atacado", "catalogo", "catálogo",
-            "pecas", "peças", "cancelar", "reagendar", "consultar", "agendamento",
-            "protocolo", "falar", "alguem", "alguém", "consultor", "duvida",
-            "dúvida", "depois", "tabela", "oficina", "parceria", "bateria",
-            "óleo", "oleo",
-        }
-
-        if not any(p.lower() in bloqueadas for p in palavras):
-            return " ".join(palavras).upper()
 
     return ""
 
@@ -619,8 +616,9 @@ def texto_parece_dado_de_fluxo(texto):
     intencoes_fortes = [
         "agendar", "agendar revisao", "marcar revisao",
         "falar consultor", "consultor", "humano",
-        "quero tabela", "tabela", "atacado", "pecas",
-        "acessorios", "garantia", "menu", "depois",
+        "quero tabela", "tabela", "catalogo", "catálogo",
+        "atacado", "pecas", "acessorios", "garantia",
+        "menu", "depois",
     ]
 
     if any(p in texto_norm for p in intencoes_fortes):
@@ -653,29 +651,23 @@ def detectar_intencao_regras(texto_normalizado):
     texto_normalizado = normalizar_texto(texto_normalizado)
     opcao = normalizar_opcao_menu(texto_normalizado)
 
-    if opcao in ["AGENDAR_REVISAO", "OPCAO_1"]:
-        return "agendar_revisao", 1.0
-
-    if opcao in ["MENU_HUMANO", "FALAR_CONSULTOR"]:
-        return "humano", 1.0
-
-    if opcao in ["MENU"]:
+    if opcao == "MENU":
         return "menu", 0.99
 
-    if opcao == "DEPOIS":
-        return "menu", 0.80
+    if opcao == "AGENDAR_REVISAO":
+        return "agendar_revisao", 1.0
+
+    if opcao == "MENU_HUMANO":
+        return "humano", 1.0
 
     if opcao == "ATACADO_TABELA":
-        return "atacado", 1.0
+        return "atacado_catalogo", 1.0
 
     if opcao == "ATACADO_CONSULTOR":
         return "humano", 1.0
 
     if opcao == "ATACADO_DEPOIS":
         return "menu", 0.80
-
-    if texto_normalizado in ["menu", "voltar", "inicio"]:
-        return "menu", 0.99
 
     if texto_normalizado in ["oi", "ola", "bom dia", "boa tarde", "boa noite"]:
         return "menu", 0.95
@@ -699,10 +691,8 @@ def detectar_intencao_regras(texto_normalizado):
 
     if any(p in texto_normalizado for p in [
         "consultar agendamento", "consultar revisao",
-        "consultar minha revisao", "ver agendamento",
-        "ver minha revisao", "ver meu protocolo",
-        "acompanhar agendamento", "acompanhar revisao",
-        "qual meu agendamento", "tenho agendamento", "meu protocolo",
+        "ver agendamento", "ver minha revisao", "ver meu protocolo",
+        "acompanhar agendamento", "meu protocolo",
     ]):
         return "consultar_agendamento", 0.97
 
@@ -722,9 +712,7 @@ def detectar_intencao_regras(texto_normalizado):
         return "pecas", 0.97
 
     if any(p in texto_normalizado for p in [
-        "peca", "pecas", "orcamento",
-        "valor do filtro", "preco do filtro",
-        "quanto custa o filtro", "filtro de oleo",
+        "peca", "pecas", "orcamento", "filtro de oleo",
         "filtro de ar", "pastilha", "vela", "oleo do motor",
         "oleo", "relacao", "kit transmissao", "pneu",
     ]):
@@ -732,8 +720,7 @@ def detectar_intencao_regras(texto_normalizado):
 
     if any(p in texto_normalizado for p in [
         "acessorio", "acessorios", "slider", "bau",
-        "suporte de celular", "suporte para celular",
-        "protetor de motor",
+        "suporte de celular", "protetor de motor",
     ]):
         return "acessorios", 0.95
 
@@ -744,13 +731,14 @@ def detectar_intencao_regras(texto_normalizado):
         "atacado", "logista", "lojista", "oficina", "parceria",
         "revenda", "revender", "comprar no atacado", "cotacao",
         "catalogo", "quero tabela", "tabela de preco",
-        "condicoes", "oleo yamalube", "oleo yamalub",
+        "condicoes", "oleo yamalube",
     ]):
         return "atacado", 0.96
 
     if any(p in texto_normalizado for p in [
-        "atendente", "humano", "consultor", "falar com alguem",
-        "falar com vendedor", "falar com consultor",
+        "atendente", "humano", "consultor",
+        "falar com alguem", "falar com vendedor",
+        "falar com consultor",
     ]):
         return "humano", 0.97
 
@@ -766,7 +754,7 @@ def sugerir_proxima_etapa(intencao, dados):
             return "revisao_cpf"
         if not dados.get("ano"):
             return "revisao_ano"
-        if not dados.get("km"):
+        if not dados.get("km") and not dados.get("km_atual"):
             return "revisao_km"
         if not dados.get("revisao"):
             return "revisao_revisao"
@@ -777,28 +765,27 @@ def sugerir_proxima_etapa(intencao, dados):
         if not dados.get("horario"):
             return "revisao_horario"
 
-        return "revisao_venda"
+        return "revisao_tipo_atendimento"
 
     return {
-        "cancelar_agendamento": "cancelar_agendamento",
-        "reagendar_agendamento": "reagendar_agendamento",
-        "consultar_agendamento": "consultar_agendamento",
+        "cancelar_agendamento": "cancelar_agendamento_cpf",
+        "reagendar_agendamento": "reagendar_agendamento_cpf",
+        "consultar_agendamento": "consulta_agendamento_cpf",
         "valor_revisao": "consulta_valor_revisao",
         "duvidas": "menu_duvidas",
         "pecas": "pecas",
         "acessorios": "acessorios_modelo",
         "garantia": "garantia",
         "atacado": "atacado",
+        "atacado_catalogo": "atacado_catalogo",
         "humano": "atendimento_humano",
         "menu": "menu",
     }.get(intencao, "menu")
 
 
 def gerar_resposta(intencao, dados):
-    if intencao == "agendar_revisao":
-        return "Perfeito. Vou te ajudar com o agendamento da sua revisão."
-
     return {
+        "agendar_revisao": "Perfeito. Vou te ajudar com o agendamento da sua revisão.",
         "cancelar_agendamento": "Certo. Vou te ajudar a cancelar seu agendamento de revisão.",
         "reagendar_agendamento": "Perfeito. Vou te ajudar a reagendar sua revisão.",
         "consultar_agendamento": "Certo. Vou consultar seu agendamento de revisão.",
@@ -808,6 +795,7 @@ def gerar_resposta(intencao, dados):
         "acessorios": "Perfeito. Vou seguir com seu atendimento de acessórios.",
         "garantia": "Certo. Vou seguir com sua solicitação de garantia.",
         "atacado": "Perfeito. Vou te direcionar para o atendimento de logista e atacado.",
+        "atacado_catalogo": "Perfeito. Vou te enviar o catálogo de atacado.",
         "humano": "Certo. Vou te encaminhar para atendimento humano.",
         "menu": "Perfeito. Vou te enviar o menu principal.",
     }.get(intencao, "Entendi sua mensagem. Vou te ajudar com isso.")
@@ -818,6 +806,7 @@ def classificar_com_ia(texto):
         return "", 0.0
 
     cliente = obter_cliente()
+
     if cliente is None:
         return "", 0.0
 
@@ -830,9 +819,9 @@ def classificar_com_ia(texto):
                     "role": "system",
                     "content": (
                         "Você é um classificador de intenção para um bot de pós-vendas Yamaha. "
-                        "Responda apenas uma palavra: agendar_revisao, cancelar_agendamento, "
+                        "Responda apenas uma das opções: agendar_revisao, cancelar_agendamento, "
                         "reagendar_agendamento, consultar_agendamento, valor_revisao, duvidas, "
-                        "pecas, acessorios, garantia, atacado, humano, menu. "
+                        "pecas, acessorios, garantia, atacado, atacado_catalogo, humano, menu. "
                         "Se parecer dado de cadastro, responda vazio."
                     )
                 },
@@ -856,6 +845,7 @@ def classificar_com_ia(texto):
             "acessorios",
             "garantia",
             "atacado",
+            "atacado_catalogo",
             "humano",
             "menu",
         }
@@ -1099,8 +1089,6 @@ def classificar_intencao(texto):
 
     texto_normalizado = normalizar_texto(texto)
 
-    # Agora usamos opção de menu em texto simples.
-    # botao_zapi fica apenas por compatibilidade com app.py antigo.
     opcao_menu = normalizar_opcao_menu(texto)
     botao_zapi = opcao_menu
 
@@ -1181,14 +1169,10 @@ def classificar_intencao(texto):
 def extrair_tipo_atendimento(texto):
     texto_norm = normalizar_texto(texto)
 
-    if "aguardar" in texto_norm or texto_norm in ["1", "opcao_1"]:
+    if "aguardar" in texto_norm:
         return "AGUARDAR NA CONCESSIONÁRIA"
 
-    if (
-        "deixar" in texto_norm
-        or "retirar depois" in texto_norm
-        or texto_norm in ["2", "opcao_2"]
-    ):
+    if "deixar" in texto_norm or "retirar depois" in texto_norm:
         return "DEIXAR A MOTO E RETIRAR DEPOIS"
 
     return ""
@@ -1213,6 +1197,8 @@ def texto_parece_dado_de_fluxo(texto):
         "humano",
         "quero tabela",
         "tabela",
+        "catalogo",
+        "catálogo",
         "atacado",
         "pecas",
         "acessorios",
@@ -1261,20 +1247,17 @@ def detectar_intencao_regras(texto_normalizado):
     texto_normalizado = normalizar_texto(texto_normalizado)
     opcao = normalizar_opcao_menu(texto_normalizado)
 
-    if opcao in ["AGENDAR_REVISAO", "OPCAO_1"]:
-        return "agendar_revisao", 1.0
-
-    if opcao in ["MENU_HUMANO", "FALAR_CONSULTOR"]:
-        return "humano", 1.0
-
     if opcao == "MENU":
         return "menu", 0.99
 
-    if opcao == "DEPOIS":
-        return "menu", 0.80
+    if opcao == "AGENDAR_REVISAO":
+        return "agendar_revisao", 1.0
+
+    if opcao == "MENU_HUMANO":
+        return "humano", 1.0
 
     if opcao == "ATACADO_TABELA":
-        return "atacado", 1.0
+        return "atacado_catalogo", 1.0
 
     if opcao == "ATACADO_CONSULTOR":
         return "humano", 1.0
@@ -1294,9 +1277,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]:
         return "menu", 0.95
 
-    # ==========================================
-    # GARANTIA - PRIORIDADE ANTES DE PEÇAS
-    # ==========================================
     if texto_parece_garantia(texto_normalizado):
         return "duvidas", 0.98
 
@@ -1314,9 +1294,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "duvidas", 0.98
 
-    # ==========================================
-    # CANCELAMENTO
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "cancelar revisao",
         "cancelar minha revisao",
@@ -1327,9 +1304,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "cancelar_agendamento", 0.98
 
-    # ==========================================
-    # REAGENDAMENTO
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "reagendar revisao",
         "reagendar agendamento",
@@ -1341,9 +1315,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "reagendar_agendamento", 0.98
 
-    # ==========================================
-    # CONSULTA
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "consultar agendamento",
         "consultar revisao",
@@ -1359,15 +1330,9 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "consultar_agendamento", 0.97
 
-    # ==========================================
-    # VALOR REVISÃO
-    # ==========================================
     if texto_parece_valor_revisao(texto_normalizado):
         return "valor_revisao", 0.98
 
-    # ==========================================
-    # AGENDAMENTO
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "agendar revisao",
         "marcar revisao",
@@ -1378,9 +1343,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "agendar_revisao", 0.99
 
-    # ==========================================
-    # PEÇAS
-    # ==========================================
     if texto_parece_valor_pecas(texto_normalizado):
         return "pecas", 0.99
 
@@ -1406,9 +1368,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "pecas", 0.96
 
-    # ==========================================
-    # ACESSÓRIOS
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "acessorio",
         "acessorios",
@@ -1420,9 +1379,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "acessorios", 0.95
 
-    # ==========================================
-    # DÚVIDAS
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "o que troca",
         "o que e trocado",
@@ -1451,9 +1407,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "duvidas", 0.90
 
-    # ==========================================
-    # ATACADO
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "atacado",
         "logista",
@@ -1465,6 +1418,7 @@ def detectar_intencao_regras(texto_normalizado):
         "comprar no atacado",
         "cotacao",
         "catalogo",
+        "catálogo",
         "quero tabela",
         "tabela de preco",
         "condicoes",
@@ -1473,9 +1427,6 @@ def detectar_intencao_regras(texto_normalizado):
     ]):
         return "atacado", 0.96
 
-    # ==========================================
-    # HUMANO
-    # ==========================================
     if any(p in texto_normalizado for p in [
         "atendente",
         "humano",
