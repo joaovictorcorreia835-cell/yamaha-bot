@@ -1814,10 +1814,6 @@ def desativar_atendimento_humano(telefone):
         db.close()
 
 
-def encerrar_atendimento_humano(telefone):
-    desativar_atendimento_humano(telefone)
-
-
 def processar_inatividade():
     global clientes
 
@@ -4023,6 +4019,95 @@ def horarios_por_revisao(revisao, dia):
     return ["08:00"]
 
 
+def obter_horarios_disponiveis(revisao, dia):
+    """
+    Retorna lista de horários disponíveis para uma revisão e dia específicos.
+    Wrapper para horarios_por_revisao() com melhor nomenclatura.
+    """
+    return horarios_por_revisao(revisao, dia)
+
+
+def extrair_tipo_atendimento(texto):
+    """
+    Extrai o tipo de atendimento a partir do texto do cliente.
+    Retorna: "AGUARDAR NA CONCESSIONÁRIA" ou "DEIXAR A MOTO E RETIRAR DEPOIS"
+    """
+    try:
+        texto_norm = normalizar_texto(texto).lower()
+
+        aguardar_patterns = [
+            "aguardar", "esperar", "ficar", "fico", "vou ficar",
+            "vou aguardar", "vou esperar", "concessionaria", "concessionária",
+            "loja", "atender"
+        ]
+
+        deixar_patterns = [
+            "deixar", "retirar depois", "depois", "retirar mais tarde",
+            "volto depois", "busco depois", "vou deixar", "sair",
+            "deixar moto", "deixa"
+        ]
+
+        if any(pattern in texto_norm for pattern in aguardar_patterns):
+            return "AGUARDAR NA CONCESSIONÁRIA"
+
+        if any(pattern in texto_norm for pattern in deixar_patterns):
+            return "DEIXAR A MOTO E RETIRAR DEPOIS"
+
+        return ""
+
+    except Exception as e:
+        log_erro("Erro ao extrair tipo de atendimento:", repr(e))
+        return ""
+
+
+def enviar_agendamento_para_sances(dados):
+    """
+    Envia dados de agendamento para integração Sances.
+    Retorna dict com: sucesso, status, protocolo_sances, erro
+    """
+    try:
+        if not isinstance(dados, dict):
+            return {
+                "sucesso": False,
+                "status": SANCES_STATUS_ERRO,
+                "protocolo_sances": "",
+                "erro": "Dados inválidos para envio Sances",
+            }
+
+        # Se o modo é mock, simular resposta
+        if SANCES_MODO == "mock":
+            sucesso_simulado = SANCES_SIMULAR_RESULTADO.lower() == "sucesso"
+
+            return {
+                "sucesso": sucesso_simulado,
+                "status": SANCES_STATUS_ENVIADO if sucesso_simulado else SANCES_STATUS_ERRO,
+                "protocolo_sances": f"SANCES-{uuid.uuid4().hex[:8].upper()}" if sucesso_simulado else "",
+                "erro": "" if sucesso_simulado else "Modo mock: resultado simulado",
+            }
+
+        # Modo real: integração com Sances
+        log_info("[SANCES] Enviando agendamento:", dados.get("protocolo", ""))
+
+        # Aqui você implementaria a chamada real à API do Sances
+        # Por enquanto, retornar resposta padrão de não configurado
+        return {
+            "sucesso": False,
+            "status": SANCES_STATUS_NAO_CONFIGURADO,
+            "protocolo_sances": "",
+            "erro": "Integração Sances não configurada em modo real",
+        }
+
+    except Exception as e:
+        log_erro("Erro ao enviar agendamento para Sances:", repr(e))
+
+        return {
+            "sucesso": False,
+            "status": SANCES_STATUS_ERRO,
+            "protocolo_sances": "",
+            "erro": f"Erro na integração Sances: {repr(e)}",
+        }
+
+
 def validar_data(data):
     try:
         data_obj = datetime.strptime(
@@ -5188,12 +5273,11 @@ def enviar_duvida_retorno_fluxo(telefone):
 def etapa_revisao_permite_ir_para_duvidas(etapa):
     etapa = limpar_texto(etapa)
 
-    etapas_permitidas = {
-        "revisao_modelo",
-        "revisao_revisao",
+    etapas_bloqueadas = {
+        "revisao_confirmacao",
     }
 
-    return etapa in etapas_permitidas
+    return etapa not in etapas_bloqueadas
 
 
 def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
@@ -5970,14 +6054,7 @@ def resetar_followups_do_cliente(telefone):
         db.close()
 
 
-def processar_followup_inteligente():
-    try:
-        processar_followups_inteligentes()
-        return True
 
-    except Exception as e:
-        log_erro("Erro processar_followup_inteligente:", repr(e))
-        return False
 # ==========================================
 # CONTROLE SEGURO DA IA NO WEBHOOK
 # ==========================================
@@ -6693,14 +6770,14 @@ def processar_fluxo_revisao(
         # ==========================================
         elif etapa == "revisao_dia":
 
-            dia = None
+            dia_str = None
 
             if texto_opcao in ["1", "2", "3", "4", "5", "6"]:
-                dia = int(texto_opcao)
+                dia_str = texto_opcao
             else:
-                dia = numero_dia_por_texto(texto)
+                dia_str = numero_dia_por_texto(texto)
 
-            if dia not in [1, 2, 3, 4, 5, 6]:
+            if dia_str not in ["1", "2", "3", "4", "5", "6"]:
                 enviar_mensagem(
                     telefone,
                     "📅 Informe um dia válido.\n\n"
@@ -6713,7 +6790,7 @@ def processar_fluxo_revisao(
                 )
                 return True
 
-            clientes[telefone]["dia"] = dia
+            clientes[telefone]["dia"] = dia_str
             clientes[telefone]["etapa"] = "revisao_data"
 
             enviar_mensagem(
