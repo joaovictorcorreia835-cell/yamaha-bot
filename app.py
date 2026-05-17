@@ -6550,7 +6550,13 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 # ==========================================
 # FLUXO REVISÃO
 # ==========================================
-def processar_fluxo_revisao(telefone, texto, message_id=None):
+def processar_fluxo_revisao(
+    telefone,
+    texto,
+    message_id=None,
+    texto_opcao=None,
+    **kwargs
+):
 
     try:
         telefone = limpar_telefone(telefone)
