@@ -5,6 +5,7 @@
 
 import os
 import re
+import unicodedata
 
 try:
     from PyPDF2 import PdfReader
@@ -68,19 +69,10 @@ def log_erro(*args):
 
 def normalizar_texto(texto):
     texto = str(texto or "").lower().strip()
-
-    substituicoes = {
-        "á": "a", "à": "a", "ã": "a", "â": "a",
-        "é": "e", "ê": "e",
-        "í": "i",
-        "ó": "o", "ô": "o", "õ": "o",
-        "ú": "u",
-        "ç": "c",
-    }
-
-    for antigo, novo in substituicoes.items():
-        texto = texto.replace(antigo, novo)
-
+    texto = "".join(
+        c for c in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(c) != "Mn"
+    )
     texto = re.sub(r"\s+", " ", texto)
     return texto.strip()
 
@@ -276,7 +268,12 @@ def extrair_trecho_relevante(texto_manual, pergunta):
         ],
         "garantia": [
             "garantia", "termo de garantia", "cobertura",
+            "condicoes gerais da garantia", "certificado de garantia",
             "perda da garantia",
+        ],
+        "oleo": [
+            "oleo", "lubrificante", "viscosidade", "yamalube",
+            "sae", "jaso", "api", "oleo do motor",
         ],
         "combustivel": [
             "combustivel", "gasolina", "etanol", "alcool",
@@ -296,6 +293,19 @@ def extrair_trecho_relevante(texto_manual, pergunta):
     if not palavras:
         return ""
 
+    bonus_por_assunto = {
+        "pneu": ["pressao dos pneus", "calibragem", "pneu"],
+        "revisao": ["manutencao periodica", "tabela de manutencao", "revisao"],
+        "garantia": [
+            "garantia", "termo de garantia", "cobertura",
+            "condicoes gerais da garantia", "certificado de garantia",
+        ],
+        "oleo": ["oleo", "oleo do motor", "lubrificante", "yamalube", "viscosidade"],
+        "combustivel": ["combustivel", "gasolina"],
+        "bateria": ["bateria", "partida"],
+        "painel": ["painel", "luz indicadora", "advertencia"],
+    }
+
     blocos_ruins = [
         "indice",
         "sumario",
@@ -306,8 +316,58 @@ def extrair_trecho_relevante(texto_manual, pergunta):
         "................",
     ]
 
+    termos_assunto = bonus_por_assunto.get(assunto, [])
     melhor_trecho = ""
     melhor_pontuacao = 0
+
+    for termo in termos_assunto:
+        termo_norm = normalizar_texto(termo)
+        inicio_busca = 0
+
+        while termo_norm:
+            pos = texto_manual.find(termo_norm, inicio_busca)
+
+            if pos < 0:
+                break
+
+            inicio_busca = pos + len(termo_norm)
+            inicio = max(0, pos - 120)
+            fim = min(len(texto_manual), pos + 1800)
+            trecho_limpo = limpar_trecho(texto_manual[inicio:fim])
+            pontuacao = 8
+
+            if assunto == "garantia" and termo_norm in [
+                "termo de garantia",
+                "condicoes gerais da garantia",
+                "certificado de garantia",
+            ]:
+                pontuacao += 14
+
+            for ruim in blocos_ruins:
+                if ruim in trecho_limpo[:500]:
+                    pontuacao -= 8
+
+            if assunto == "garantia" and "perd" not in pergunta:
+                if "perda da cobertura" in trecho_limpo or "perda de cobertura" in trecho_limpo:
+                    pontuacao -= 12
+
+            for palavra in palavras:
+                palavra_norm = normalizar_texto(palavra)
+
+                if palavra_norm and palavra_norm in trecho_limpo:
+                    pontuacao += 3
+
+            for termo_bonus in termos_assunto:
+                if normalizar_texto(termo_bonus) in trecho_limpo:
+                    pontuacao += 5
+
+            if pontuacao > melhor_pontuacao:
+                melhor_pontuacao = pontuacao
+                melhor_trecho = trecho_limpo
+
+    if melhor_trecho and melhor_pontuacao >= 13:
+        return melhor_trecho[:1500]
+
     tamanho_bloco = 2200
     passo = 700
 
@@ -327,15 +387,6 @@ def extrair_trecho_relevante(texto_manual, pergunta):
             if palavra_norm and palavra_norm in trecho_limpo:
                 pontuacao += 3
 
-        bonus_por_assunto = {
-            "pneu": ["pressao dos pneus", "calibragem", "pneu"],
-            "revisao": ["manutencao periodica", "tabela de manutencao", "revisao"],
-            "garantia": ["garantia", "termo de garantia", "cobertura"],
-            "combustivel": ["combustivel", "gasolina"],
-            "bateria": ["bateria", "partida"],
-            "painel": ["painel", "luz indicadora", "advertencia"],
-        }
-
         for termo in bonus_por_assunto.get(assunto, []):
             if termo in trecho_limpo:
                 pontuacao += 5
@@ -348,53 +399,6 @@ def extrair_trecho_relevante(texto_manual, pergunta):
         return ""
 
     return melhor_trecho[:1500]
-
-
-RESPOSTAS_PADRAO = {
-    "garantia": (
-        "A garantia Yamaha cobre defeitos de fabricação conforme o manual do proprietário. "
-        "Alterações elétricas, escapamentos não homologados, uso de peças paralelas "
-        "e revisões fora da concessionária podem impactar a cobertura."
-    ),
-    "oleo": (
-        "Utilize sempre o óleo recomendado no manual da Yamaha e respeite a viscosidade indicada "
-        "para o modelo. Para evitar erro de aplicação, confirme a especificação com o pós-venda."
-    ),
-    "revisao": (
-        "As revisões devem ser realizadas conforme quilometragem e prazo informados no manual "
-        "do proprietário. Manter as revisões em dia ajuda na segurança e na garantia."
-    ),
-    "pneu": (
-        "A calibragem correta dos pneus está especificada no manual da motocicleta e pode variar "
-        "conforme modelo, carga e condição de uso."
-    ),
-    "combustivel": (
-        "Use sempre combustível de boa procedência e siga as orientações do manual da Yamaha."
-    ),
-    "bateria": (
-        "Problemas de partida podem estar relacionados à bateria, sistema elétrico ou uso da moto. "
-        "O ideal é fazer uma avaliação técnica."
-    ),
-    "painel": (
-        "Luzes ou alertas no painel devem ser verificados com atenção. "
-        "Se o alerta permanecer aceso, o ideal é trazer a moto para avaliação técnica."
-    ),
-}
-
-
-def resposta_oleo_segura(modelo_detectado):
-    return {
-        "encontrou": True,
-        "modelo": modelo_detectado,
-        "assunto": "oleo",
-        "fonte": "base_tecnica_oleo",
-        "resposta": (
-            f"🛢️ Para a Yamaha *{modelo_detectado.upper()}*, utilize o óleo recomendado no manual do proprietário.\n\n"
-            "O ideal é confirmar a especificação exata com o pós-venda antes de completar ou trocar o óleo, "
-            "para evitar uso de lubrificante incorreto.\n\n"
-            "Também posso te ajudar a agendar a revisão ou verificar peças e acessórios."
-        )
-    }
 
 
 def buscar_resposta_manual(modelo, pergunta):
@@ -444,9 +448,6 @@ def responder_duvida_manual(modelo, pergunta_cliente):
 
     assunto = identificar_assunto(pergunta_cliente)
 
-    if assunto == "oleo":
-        return resposta_oleo_segura(modelo_detectado)
-
     trecho = buscar_resposta_manual(modelo_detectado, pergunta_cliente)
 
     if trecho:
@@ -471,15 +472,6 @@ Caso queira, também posso ajudar com:
             "resposta": resposta
         }
 
-    if assunto in RESPOSTAS_PADRAO:
-        return {
-            "encontrou": True,
-            "modelo": modelo_detectado,
-            "assunto": assunto,
-            "fonte": "resposta_padrao",
-            "resposta": RESPOSTAS_PADRAO[assunto].strip()
-        }
-
     return {
         "encontrou": False,
         "modelo": modelo_detectado,
@@ -487,7 +479,7 @@ Caso queira, também posso ajudar com:
         "fonte": "nao_encontrado",
         "resposta": (
             "Não encontrei essa informação com segurança no manual. "
-            "Vou encaminhar sua dúvida para o pós-venda."
+            "Vou encaminhar para um consultor te ajudar melhor. 🤝"
         )
     }
 

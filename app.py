@@ -3677,6 +3677,61 @@ def enviar_menu_duvidas(telefone):
     return enviar_mensagem(telefone, menu_duvidas())
 
 
+MODELOS_DUVIDAS_MANUAL = {
+    "crosser": ["crosser", "xtz 150"],
+    "crypton": ["crypton"],
+    "factor": ["factor"],
+    "factor 125": ["factor 125", "factor125"],
+    "factor 150": ["factor 150", "factor150"],
+    "fz15": ["fz15", "fz 15", "fazer 150"],
+    "fz25": ["fz25", "fz 25", "fazer 250", "fazer"],
+    "fluo": ["fluo"],
+    "lander": ["lander", "lander 250", "xtz 250"],
+    "mt03": ["mt03", "mt 03", "mt-03"],
+    "mt07": ["mt07", "mt 07", "mt-07"],
+    "nmax": ["nmax"],
+    "r15": ["r15", "r 15"],
+    "r3": ["r3", "r 3"],
+}
+
+
+def identificar_modelo_duvida_manual(pergunta="", modelo_salvo=""):
+    texto = normalizar_texto(f"{pergunta} {modelo_salvo}")
+
+    if not texto:
+        return ""
+
+    for modelo, aliases in sorted(MODELOS_DUVIDAS_MANUAL.items(), key=lambda item: len(item[0]), reverse=True):
+        for alias in aliases:
+            alias_norm = normalizar_texto(alias)
+
+            if alias_norm and re.search(rf"(^|\s){re.escape(alias_norm)}($|\s)", texto):
+                return modelo
+
+    return limpar_texto(modelo_salvo)
+
+
+def resposta_duvida_manual_segura(modelo, pergunta):
+    if not responder_duvida_manual:
+        return None
+
+    try:
+        resultado = responder_duvida_manual(modelo, pergunta)
+
+        if not isinstance(resultado, dict):
+            return None
+
+        if resultado.get("encontrou") and resultado.get("fonte") == "manual_pdf":
+            resposta = limpar_texto(resultado.get("resposta", ""))
+            return resposta or None
+
+        return None
+
+    except Exception as e:
+        log_erro("Erro ao consultar manual PDF:", repr(e))
+        return None
+
+
 def montar_mensagem_horarios(lista):
     if not lista:
         return "⚠️ No momento não encontrei horários disponíveis para essa opção."
@@ -7739,12 +7794,14 @@ def webhook():
         # ==========================================
         if etapa in ["duvidas_revisao", "duvidas_revisoes", "duvidas_garantia"]:
             categoria = "revisoes" if etapa in ["duvidas_revisao", "duvidas_revisoes"] else "garantia"
+            modelo_duvida = identificar_modelo_duvida_manual(
+                pergunta=texto,
+                modelo_salvo=clientes[telefone].get("modelo", ""),
+            )
 
-            resposta = responder_duvida_por_tabela(
-                categoria=categoria,
-                pergunta_cliente=texto,
-                modelo=clientes[telefone].get("modelo", ""),
-                revisao=clientes[telefone].get("revisao", ""),
+            resposta = resposta_duvida_manual_segura(
+                modelo=modelo_duvida,
+                pergunta=texto,
             )
 
             salvar_duvida_dashboard(
@@ -7754,15 +7811,17 @@ def webhook():
                 resposta=resposta or "",
             )
 
-            enviar_mensagem(
-                telefone,
-                resposta or "Não encontrei essa informação na base. Vou encaminhar para um atendente."
-            )
-
             if not resposta:
+                mensagem_sem_resposta = (
+                    "Não encontrei essa informação com segurança no manual. "
+                    "Vou encaminhar para um consultor te ajudar melhor. 🤝"
+                )
+
+                enviar_mensagem(telefone, mensagem_sem_resposta)
                 ativar_atendimento_humano(telefone)
                 return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
 
+            enviar_mensagem(telefone, resposta)
             enviar_duvida_retorno_fluxo(telefone)
             return jsonify({"status": "ok", "motivo": "duvida_respondida"}), 200
 
