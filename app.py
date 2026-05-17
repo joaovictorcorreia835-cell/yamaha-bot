@@ -624,6 +624,7 @@ def etapa_bloqueia_ia_comercial(etapa):
         "duvidas_revisao",
         "duvidas_garantia",
         "duvida_manual",
+        "duvida_pos_resposta",
         "duvidas_retorno",
 
         "pecas",
@@ -1289,6 +1290,7 @@ ETAPAS_COLETA_RESTRITA = {
     "duvidas_revisao",
     "duvidas_garantia",
     "duvida_manual",
+    "duvida_pos_resposta",
     "duvidas_retorno",
 
     "cancelar_agendamento",
@@ -5882,7 +5884,7 @@ def enviar_duvida_retorno_fluxo(telefone):
 
     iniciar_cliente(telefone)
 
-    clientes[telefone]["etapa"] = "duvidas_retorno"
+    clientes[telefone]["etapa"] = "duvida_pos_resposta"
     clientes[telefone]["ultima_interacao"] = agora()
 
     mensagem = mensagem_duvida_retorno_fluxo(telefone)
@@ -5913,6 +5915,14 @@ def encaminhar_para_menu_duvidas(telefone, etapa_atual=""):
         iniciar_cliente(telefone)
 
         etapa_atual = limpar_texto(etapa_atual)
+
+        if etapa_atual in [
+            "duvidas_revisao",
+            "duvidas_garantia",
+            "duvida_manual",
+            "duvida_pos_resposta",
+        ]:
+            return False
 
         if etapa_atual.startswith("revisao") and not etapa_revisao_permite_ir_para_duvidas(etapa_atual):
             return False
@@ -6705,6 +6715,7 @@ def etapa_permite_ia_livre(etapa):
         "duvidas_revisao",
         "duvidas_garantia",
         "duvida_manual",
+        "duvida_pos_resposta",
         "duvidas_retorno",
 
         "consulta_agendamento_cpf",
@@ -6830,7 +6841,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
     # ==========================================
     # RETORNO DE DÚVIDAS
     # ==========================================
-    if etapa_atual == "duvidas_retorno":
+    if etapa_atual in ["duvidas_retorno", "duvida_pos_resposta"]:
         if opcao_normalizada in ["1", "OPCAO_1", "DUVIDA_OUTRA", "DUVIDA_CONTINUAR"]:
             clientes[telefone]["etapa"] = "duvidas_menu"
             enviar_menu_duvidas(telefone)
@@ -7121,6 +7132,14 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         etapa_anterior = clientes[telefone].get("etapa", "")
         clientes[telefone]["ultima_interacao"] = agora()
         clientes[telefone]["intencao_ia"] = "duvidas"
+
+        if limpar_texto(etapa_anterior).lower() in [
+            "duvidas_revisao",
+            "duvidas_garantia",
+            "duvida_manual",
+            "duvida_pos_resposta",
+        ]:
+            return False
 
         enviado = encaminhar_para_menu_duvidas(telefone, etapa_anterior)
 
@@ -7744,7 +7763,7 @@ def webhook():
                 texto=texto,
                 categoria=categoria,
             )
-            return jsonify({"status": "ok", "motivo": "duvida_manual"}), 200
+            return jsonify({"status": "ok", "fluxo": "duvida_manual"}), 200
 
         # ==========================================
         # OPÇÃO RÁPIDA POR NÚMERO / TEXTO
@@ -7852,7 +7871,7 @@ def webhook():
         # ==========================================
         # RETORNO APÓS DÚVIDA
         # ==========================================
-        if etapa == "duvidas_retorno":
+        if etapa in ["duvidas_retorno", "duvida_pos_resposta"]:
             if texto_opcao == "1":
                 enviar_menu_duvidas(telefone)
                 return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
