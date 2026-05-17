@@ -7728,6 +7728,25 @@ def webhook():
             return jsonify({"status": "ok", "motivo": "menu_global"}), 200
 
         # ==========================================
+        # DÚVIDAS POR MANUAL - PRIORIDADE ABSOLUTA
+        # Antes de IA de intenção, menu rápido e revisão
+        # ==========================================
+        etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
+
+        if etapa in ["duvidas_revisao", "duvidas_garantia", "duvida_manual"]:
+            categoria = "revisoes" if etapa == "duvidas_revisao" else "garantia"
+
+            if etapa == "duvida_manual":
+                categoria = "manual"
+
+            processar_pergunta_duvida_manual(
+                telefone=telefone,
+                texto=texto,
+                categoria=categoria,
+            )
+            return jsonify({"status": "ok", "motivo": "duvida_manual"}), 200
+
+        # ==========================================
         # OPÇÃO RÁPIDA POR NÚMERO / TEXTO
         # SOMENTE QUANDO ESTIVER NO MENU
         # Isso evita quebrar horário, dia, revisão e confirmação
