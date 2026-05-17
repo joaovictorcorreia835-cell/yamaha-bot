@@ -6561,13 +6561,14 @@ def processar_fluxo_revisao(
     try:
         telefone = limpar_telefone(telefone)
         texto = limpar_texto(texto)
+        texto_opcao = limpar_texto(texto_opcao or texto)
 
         if not telefone:
             return False
 
         iniciar_cliente(telefone)
 
-        etapa = clientes[telefone].get("etapa", "")
+        etapa = limpar_texto(clientes[telefone].get("etapa", "")).lower()
 
         # ==========================================
         # MODELO
@@ -6655,7 +6656,7 @@ def processar_fluxo_revisao(
         # ==========================================
         elif etapa == "revisao_revisao":
 
-            revisao = normalizar_revisao_para_fluxo(texto)
+            revisao = normalizar_revisao_para_fluxo(texto_opcao)
 
             if not revisao:
                 enviar_mensagem(
@@ -6722,6 +6723,7 @@ def processar_fluxo_revisao(
             )
 
             return True
+
         # ==========================================
         # DATA
         # ==========================================
@@ -6750,12 +6752,12 @@ def processar_fluxo_revisao(
                 )
                 return True
 
-            mensagem = "⏰ *Escolha um horário:*\n\n"
+            mensagem = "⏰ *Estes são os horários disponíveis:*\n\n"
 
             for i, horario in enumerate(horarios, start=1):
                 mensagem += f"{i}️⃣ {horario}\n"
 
-            mensagem += "\nDigite apenas o número do horário."
+            mensagem += "\nMe responda com o *número do horário* que você prefere."
 
             enviar_mensagem(telefone, mensagem)
 
@@ -6771,27 +6773,28 @@ def processar_fluxo_revisao(
                 clientes[telefone].get("dia")
             )
 
+            if not horarios:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não encontrei horários disponíveis para essa revisão."
+                )
+                return True
+
+            opcao_horario = texto_opcao or texto
             indice = None
 
-            if texto_opcao and texto_opcao.isdigit():
-                indice = int(texto_opcao) - 1
-
-            elif texto.isdigit():
-                indice = int(texto) - 1
+            if opcao_horario.isdigit():
+                indice = int(opcao_horario) - 1
 
             if indice is None or indice < 0 or indice >= len(horarios):
-
-                mensagem = (
-                    "⏰ *Escolha um horário válido:*\n\n"
-                )
+                mensagem = "⏰ *Escolha um horário válido:*\n\n"
 
                 for i, horario in enumerate(horarios, start=1):
                     mensagem += f"{i}️⃣ {horario}\n"
 
-                mensagem += "\nDigite apenas o número do horário."
+                mensagem += "\nDigite apenas o *número do horário*."
 
                 enviar_mensagem(telefone, mensagem)
-
                 return True
 
             clientes[telefone]["horario"] = horarios[indice]
@@ -6801,26 +6804,23 @@ def processar_fluxo_revisao(
                 telefone,
                 "🏍️ *Tipo de atendimento:*\n\n"
                 "1️⃣ Aguardar na concessionária\n"
-                "2️⃣ Deixar a moto e retirar depois"
+                "2️⃣ Deixar a moto e retirar depois\n\n"
+                "Digite apenas o número da opção."
             )
 
             return True
-        
-        
+
         # ==========================================
         # TIPO ATENDIMENTO
         # ==========================================
         elif etapa == "revisao_tipo_atendimento":
 
             tipo = extrair_tipo_atendimento(texto)
-
             opcao_tipo = texto_opcao or texto
 
             if not tipo:
-
                 if opcao_tipo == "1":
                     tipo = "AGUARDAR NA CONCESSIONÁRIA"
-
                 elif opcao_tipo == "2":
                     tipo = "DEIXAR A MOTO E RETIRAR DEPOIS"
 
@@ -6844,7 +6844,8 @@ def processar_fluxo_revisao(
             )
 
             return True
-                # ==========================================
+
+        # ==========================================
         # VENDA ADICIONAL
         # ==========================================
         elif etapa == "revisao_venda":
@@ -6903,6 +6904,7 @@ def processar_fluxo_revisao(
             opcao_confirmacao = texto_opcao or texto
 
             if opcao_confirmacao == "1":
+
                 protocolo = gerar_protocolo()
 
                 clientes[telefone]["protocolo"] = protocolo
@@ -6919,6 +6921,7 @@ def processar_fluxo_revisao(
                 return True
 
             if opcao_confirmacao == "2":
+
                 enviar_mensagem(
                     telefone,
                     "❌ Agendamento cancelado."
@@ -6929,7 +6932,9 @@ def processar_fluxo_revisao(
 
             enviar_mensagem(
                 telefone,
-                "1️⃣ Confirmar\n2️⃣ Cancelar"
+                "Digite uma opção válida:\n\n"
+                "1️⃣ Confirmar\n"
+                "2️⃣ Cancelar"
             )
             return True
 
@@ -7064,8 +7069,12 @@ def webhook():
 
         # ==========================================
         # OPÇÃO RÁPIDA POR NÚMERO / TEXTO
+        # SOMENTE QUANDO ESTIVER NO MENU
+        # Isso evita quebrar horário, dia, revisão e confirmação
         # ==========================================
-        if opcao_menu:
+        etapa_atual = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
+
+        if etapa_atual == "menu" and opcao_menu:
             if interpretar_opcao_menu_rapido(telefone, opcao_menu):
                 return jsonify({"status": "ok", "motivo": "opcao_rapida"}), 200
 
@@ -7098,6 +7107,7 @@ def webhook():
                 return jsonify({"status": "ok", "motivo": "duvidas_garantia"}), 200
 
             if texto_opcao == "3":
+                resetar_cliente(telefone)
                 enviar_menu(telefone)
                 return jsonify({"status": "ok", "motivo": "voltar_menu"}), 200
 
@@ -7162,6 +7172,7 @@ def webhook():
                     return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
 
                 if texto_opcao == "2":
+                    resetar_cliente(telefone)
                     enviar_menu(telefone)
                     return jsonify({"status": "ok", "motivo": "voltar_menu"}), 200
 
@@ -7197,7 +7208,8 @@ def webhook():
             resultado = processar_fluxo_revisao(
                 telefone=telefone,
                 texto=texto,
-                texto_opcao=texto_opcao
+                texto_opcao=texto_opcao,
+                message_id=message_id
             )
 
             if resultado:
