@@ -6805,6 +6805,8 @@ def processar_fluxo_revisao(
             )
 
             return True
+        
+        
         # ==========================================
         # TIPO ATENDIMENTO
         # ==========================================
@@ -6842,6 +6844,100 @@ def processar_fluxo_revisao(
             )
 
             return True
+                # ==========================================
+        # VENDA ADICIONAL
+        # ==========================================
+        elif etapa == "revisao_venda":
+
+            if normalizar_texto(texto) in ["nao", "não", "nenhum", "nenhuma"]:
+                clientes[telefone]["venda_adicional"] = "NÃO"
+            else:
+                clientes[telefone]["venda_adicional"] = texto
+
+            clientes[telefone]["etapa"] = "revisao_observacao"
+
+            enviar_mensagem(
+                telefone,
+                "📝 Deseja adicionar alguma observação?\n\n"
+                "Caso não queira, digite *não*."
+            )
+
+            return True
+
+        # ==========================================
+        # OBSERVAÇÃO
+        # ==========================================
+        elif etapa == "revisao_observacao":
+
+            if normalizar_texto(texto) in ["nao", "não", "nenhuma", "nenhum"]:
+                clientes[telefone]["observacao"] = ""
+            else:
+                clientes[telefone]["observacao"] = texto
+
+            clientes[telefone]["etapa"] = "revisao_confirmacao"
+
+            resumo = (
+                "📋 *CONFIRMAÇÃO DO AGENDAMENTO*\n\n"
+                f"👤 Cliente: {clientes[telefone].get('nome')}\n"
+                f"🏍️ Moto: {clientes[telefone].get('modelo')}\n"
+                f"📅 Ano: {clientes[telefone].get('ano')}\n"
+                f"📍 KM: {clientes[telefone].get('km_atual')}\n"
+                f"🔧 Revisão: {clientes[telefone].get('revisao')}\n"
+                f"📆 Data: {clientes[telefone].get('data')}\n"
+                f"⏰ Horário: {clientes[telefone].get('horario')}\n"
+                f"🏍️ Atendimento: {clientes[telefone].get('tipo_atendimento')}\n"
+                f"🛒 Venda adicional: {clientes[telefone].get('venda_adicional')}\n"
+                f"📝 Observação: {clientes[telefone].get('observacao') or 'Nenhuma'}\n\n"
+                "1️⃣ Confirmar\n"
+                "2️⃣ Cancelar"
+            )
+
+            enviar_mensagem(telefone, resumo)
+            return True
+
+        # ==========================================
+        # CONFIRMAÇÃO
+        # ==========================================
+        elif etapa == "revisao_confirmacao":
+
+            opcao_confirmacao = texto_opcao or texto
+
+            if opcao_confirmacao == "1":
+                protocolo = gerar_protocolo()
+
+                clientes[telefone]["protocolo"] = protocolo
+                clientes[telefone]["status"] = STATUS_AGENDADO
+
+                enviar_mensagem(
+                    telefone,
+                    "✅ *Agendamento realizado com sucesso!*\n\n"
+                    f"📋 Protocolo: {protocolo}\n\n"
+                    "Obrigado por escolher a Motoshow Yamaha."
+                )
+
+                resetar_cliente(telefone)
+                return True
+
+            if opcao_confirmacao == "2":
+                enviar_mensagem(
+                    telefone,
+                    "❌ Agendamento cancelado."
+                )
+
+                resetar_cliente(telefone)
+                return True
+
+            enviar_mensagem(
+                telefone,
+                "1️⃣ Confirmar\n2️⃣ Cancelar"
+            )
+            return True
+
+        return False
+
+    except Exception as e:
+        log_erro("Erro processar_fluxo_revisao:", repr(e))
+        return False
 # ==========================================
 # WEBHOOK - Z-API
 # ==========================================
