@@ -626,6 +626,16 @@ def etapa_bloqueia_ia_comercial(etapa):
         "pecas",
         "acessorios",
         "garantia",
+        "garantia_menu",
+        "garantia_nova_nome",
+        "garantia_nova_modelo",
+        "garantia_nova_ano",
+        "garantia_nova_km",
+        "garantia_nova_descricao",
+        "garantia_acompanhar_nome",
+        "garantia_acompanhar_modelo",
+        "garantia_acompanhar_cpf",
+        "garantia_acompanhar_descricao",
         "atacado",
         "atacado_catalogo_enviado",
         "atacado_catalogo_erro",
@@ -3054,6 +3064,13 @@ def iniciar_fluxo_garantia(telefone):
     clientes[telefone]["intencao_ia"] = "garantia"
     clientes[telefone]["ultima_interacao"] = agora()
     clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
+    clientes[telefone]["atendimento_humano"] = False
+    clientes[telefone]["nome"] = ""
+    clientes[telefone]["modelo"] = ""
+    clientes[telefone]["cpf"] = ""
+    clientes[telefone]["ano"] = ""
+    clientes[telefone]["km_atual"] = ""
+    clientes[telefone]["observacao"] = ""
 
     return enviar_menu_garantia(telefone)
 
@@ -3097,6 +3114,165 @@ def montar_resumo_acompanhamento_garantia(telefone):
         "Sua solicitação foi registrada e nossa equipe de garantia irá verificar.\n"
         "Digite *menu* para voltar ao menu principal quando quiser."
     )
+
+
+def finalizar_garantia_com_humano(telefone, etapa_evento, resumo):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+    clientes[telefone]["atendimento_humano"] = True
+    clientes[telefone]["etapa"] = "atendimento_humano"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Garantia",
+        status=STATUS_ATENDIMENTO_HUMANO,
+        etapa=etapa_evento,
+        dados=clientes[telefone],
+        atendimento_humano=True,
+        concluido=False,
+        origem=clientes[telefone].get("origem", "BOT"),
+    )
+
+    enviar_mensagem(telefone, resumo)
+    ativar_atendimento_humano(telefone)
+    return True
+
+
+def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
+    telefone = limpar_telefone(telefone)
+    texto = limpar_texto(texto)
+    texto_opcao = limpar_opcao(texto_opcao or texto)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    etapa = limpar_texto(clientes[telefone].get("etapa", "")).lower()
+    clientes[telefone]["intencao_ia"] = "garantia"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    if etapa == "garantia_menu":
+        if texto_opcao == "1":
+            clientes[telefone]["etapa"] = "garantia_nova_nome"
+            clientes[telefone]["nome"] = ""
+            clientes[telefone]["modelo"] = ""
+            clientes[telefone]["ano"] = ""
+            clientes[telefone]["km_atual"] = ""
+            clientes[telefone]["observacao"] = ""
+            enviar_mensagem(telefone, "Informe seu *nome completo*.")
+            return True
+
+        if texto_opcao == "2":
+            clientes[telefone]["etapa"] = "garantia_acompanhar_nome"
+            clientes[telefone]["nome"] = ""
+            clientes[telefone]["modelo"] = ""
+            clientes[telefone]["cpf"] = ""
+            clientes[telefone]["observacao"] = ""
+            enviar_mensagem(telefone, "Informe seu *nome completo*.")
+            return True
+
+        if texto_opcao == "3":
+            clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+            clientes[telefone]["atendimento_humano"] = True
+            clientes[telefone]["etapa"] = "atendimento_humano"
+
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Garantia",
+                status=STATUS_ATENDIMENTO_HUMANO,
+                etapa="garantia_atendente",
+                dados=clientes[telefone],
+                atendimento_humano=True,
+                concluido=False,
+                origem=clientes[telefone].get("origem", "BOT"),
+            )
+
+            enviar_mensagem(
+                telefone,
+                "Atendimento de garantia encaminhado para um consultor.\n\n"
+                "Quando quiser voltar ao menu automatico, envie *menu*."
+            )
+            ativar_atendimento_humano(telefone)
+            return True
+
+        if texto_opcao == "4":
+            enviar_menu_principal(telefone)
+            return True
+
+        enviar_menu_garantia(telefone)
+        return True
+
+    if etapa == "garantia_nova_nome":
+        clientes[telefone]["nome"] = texto
+        clientes[telefone]["etapa"] = "garantia_nova_modelo"
+        enviar_mensagem(telefone, "Informe o *modelo da moto*.")
+        return True
+
+    if etapa == "garantia_nova_modelo":
+        clientes[telefone]["modelo"] = texto.upper()
+        clientes[telefone]["etapa"] = "garantia_nova_ano"
+        enviar_mensagem(telefone, "Informe o *ano da moto*.")
+        return True
+
+    if etapa == "garantia_nova_ano":
+        clientes[telefone]["ano"] = texto
+        clientes[telefone]["etapa"] = "garantia_nova_km"
+        enviar_mensagem(telefone, "Informe a *quilometragem atual*.")
+        return True
+
+    if etapa == "garantia_nova_km":
+        clientes[telefone]["km_atual"] = texto
+        clientes[telefone]["etapa"] = "garantia_nova_descricao"
+        enviar_mensagem(telefone, "Descreva o *problema apresentado*.")
+        return True
+
+    if etapa == "garantia_nova_descricao":
+        clientes[telefone]["observacao"] = texto
+        resumo = montar_resumo_solicitacao_garantia(telefone)
+        finalizar_garantia_com_humano(
+            telefone=telefone,
+            etapa_evento="garantia_nova_solicitacao",
+            resumo=resumo,
+        )
+        return True
+
+    if etapa == "garantia_acompanhar_nome":
+        clientes[telefone]["nome"] = texto
+        clientes[telefone]["etapa"] = "garantia_acompanhar_modelo"
+        enviar_mensagem(telefone, "Informe o *modelo da moto*.")
+        return True
+
+    if etapa == "garantia_acompanhar_modelo":
+        clientes[telefone]["modelo"] = texto.upper()
+        clientes[telefone]["etapa"] = "garantia_acompanhar_cpf"
+        enviar_mensagem(telefone, "Informe seu *CPF*.")
+        return True
+
+    if etapa == "garantia_acompanhar_cpf":
+        clientes[telefone]["cpf"] = limpar_cpf(texto) or texto
+        clientes[telefone]["etapa"] = "garantia_acompanhar_descricao"
+        enviar_mensagem(telefone, "Informe a *descricao ou protocolo da garantia*.")
+        return True
+
+    if etapa == "garantia_acompanhar_descricao":
+        clientes[telefone]["observacao"] = texto
+        resumo = montar_resumo_acompanhamento_garantia(telefone)
+        finalizar_garantia_com_humano(
+            telefone=telefone,
+            etapa_evento="garantia_acompanhamento",
+            resumo=resumo,
+        )
+        return True
+
+    return False
 
 
 def iniciar_fluxo_pecas(telefone, texto_inicial=""):
@@ -6199,6 +6375,16 @@ def etapa_permite_ia_livre(etapa):
 
         "pecas",
         "garantia",
+        "garantia_menu",
+        "garantia_nova_nome",
+        "garantia_nova_modelo",
+        "garantia_nova_ano",
+        "garantia_nova_km",
+        "garantia_nova_descricao",
+        "garantia_acompanhar_nome",
+        "garantia_acompanhar_modelo",
+        "garantia_acompanhar_cpf",
+        "garantia_acompanhar_descricao",
         "atacado",
         "atacado_catalogo_enviado",
         "atacado_catalogo_erro",
@@ -6407,11 +6593,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
         return True
 
     if opcao_normalizada == "MENU_GARANTIA":
-        clientes[telefone]["etapa"] = "garantia"
-        enviar_mensagem(
-            telefone,
-            "🛡️ *Garantia*\n\nDescreva sua solicitação de garantia:"
-        )
+        iniciar_fluxo_garantia(telefone)
         return True
 
     if opcao_normalizada in ["MENU_ATACADO", "ATACADO_TABELA"]:
@@ -6613,27 +6795,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     if intencao == "garantia":
-        clientes[telefone]["etapa"] = "garantia"
-        clientes[telefone]["atendimento_humano"] = False
-        clientes[telefone]["ultima_interacao"] = agora()
-        clientes[telefone]["intencao_ia"] = "garantia"
-
-        salvar_evento_atendimento(
-            telefone=telefone,
-            setor="Garantia",
-            status=STATUS_NOVO_ATENDIMENTO,
-            etapa="garantia_iniciada",
-            dados=clientes[telefone],
-            atendimento_humano=False,
-            concluido=False,
-            origem=clientes[telefone].get("origem", "BOT"),
-        )
-
-        enviar_mensagem(
-            telefone,
-            "🛡️ *Garantia*\n\nDescreva sua solicitação de garantia:"
-        )
-
+        iniciar_fluxo_garantia(telefone)
         return True
 
     if intencao == "atacado":
@@ -7520,6 +7682,27 @@ def webhook():
                 return jsonify({"status": "ok", "motivo": "acessorios_humano"}), 200
 
             return jsonify({"status": "ok", "motivo": "acessorios_invalido"}), 200
+
+        # ==========================================
+        # GARANTIA - MENU E COLETA
+        # ==========================================
+        if etapa in [
+            "garantia_menu",
+            "garantia_nova_nome",
+            "garantia_nova_modelo",
+            "garantia_nova_ano",
+            "garantia_nova_km",
+            "garantia_nova_descricao",
+            "garantia_acompanhar_nome",
+            "garantia_acompanhar_modelo",
+            "garantia_acompanhar_cpf",
+            "garantia_acompanhar_descricao",
+        ]:
+            if processar_fluxo_garantia(telefone, texto, texto_opcao):
+                return jsonify({"status": "ok", "motivo": "fluxo_garantia"}), 200
+
+            enviar_menu_garantia(telefone)
+            return jsonify({"status": "ok", "motivo": "garantia_menu_reenviado"}), 200
 
         # ==========================================
         # GARANTIA
