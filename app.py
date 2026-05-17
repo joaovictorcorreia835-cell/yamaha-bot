@@ -3371,7 +3371,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
 
         enviar_mensagem(
             telefone,
-            "Agora me informe qual acessório você deseja orçamento."
+            "Qual acessório você deseja receber orçamento? 😊"
         )
 
         return True
@@ -7640,7 +7640,7 @@ def webhook():
 
                 enviar_mensagem(
                     telefone,
-                    "Qual acessório você deseja receber orçamento?"
+                    "Qual acessório você deseja receber orçamento? 😊"
                 )
 
                 return jsonify({"status": "ok", "motivo": "acessorios_pdf"}), 200
@@ -7675,7 +7675,8 @@ def webhook():
 
                 enviar_mensagem(
                     telefone,
-                    "✅ Recebi seu pedido. Vou encaminhar para um consultor e em breve ele continuará o atendimento."
+                    "Perfeito! Vou encaminhar seu pedido para um consultor de acessórios. "
+                    "Em instantes nossa equipe continuará o atendimento por aqui. 🤝"
                 )
 
                 ativar_atendimento_humano(telefone)
