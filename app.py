@@ -1514,6 +1514,7 @@ def estado_padrao_cliente():
         "data": "",
         "horario": "",
         "horarios_disponiveis": [],
+        "acessorio_desejado": "",
 
         "itens": "",
         "venda_adicional": "",
@@ -1544,6 +1545,7 @@ def estado_padrao_cliente():
         "origem_ia": "",
 
         "ultima_mensagem_cliente": "",
+        "acessorio_desejado": "",
 
         "sances_enviado": False,
         "sances_status": SANCES_STATUS_PENDENTE,
@@ -3046,14 +3048,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     clientes[telefone]["modelo"] = ""
     clientes[telefone]["itens"] = ""
     clientes[telefone]["venda_adicional"] = ""
-
-    salvar_evento_atendimento(
-        telefone=telefone,
-        setor="Acessórios",
-        status=STATUS_NOVO_ATENDIMENTO,
-        etapa="acessorios_iniciado",
-        dados=clientes[telefone],
-        atendimento_humano=False,
+        clientes[telefone]["acessorio_desejado"] = ""
         concluido=False,
     )
 
@@ -3065,6 +3060,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         clientes[telefone]["modelo"] = modelo_informado
         clientes[telefone]["etapa"] = "acessorios_orcamento"
         clientes[telefone]["ultima_interacao"] = agora()
+        clientes[telefone]["proxima_acao"] = "ACESSORIOS_ORCAMENTO"
 
         arquivo_pdf = obter_pdf_acessorios_por_modelo(modelo_informado)
 
@@ -3088,7 +3084,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
 
         enviar_mensagem(
             telefone,
-            "Agora me informe *qual acessório você deseja para orçamento*."
+            "Agora me informe qual acessório você deseja orçamento."
         )
 
         return True
@@ -7365,6 +7361,7 @@ def webhook():
 
                 clientes[telefone]["modelo"] = modelo_informado
                 clientes[telefone]["etapa"] = "acessorios_orcamento"
+                clientes[telefone]["proxima_acao"] = "ACESSORIOS_ORCAMENTO"
 
                 arquivo_pdf = obter_pdf_acessorios_por_modelo(modelo_informado)
 
@@ -7388,7 +7385,7 @@ def webhook():
 
                 enviar_mensagem(
                     telefone,
-                    "Qual é o *nome do acessório* que você deseja?"
+                    "Agora me informe qual acessório você deseja orçamento."
                 )
 
                 return jsonify({"status": "ok", "motivo": "acessorios_pdf"}), 200
@@ -7404,7 +7401,21 @@ def webhook():
                     return jsonify({"status": "ok", "motivo": "acessorios_nome_vazio"}), 200
 
                 clientes[telefone]["acessorio_desejado"] = acessorio_nome
+                clientes[telefone]["observacao"] = acessorio_nome
+                clientes[telefone]["itens"] = acessorio_nome
                 clientes[telefone]["etapa"] = "acessorios_nome"
+                clientes[telefone]["proxima_acao"] = "ACESSORIOS_QUANTIDADE"
+
+                salvar_evento_atendimento(
+                    telefone=telefone,
+                    setor="Acessórios",
+                    status="ACESSORIO_DESEJADO_RECEBIDO",
+                    etapa="acessorios_orcamento",
+                    dados=clientes[telefone],
+                    atendimento_humano=False,
+                    concluido=False,
+                    origem=clientes[telefone].get("origem", "BOT"),
+                )
 
                 enviar_mensagem(
                     telefone,
