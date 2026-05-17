@@ -6771,16 +6771,27 @@ def processar_fluxo_revisao(
                 clientes[telefone].get("dia")
             )
 
-            try:
-                indice = int(texto) - 1
-            except Exception:
-                indice = -1
+            indice = None
 
-            if indice < 0 or indice >= len(horarios):
-                enviar_mensagem(
-                    telefone,
-                    "⚠️ Escolha um horário válido."
+            if texto_opcao and texto_opcao.isdigit():
+                indice = int(texto_opcao) - 1
+
+            elif texto.isdigit():
+                indice = int(texto) - 1
+
+            if indice is None or indice < 0 or indice >= len(horarios):
+
+                mensagem = (
+                    "⏰ *Escolha um horário válido:*\n\n"
                 )
+
+                for i, horario in enumerate(horarios, start=1):
+                    mensagem += f"{i}️⃣ {horario}\n"
+
+                mensagem += "\nDigite apenas o número do horário."
+
+                enviar_mensagem(telefone, mensagem)
+
                 return True
 
             clientes[telefone]["horario"] = horarios[indice]
@@ -6794,7 +6805,6 @@ def processar_fluxo_revisao(
             )
 
             return True
-
         # ==========================================
         # TIPO ATENDIMENTO
         # ==========================================
@@ -6802,12 +6812,14 @@ def processar_fluxo_revisao(
 
             tipo = extrair_tipo_atendimento(texto)
 
+            opcao_tipo = texto_opcao or texto
+
             if not tipo:
 
-                if texto_opcao == "1":
+                if opcao_tipo == "1":
                     tipo = "AGUARDAR NA CONCESSIONÁRIA"
 
-                elif texto_opcao == "2":
+                elif opcao_tipo == "2":
                     tipo = "DEIXAR A MOTO E RETIRAR DEPOIS"
 
             if not tipo:
@@ -6830,107 +6842,6 @@ def processar_fluxo_revisao(
             )
 
             return True
-
-        # ==========================================
-        # VENDA ADICIONAL
-        # ==========================================
-        elif etapa == "revisao_venda":
-
-            if normalizar_texto(texto) in ["nao", "não", "nenhum"]:
-                clientes[telefone]["venda_adicional"] = "NÃO"
-
-            else:
-                clientes[telefone]["venda_adicional"] = texto
-
-            clientes[telefone]["etapa"] = "revisao_observacao"
-
-            enviar_mensagem(
-                telefone,
-                "📝 Deseja adicionar alguma observação?\n\n"
-                "Caso não queira, digite *não*."
-            )
-
-            return True
-
-        # ==========================================
-        # OBSERVAÇÃO
-        # ==========================================
-        elif etapa == "revisao_observacao":
-
-            if normalizar_texto(texto) in ["nao", "não", "nenhuma"]:
-                clientes[telefone]["observacao"] = ""
-
-            else:
-                clientes[telefone]["observacao"] = texto
-
-            clientes[telefone]["etapa"] = "revisao_confirmacao"
-
-            resumo = (
-                "📋 *CONFIRMAÇÃO DO AGENDAMENTO*\n\n"
-                f"👤 Cliente: {clientes[telefone].get('nome')}\n"
-                f"🏍️ Moto: {clientes[telefone].get('modelo')}\n"
-                f"📅 Ano: {clientes[telefone].get('ano')}\n"
-                f"📍 KM: {clientes[telefone].get('km_atual')}\n"
-                f"🔧 Revisão: {clientes[telefone].get('revisao')}\n"
-                f"📆 Data: {clientes[telefone].get('data')}\n"
-                f"⏰ Horário: {clientes[telefone].get('horario')}\n"
-                f"🏍️ Atendimento: {clientes[telefone].get('tipo_atendimento')}\n"
-                f"🛒 Venda adicional: {clientes[telefone].get('venda_adicional')}\n"
-                f"📝 Observação: {clientes[telefone].get('observacao') or 'Nenhuma'}\n\n"
-                "1️⃣ Confirmar\n"
-                "2️⃣ Cancelar"
-            )
-
-            enviar_mensagem(telefone, resumo)
-
-            return True
-
-        # ==========================================
-        # CONFIRMAÇÃO
-        # ==========================================
-        elif etapa == "revisao_confirmacao":
-
-            if texto_opcao == "1":
-
-                protocolo = gerar_protocolo()
-
-                clientes[telefone]["protocolo"] = protocolo
-                clientes[telefone]["status"] = STATUS_AGENDADO
-
-                enviar_mensagem(
-                    telefone,
-                    "✅ *Agendamento realizado com sucesso!*\n\n"
-                    f"📋 Protocolo: {protocolo}\n\n"
-                    "Obrigado por escolher a Motoshow Yamaha."
-                )
-
-                resetar_cliente(telefone)
-
-                return True
-
-            if texto_opcao == "2":
-
-                enviar_mensagem(
-                    telefone,
-                    "❌ Agendamento cancelado."
-                )
-
-                resetar_cliente(telefone)
-
-                return True
-
-            enviar_mensagem(
-                telefone,
-                "1️⃣ Confirmar\n2️⃣ Cancelar"
-            )
-
-            return True
-
-        return False
-
-    except Exception as e:
-        log_erro("Erro processar_fluxo_revisao:", repr(e))
-        return False
 # ==========================================
 # WEBHOOK - Z-API
 # ==========================================
