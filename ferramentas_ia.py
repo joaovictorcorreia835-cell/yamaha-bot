@@ -13,12 +13,14 @@ except Exception as e:
     print("[FERRAMENTAS IA][ERRO] Não foi possível importar base_conhecimento:", repr(e), flush=True)
 
 try:
-    from ia_duvidas import responder_duvida_manual
+    from ia_duvidas import responder_duvida_manual, responder_duvida_manual_com_ia
 except Exception:
     try:
         from base_duvidas import responder_duvida_manual
+        responder_duvida_manual_com_ia = None
     except Exception as e:
         responder_duvida_manual = None
+        responder_duvida_manual_com_ia = None
         print("[FERRAMENTAS IA][ERRO] Não foi possível importar ia_duvidas/base_duvidas:", repr(e), flush=True)
 
 
@@ -388,7 +390,9 @@ def consultar_base_conhecimento(texto):
 # MANUAL PDF
 # ==========================================
 def consultar_manual_pdf(modelo, texto):
-    if responder_duvida_manual is None:
+    funcao_manual = responder_duvida_manual_com_ia or responder_duvida_manual
+
+    if funcao_manual is None:
         return {
             "encontrou": False,
             "resposta": "",
@@ -396,7 +400,7 @@ def consultar_manual_pdf(modelo, texto):
         }
 
     try:
-        resultado = responder_duvida_manual(modelo, texto)
+        resultado = funcao_manual(modelo, texto)
 
         if not isinstance(resultado, dict):
             return {
@@ -470,6 +474,23 @@ def responder_ia(texto, modelo=""):
 
     urgencia = classificar_urgencia(texto_norm)
     intencao = identificar_intencao(texto_norm)
+    intencoes_manual = {"revisao", "garantia", "problema_tecnico"}
+
+    # Para dúvidas técnicas, o manual é a fonte oficial. A IA só transforma
+    # o trecho encontrado em uma resposta natural.
+    if modelo and intencao in intencoes_manual:
+        resultado_manual = consultar_manual_pdf(modelo, texto_norm)
+
+        if resultado_manual.get("encontrou"):
+            return {
+                "fonte": resultado_manual.get("fonte", "manual_pdf"),
+                "resposta": resultado_manual.get("resposta", ""),
+                "categoria": resultado_manual.get("assunto", "manual"),
+                "modelo": resultado_manual.get("modelo", modelo),
+                "urgencia": urgencia,
+                "intencao": intencao,
+                "encaminhar_humano": urgencia == "alta",
+            }
 
     # ==========================================
     # 1) BASE DE CONHECIMENTO

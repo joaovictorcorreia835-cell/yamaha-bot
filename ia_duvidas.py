@@ -40,9 +40,9 @@ MANUAIS_YAMAHA = {
     "factor 150": "manual_factor150_2025.v2.pdf",
     "factor": "manual_factor150_2025.v2.pdf",
 
-    "fz15": "manual_fazerfz15abs_2025_W2.pdf",
-    "fz 15": "manual_fazerfz15abs_2025_W2.pdf",
-    "fazer 150": "manual_fazerfz15abs_2025_W2.pdf",
+    "fz15": "manual_fazerfz15abs_2025._W2.pdf",
+    "fz 15": "manual_fazerfz15abs_2025._W2.pdf",
+    "fazer 150": "manual_fazerfz15abs_2025._W2.pdf",
 
     "fazer250": "manual_fazerfz25abs_2025.pdf",
     "fazer 250": "manual_fazerfz25abs_2025.pdf",
@@ -771,11 +771,11 @@ def limitar_resposta_manual_ia(texto):
         frases = dividir_frases_manual(paragrafos[0])
         paragrafos = frases[:3] if frases else paragrafos
 
-    paragrafos = paragrafos[:4]
+    paragrafos = paragrafos[:3]
     resposta = "\n\n".join(paragrafos)
 
-    if len(resposta) > 1200:
-        resposta = resposta[:1200].rsplit(" ", 1)[0].strip()
+    if len(resposta) > 900:
+        resposta = resposta[:900].rsplit(" ", 1)[0].strip()
 
         if resposta and resposta[-1] not in ".!?":
             resposta += "."
@@ -790,7 +790,6 @@ def resposta_ia_indica_sem_base(texto):
         "nao encontrei essa informacao com seguranca",
         "manual nao traz resposta suficiente",
         "nao ha informacao suficiente",
-        "encaminhar para um consultor",
     ]
 
     return any(sinal in texto_norm for sinal in sinais)
@@ -813,8 +812,8 @@ def transformar_trecho_manual_com_ia(modelo_detectado, pergunta, trecho, assunto
         "do manual fornecido. Não invente, não complete com conhecimento externo e não "
         "dê diagnóstico definitivo. Se o trecho não responder com segurança, responda "
         "exatamente: \"Não encontrei essa informação com segurança no manual. Vou encaminhar "
-        "para um consultor te ajudar melhor. 🤝\". Limite a resposta a no máximo 4 parágrafos "
-        "curtos e termine oferecendo atendimento humano."
+        "para um consultor te ajudar melhor. 🤝\". Limite a resposta a no máximo 3 parágrafos "
+        "curtos, com linguagem simples, e termine oferecendo atendimento humano."
     )
 
     prompt_usuario = (
