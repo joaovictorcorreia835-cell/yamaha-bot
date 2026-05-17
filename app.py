@@ -3048,7 +3048,15 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     clientes[telefone]["modelo"] = ""
     clientes[telefone]["itens"] = ""
     clientes[telefone]["venda_adicional"] = ""
-        clientes[telefone]["acessorio_desejado"] = ""
+    clientes[telefone]["acessorio_desejado"] = ""
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Acessórios",
+        status=STATUS_NOVO_ATENDIMENTO,
+        etapa="acessorios_iniciado",
+        dados=clientes[telefone],
+        atendimento_humano=False,
         concluido=False,
     )
 
