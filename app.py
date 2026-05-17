@@ -1060,6 +1060,16 @@ ETAPAS_COLETA_RESTRITA = {
     "pecas",
     "acessorios",
     "garantia",
+    "garantia_menu",
+    "garantia_nova_nome",
+    "garantia_nova_modelo",
+    "garantia_nova_ano",
+    "garantia_nova_km",
+    "garantia_nova_descricao",
+    "garantia_acompanhar_nome",
+    "garantia_acompanhar_modelo",
+    "garantia_acompanhar_cpf",
+    "garantia_acompanhar_descricao",
     "atacado",
     "atacado_catalogo_enviado",
     "atacado_catalogo_erro",
@@ -2995,6 +3005,98 @@ def enviar_menu(telefone):
     clientes[telefone]["etapa_retorno_duvida"] = ""
 
     return enviar_mensagem(telefone, menu_inicial())
+
+
+def enviar_menu_principal(telefone):
+    return enviar_menu(telefone)
+
+
+def menu_garantia():
+    return (
+        "🛡️ *Garantia Motoshow Yamaha*\n\n"
+        "1️⃣ Nova Solicitação\n"
+        "2️⃣ Acompanhar Garantia\n"
+        "3️⃣ Falar com Atendente\n"
+        "4️⃣ Voltar ao Menu Principal\n\n"
+        "Digite apenas o número da opção desejada."
+    )
+
+
+def enviar_menu_garantia(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    clientes[telefone]["etapa"] = "garantia_menu"
+    clientes[telefone]["atendimento_humano"] = False
+    clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Garantia",
+        status=STATUS_NOVO_ATENDIMENTO,
+        etapa="garantia_menu",
+        dados=clientes[telefone],
+        atendimento_humano=False,
+        concluido=False,
+        origem=clientes[telefone].get("origem", "BOT"),
+    )
+
+    return enviar_mensagem(telefone, menu_garantia())
+
+
+def iniciar_fluxo_garantia(telefone):
+    iniciar_cliente(telefone)
+    clientes[telefone]["intencao_ia"] = "garantia"
+    clientes[telefone]["ultima_interacao"] = agora()
+    clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
+
+    return enviar_menu_garantia(telefone)
+
+
+def montar_resumo_solicitacao_garantia(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return "Não consegui montar o resumo da solicitação de garantia."
+
+    iniciar_cliente(telefone)
+    dados = clientes.get(telefone, {})
+
+    return (
+        "📋 *Resumo da Solicitação de Garantia*\n\n"
+        f"👤 Nome: {dados.get('nome', '-') or '-'}\n"
+        f"🏍️ Modelo: {dados.get('modelo', '-') or '-'}\n"
+        f"📅 Ano: {dados.get('ano', '-') or '-'}\n"
+        f"🔢 Quilometragem atual: {dados.get('km_atual', '-') or '-'}\n"
+        f"📝 Descrição do problema: {dados.get('observacao', '-') or '-'}\n\n"
+        "Sua solicitação foi registrada e será encaminhada à equipe de garantia.\n"
+        "Digite *menu* para voltar ao menu principal quando quiser."
+    )
+
+
+def montar_resumo_acompanhamento_garantia(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return "Não consegui montar o resumo do acompanhamento de garantia."
+
+    iniciar_cliente(telefone)
+    dados = clientes.get(telefone, {})
+
+    return (
+        "📋 *Resumo do Acompanhamento de Garantia*\n\n"
+        f"👤 Nome: {dados.get('nome', '-') or '-'}\n"
+        f"🏍️ Modelo: {dados.get('modelo', '-') or '-'}\n"
+        f"📄 CPF: {dados.get('cpf', '-') or '-'}\n"
+        f"📝 Descrição / protocolo: {dados.get('observacao', '-') or '-'}\n\n"
+        "Sua solicitação foi registrada e nossa equipe de garantia irá verificar.\n"
+        "Digite *menu* para voltar ao menu principal quando quiser."
+    )
 
 
 def iniciar_fluxo_pecas(telefone, texto_inicial=""):
@@ -6253,27 +6355,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
             return True
 
         if opcao_normalizada in ["4", "OPCAO_4", "MENU_GARANTIA"]:
-            clientes[telefone]["etapa"] = "garantia"
-            clientes[telefone]["intencao_ia"] = "garantia"
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["ultima_interacao"] = agora()
-            clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
-
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Garantia",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="garantia_iniciada",
-                dados=clientes[telefone],
-                atendimento_humano=False,
-                concluido=False,
-                origem=clientes[telefone].get("origem", "BOT"),
-            )
-
-            enviar_mensagem(
-                telefone,
-                "🛡️ *Garantia*\n\nDescreva sua solicitação de garantia:"
-            )
+            iniciar_fluxo_garantia(telefone)
             return True
 
         if opcao_normalizada in ["5", "OPCAO_5", "MENU_ATACADO"]:
