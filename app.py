@@ -6546,6 +6546,103 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     return False
+
+# ==========================================
+# FLUXO REVISÃO
+# ==========================================
+def processar_fluxo_revisao(telefone, texto, message_id=None):
+
+    try:
+        telefone = limpar_telefone(telefone)
+        texto = limpar_texto(texto)
+
+        if not telefone:
+            return False
+
+        iniciar_cliente(telefone)
+
+        etapa = clientes[telefone].get("etapa", "")
+
+        # ==========================================
+        # MODELO
+        # ==========================================
+        if etapa == "revisao_modelo":
+
+            clientes[telefone]["modelo"] = texto.upper()
+            clientes[telefone]["etapa"] = "revisao_nome"
+
+            enviar_mensagem(
+                telefone,
+                "👤 Perfeito!\n\nAgora me informe seu *nome completo*."
+            )
+
+            return True
+
+        # ==========================================
+        # NOME
+        # ==========================================
+        elif etapa == "revisao_nome":
+
+            clientes[telefone]["nome"] = texto.title()
+            clientes[telefone]["etapa"] = "revisao_cpf"
+
+            enviar_mensagem(
+                telefone,
+                "📄 Informe seu *CPF*."
+            )
+
+            return True
+
+        # ==========================================
+        # CPF
+        # ==========================================
+        elif etapa == "revisao_cpf":
+
+            clientes[telefone]["cpf"] = texto
+            clientes[telefone]["etapa"] = "revisao_ano"
+
+            enviar_mensagem(
+                telefone,
+                "📅 Informe o *ano da moto*."
+            )
+
+            return True
+
+        # ==========================================
+        # ANO
+        # ==========================================
+        elif etapa == "revisao_ano":
+
+            clientes[telefone]["ano"] = texto
+            clientes[telefone]["etapa"] = "revisao_km"
+
+            enviar_mensagem(
+                telefone,
+                "📍 Informe a *quilometragem atual* da moto."
+            )
+
+            return True
+
+        # ==========================================
+        # KM
+        # ==========================================
+        elif etapa == "revisao_km":
+
+            clientes[telefone]["km_atual"] = texto
+            clientes[telefone]["etapa"] = "revisao_revisao"
+
+            enviar_mensagem(
+                telefone,
+                "🔧 Qual revisão deseja realizar?\n\nExemplo:\n1ª Revisão"
+            )
+
+            return True
+
+        return False
+
+    except Exception as e:
+        log_erro("Erro processar_fluxo_revisao:", repr(e))
+        return False
 # ==========================================
 # WEBHOOK - Z-API
 # ==========================================
