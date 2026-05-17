@@ -6692,7 +6692,12 @@ def processar_fluxo_revisao(
         # ==========================================
         elif etapa == "revisao_dia":
 
-            dia = numero_dia_por_texto(texto)
+            dia = None
+
+            if texto_opcao in ["1", "2", "3", "4", "5", "6"]:
+                dia = int(texto_opcao)
+            else:
+                dia = numero_dia_por_texto(texto)
 
             if dia not in [1, 2, 3, 4, 5, 6]:
                 enviar_mensagem(
@@ -6717,7 +6722,6 @@ def processar_fluxo_revisao(
             )
 
             return True
-
         # ==========================================
         # DATA
         # ==========================================
