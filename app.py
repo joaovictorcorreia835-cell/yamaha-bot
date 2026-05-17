@@ -640,6 +640,13 @@ def etapa_bloqueia_ia_comercial(etapa):
         "atacado_cotacao",
         "atacado_cotacao_itens",
         "atacado_cadastro",
+        "atacado_empresa",
+        "atacado_responsavel",
+        "atacado_cidade",
+        "atacado_cnpj",
+        "atacado_telefone_comercial",
+        "atacado_segmento",
+        "atacado_produtos_interesse",
         "atacado_cadastro_empresa",
         "atacado_cadastro_responsavel",
         "atacado_cadastro_cidade",
@@ -845,6 +852,8 @@ def enviar_catalogo_atacado(telefone):
             "Se sim, envie a lista dos itens por aqui. 😊"
         )
 
+        clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
+
         return enviado
 
     except Exception as e:
@@ -1033,37 +1042,37 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
         clientes[telefone]["etapa"] = "atacado_cotacao_itens"
         return processar_fluxo_atacado(telefone, texto, texto_opcao)
 
-    if etapa in ["atacado_cadastro", "atacado_cadastro_empresa"]:
+    if etapa in ["atacado_cadastro", "atacado_empresa", "atacado_cadastro_empresa"]:
         clientes[telefone]["empresa"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_responsavel"
         enviar_mensagem(telefone, "Informe o *nome do responsável*.")
         return True
 
-    if etapa == "atacado_cadastro_responsavel":
+    if etapa in ["atacado_responsavel", "atacado_cadastro_responsavel"]:
         clientes[telefone]["responsavel"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_cidade"
         enviar_mensagem(telefone, "Informe a *cidade*.")
         return True
 
-    if etapa == "atacado_cadastro_cidade":
+    if etapa in ["atacado_cidade", "atacado_cadastro_cidade"]:
         clientes[telefone]["cidade"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_cnpj"
         enviar_mensagem(telefone, "Informe o *CNPJ*.")
         return True
 
-    if etapa == "atacado_cadastro_cnpj":
+    if etapa in ["atacado_cnpj", "atacado_cadastro_cnpj"]:
         clientes[telefone]["cnpj"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_telefone"
         enviar_mensagem(telefone, "Informe o *telefone comercial*.")
         return True
 
-    if etapa == "atacado_cadastro_telefone":
+    if etapa in ["atacado_telefone_comercial", "atacado_cadastro_telefone"]:
         clientes[telefone]["telefone_comercial"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_segmento"
         enviar_mensagem(telefone, "Informe o *segmento da empresa*.")
         return True
 
-    if etapa == "atacado_cadastro_segmento":
+    if etapa in ["atacado_segmento", "atacado_cadastro_segmento"]:
         clientes[telefone]["segmento"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_produtos"
         enviar_mensagem(
@@ -1072,7 +1081,7 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
         )
         return True
 
-    if etapa == "atacado_cadastro_produtos":
+    if etapa in ["atacado_produtos_interesse", "atacado_cadastro_produtos"]:
         clientes[telefone]["produtos_interesse"] = texto
         clientes[telefone]["observacao"] = texto
 
@@ -1301,6 +1310,13 @@ ETAPAS_COLETA_RESTRITA = {
     "atacado_cotacao",
     "atacado_cotacao_itens",
     "atacado_cadastro",
+    "atacado_empresa",
+    "atacado_responsavel",
+    "atacado_cidade",
+    "atacado_cnpj",
+    "atacado_telefone_comercial",
+    "atacado_segmento",
+    "atacado_produtos_interesse",
     "atacado_cadastro_empresa",
     "atacado_cadastro_responsavel",
     "atacado_cadastro_cidade",
@@ -6624,6 +6640,13 @@ def etapa_permite_ia_livre(etapa):
         "atacado_cotacao",
         "atacado_cotacao_itens",
         "atacado_cadastro",
+        "atacado_empresa",
+        "atacado_responsavel",
+        "atacado_cidade",
+        "atacado_cnpj",
+        "atacado_telefone_comercial",
+        "atacado_segmento",
+        "atacado_produtos_interesse",
         "atacado_cadastro_empresa",
         "atacado_cadastro_responsavel",
         "atacado_cadastro_cidade",
@@ -7618,6 +7641,37 @@ def webhook():
         etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
 
         # ==========================================
+        # ATACADO - PRIORIDADE ANTES DE IA / REVISÃO
+        # ==========================================
+        if etapa in [
+            "atacado",
+            "atacado_catalogo_enviado",
+            "atacado_cotacao",
+            "atacado_cotacao_itens",
+            "atacado_cadastro",
+            "atacado_empresa",
+            "atacado_responsavel",
+            "atacado_cidade",
+            "atacado_cnpj",
+            "atacado_telefone_comercial",
+            "atacado_segmento",
+            "atacado_produtos_interesse",
+            "atacado_cadastro_empresa",
+            "atacado_cadastro_responsavel",
+            "atacado_cadastro_cidade",
+            "atacado_cadastro_cnpj",
+            "atacado_cadastro_telefone",
+            "atacado_cadastro_segmento",
+            "atacado_cadastro_produtos",
+            "atacado_catalogo_erro",
+        ]:
+            if processar_fluxo_atacado(telefone, texto, texto_opcao):
+                return jsonify({"status": "ok", "motivo": "fluxo_atacado"}), 200
+
+            iniciar_fluxo_atacado(telefone)
+            return jsonify({"status": "ok", "motivo": "atacado_menu_reenviado"}), 200
+
+        # ==========================================
         # CENTRAL DE DÚVIDAS - MENU
         # ==========================================
         if etapa in ["duvidas_menu", "menu_duvidas"]:
@@ -7937,6 +7991,13 @@ def webhook():
             "atacado_cotacao",
             "atacado_cotacao_itens",
             "atacado_cadastro",
+            "atacado_empresa",
+            "atacado_responsavel",
+            "atacado_cidade",
+            "atacado_cnpj",
+            "atacado_telefone_comercial",
+            "atacado_segmento",
+            "atacado_produtos_interesse",
             "atacado_cadastro_empresa",
             "atacado_cadastro_responsavel",
             "atacado_cadastro_cidade",
