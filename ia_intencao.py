@@ -220,6 +220,46 @@ def texto_parece_garantia(texto_normalizado):
     return any(t in texto_normalizado for t in termos_garantia)
 
 
+def texto_parece_duvida_manual(texto_normalizado):
+    texto_normalizado = normalizar_texto(texto_normalizado)
+
+    termos = [
+        "quando fazer revisao",
+        "quando fazer a revisao",
+        "quando fazer primeira revisao",
+        "quando fazer a primeira revisao",
+        "qual revisao",
+        "com quantos km",
+        "quantos km",
+        "quilometragem da revisao",
+        "manutencao",
+        "manual",
+        "qual oleo",
+        "oleo recomendado",
+        "troca de oleo",
+        "garantia",
+        "duracao da garantia",
+        "o que cobre",
+        "cobre a garantia",
+        "painel",
+        "luz",
+        "luz acesa",
+        "luz de advertencia",
+        "funcionamento",
+    ]
+
+    if any(termo in texto_normalizado for termo in termos):
+        return True
+
+    marcadores = ["quando", "qual", "quais", "como", "o que", "quantos"]
+    assuntos = ["revisao", "oleo", "garantia", "painel", "manutencao", "motor", "luz"]
+
+    return (
+        any(texto_normalizado.startswith(marcador) for marcador in marcadores)
+        and any(assunto in texto_normalizado for assunto in assuntos)
+    )
+
+
 def texto_parece_valor_revisao(texto_normalizado):
     texto_normalizado = normalizar_texto(texto_normalizado)
 
@@ -618,7 +658,9 @@ def texto_parece_dado_de_fluxo(texto):
         "falar consultor", "consultor", "humano",
         "quero tabela", "tabela", "catalogo", "catálogo",
         "atacado", "pecas", "acessorios", "garantia",
-        "menu", "depois",
+        "menu", "depois", "quando", "qual", "manual",
+        "manutencao", "painel", "luz", "oleo",
+        "quantos km", "troca de oleo",
     ]
 
     if any(p in texto_norm for p in intencoes_fortes):
@@ -671,6 +713,9 @@ def detectar_intencao_regras(texto_normalizado):
 
     if texto_normalizado in ["oi", "ola", "bom dia", "boa tarde", "boa noite"]:
         return "menu", 0.95
+
+    if texto_parece_duvida_manual(texto_normalizado):
+        return "duvidas", 0.99
 
     if texto_parece_garantia(texto_normalizado):
         return "duvidas", 0.98
@@ -822,6 +867,8 @@ def classificar_com_ia(texto):
                         "Responda apenas uma das opções: agendar_revisao, cancelar_agendamento, "
                         "reagendar_agendamento, consultar_agendamento, valor_revisao, duvidas, "
                         "pecas, acessorios, garantia, atacado, atacado_catalogo, humano, menu. "
+                        "Perguntas sobre manual, garantia, óleo, painel, manutenção, funcionamento "
+                        "ou quando fazer revisão devem ser classificadas como duvidas, não como agendamento. "
                         "Se parecer dado de cadastro, responda vazio."
                     )
                 },
@@ -1097,6 +1144,10 @@ def classificar_intencao(texto):
     if not intencao:
         intencao, confianca = classificar_com_ia(texto)
 
+    if texto_parece_duvida_manual(texto_normalizado):
+        intencao = "duvidas"
+        confianca = max(confianca, 0.99)
+
     dados = {
         "modelo": extrair_modelo(texto),
         "ano": extrair_ano(texto),
@@ -1205,6 +1256,15 @@ def texto_parece_dado_de_fluxo(texto):
         "garantia",
         "menu",
         "depois",
+        "quando",
+        "qual",
+        "manual",
+        "manutencao",
+        "painel",
+        "luz",
+        "oleo",
+        "quantos km",
+        "troca de oleo",
         "cancelar",
         "reagendar",
         "consultar",
@@ -1276,6 +1336,9 @@ def detectar_intencao_regras(texto_normalizado):
         "boa noite",
     ]:
         return "menu", 0.95
+
+    if texto_parece_duvida_manual(texto_normalizado):
+        return "duvidas", 0.99
 
     if texto_parece_garantia(texto_normalizado):
         return "duvidas", 0.98

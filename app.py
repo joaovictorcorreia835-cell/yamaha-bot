@@ -620,8 +620,10 @@ def etapa_bloqueia_ia_comercial(etapa):
         "revisao_confirmacao",
 
         "duvidas_menu",
+        "duvidas",
         "duvidas_revisao",
         "duvidas_garantia",
+        "duvida_manual",
         "duvidas_retorno",
 
         "pecas",
@@ -1283,8 +1285,10 @@ ETAPAS_COLETA_RESTRITA = {
     "revisao_confirmacao",
 
     "duvidas_menu",
+    "duvidas",
     "duvidas_revisao",
     "duvidas_garantia",
+    "duvida_manual",
     "duvidas_retorno",
 
     "cancelar_agendamento",
@@ -3741,6 +3745,51 @@ def resposta_duvida_manual_segura(modelo, pergunta):
         return None
 
 
+def processar_pergunta_duvida_manual(telefone, texto, categoria="manual"):
+    telefone = limpar_telefone(telefone)
+    texto = limpar_texto(texto)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    clientes[telefone]["intencao_ia"] = "duvidas"
+    clientes[telefone]["categoria_duvida"] = categoria or "manual"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    modelo_duvida = identificar_modelo_duvida_manual(
+        pergunta=texto,
+        modelo_salvo=clientes[telefone].get("modelo", ""),
+    )
+
+    resposta = resposta_duvida_manual_segura(
+        modelo=modelo_duvida,
+        pergunta=texto,
+    )
+
+    salvar_duvida_dashboard(
+        telefone=telefone,
+        categoria=categoria or "manual",
+        pergunta=texto,
+        resposta=resposta or "",
+    )
+
+    if not resposta:
+        mensagem_sem_resposta = (
+            "Não encontrei essa informação com segurança no manual. "
+            "Vou encaminhar para um consultor te ajudar melhor. 🤝"
+        )
+
+        enviar_mensagem(telefone, mensagem_sem_resposta)
+        ativar_atendimento_humano(telefone)
+        return True
+
+    enviar_mensagem(telefone, resposta)
+    enviar_duvida_retorno_fluxo(telefone)
+    return True
+
+
 def montar_mensagem_horarios(lista):
     if not lista:
         return "⚠️ No momento não encontrei horários disponíveis para essa opção."
@@ -5801,19 +5850,6 @@ def mensagem_duvida_retorno_fluxo(telefone):
 
     iniciar_cliente(telefone)
 
-    etapa_retorno = limpar_texto(
-        clientes[telefone].get("etapa_retorno_duvida", "")
-    )
-
-    if etapa_retorno and etapa_retorno.startswith("revisao"):
-        return (
-            "Posso continuar te ajudando por aqui 👇\n\n"
-            "1️⃣ Continuar meu agendamento\n"
-            "2️⃣ Fazer outra dúvida\n"
-            "3️⃣ Falar com atendimento humano\n\n"
-            "Digite apenas o número da opção desejada."
-        )
-
     return (
         "Posso continuar te ajudando por aqui 👇\n\n"
         "1️⃣ Fazer outra dúvida\n"
@@ -5830,17 +5866,6 @@ def botoes_duvida_retorno_fluxo(telefone):
         return []
 
     iniciar_cliente(telefone)
-
-    etapa_retorno = limpar_texto(
-        clientes[telefone].get("etapa_retorno_duvida", "")
-    )
-
-    if etapa_retorno and etapa_retorno.startswith("revisao"):
-        return [
-            {"id": "DUVIDA_CONTINUAR", "label": "Continuar agendamento"},
-            {"id": "DUVIDA_OUTRA", "label": "Outra dúvida"},
-            {"id": "MENU_HUMANO", "label": "Atendimento humano"},
-        ]
 
     return [
         {"id": "DUVIDA_OUTRA", "label": "Outra dúvida"},
@@ -6675,9 +6700,11 @@ def etapa_permite_ia_livre(etapa):
         "revisao_confirmacao",
 
         "duvidas_menu",
+        "duvidas",
         "menu_duvidas",
         "duvidas_revisao",
         "duvidas_garantia",
+        "duvida_manual",
         "duvidas_retorno",
 
         "consulta_agendamento_cpf",
@@ -6804,38 +6831,18 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
     # RETORNO DE DÚVIDAS
     # ==========================================
     if etapa_atual == "duvidas_retorno":
-        etapa_retorno = limpar_texto(
-            clientes[telefone].get("etapa_retorno_duvida", "")
-        )
+        if opcao_normalizada in ["1", "OPCAO_1", "DUVIDA_OUTRA", "DUVIDA_CONTINUAR"]:
+            clientes[telefone]["etapa"] = "duvidas_menu"
+            enviar_menu_duvidas(telefone)
+            return True
 
-        if etapa_retorno and etapa_retorno.startswith("revisao"):
-            if opcao_normalizada in ["1", "OPCAO_1", "DUVIDA_CONTINUAR"]:
-                clientes[telefone]["etapa"] = etapa_retorno
-                enviar_proxima_etapa_revisao(telefone)
-                return True
+        if opcao_normalizada in ["2", "OPCAO_2", "MENU"]:
+            enviar_menu(telefone)
+            return True
 
-            if opcao_normalizada in ["2", "OPCAO_2", "DUVIDA_OUTRA"]:
-                clientes[telefone]["etapa"] = "duvidas_menu"
-                enviar_menu_duvidas(telefone)
-                return True
-
-            if opcao_normalizada in ["3", "OPCAO_3", "MENU_HUMANO"]:
-                ativar_atendimento_humano(telefone)
-                return True
-
-        else:
-            if opcao_normalizada in ["1", "OPCAO_1", "DUVIDA_OUTRA"]:
-                clientes[telefone]["etapa"] = "duvidas_menu"
-                enviar_menu_duvidas(telefone)
-                return True
-
-            if opcao_normalizada in ["2", "OPCAO_2", "MENU"]:
-                enviar_menu(telefone)
-                return True
-
-            if opcao_normalizada in ["3", "OPCAO_3", "MENU_HUMANO"]:
-                ativar_atendimento_humano(telefone)
-                return True
+        if opcao_normalizada in ["3", "OPCAO_3", "MENU_HUMANO"]:
+            ativar_atendimento_humano(telefone)
+            return True
 
     # ==========================================
     # PÓS CONSULTA DE AGENDAMENTO
@@ -7795,78 +7802,50 @@ def webhook():
                 enviar_menu(telefone)
                 return jsonify({"status": "ok", "motivo": "voltar_menu"}), 200
 
+            if texto and texto_opcao not in ["1", "2", "3"]:
+                clientes[telefone]["etapa"] = "duvida_manual"
+                clientes[telefone]["categoria_duvida"] = "manual"
+                processar_pergunta_duvida_manual(
+                    telefone=telefone,
+                    texto=texto,
+                    categoria="manual",
+                )
+                return jsonify({"status": "ok", "motivo": "duvida_manual"}), 200
+
             enviar_menu_duvidas(telefone)
             return jsonify({"status": "ok", "motivo": "menu_duvidas_reenviado"}), 200
 
         # ==========================================
         # CENTRAL DE DÚVIDAS - PERGUNTA
         # ==========================================
-        if etapa in ["duvidas_revisao", "duvidas_revisoes", "duvidas_garantia"]:
+        if etapa in ["duvidas", "duvida_manual", "duvidas_revisao", "duvidas_revisoes", "duvidas_garantia"]:
             categoria = "revisoes" if etapa in ["duvidas_revisao", "duvidas_revisoes"] else "garantia"
-            modelo_duvida = identificar_modelo_duvida_manual(
-                pergunta=texto,
-                modelo_salvo=clientes[telefone].get("modelo", ""),
-            )
+            if etapa in ["duvidas", "duvida_manual"]:
+                categoria = "manual"
 
-            resposta = resposta_duvida_manual_segura(
-                modelo=modelo_duvida,
-                pergunta=texto,
-            )
-
-            salvar_duvida_dashboard(
+            processar_pergunta_duvida_manual(
                 telefone=telefone,
                 categoria=categoria,
-                pergunta=texto,
-                resposta=resposta or "",
+                texto=texto,
             )
-
-            if not resposta:
-                mensagem_sem_resposta = (
-                    "Não encontrei essa informação com segurança no manual. "
-                    "Vou encaminhar para um consultor te ajudar melhor. 🤝"
-                )
-
-                enviar_mensagem(telefone, mensagem_sem_resposta)
-                ativar_atendimento_humano(telefone)
-                return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
-
-            enviar_mensagem(telefone, resposta)
-            enviar_duvida_retorno_fluxo(telefone)
-            return jsonify({"status": "ok", "motivo": "duvida_respondida"}), 200
+            return jsonify({"status": "ok", "motivo": "duvida_manual"}), 200
 
         # ==========================================
         # RETORNO APÓS DÚVIDA
         # ==========================================
         if etapa == "duvidas_retorno":
-            etapa_retorno = limpar_texto(clientes[telefone].get("etapa_retorno_duvida", ""))
+            if texto_opcao == "1":
+                enviar_menu_duvidas(telefone)
+                return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
 
-            if etapa_retorno.startswith("revisao"):
-                if texto_opcao == "1":
-                    clientes[telefone]["etapa"] = etapa_retorno
-                    enviar_proxima_etapa_revisao(telefone)
-                    return jsonify({"status": "ok", "motivo": "retorno_revisao"}), 200
+            if texto_opcao == "2":
+                resetar_cliente(telefone)
+                enviar_menu(telefone)
+                return jsonify({"status": "ok", "motivo": "voltar_menu"}), 200
 
-                if texto_opcao == "2":
-                    enviar_menu_duvidas(telefone)
-                    return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
-
-                if texto_opcao == "3":
-                    ativar_atendimento_humano(telefone)
-                    return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
-
-            else:
-                if texto_opcao == "1":
-                    enviar_menu_duvidas(telefone)
-                    return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
-
-                if texto_opcao == "2":
-                    resetar_cliente(telefone)
-                    enviar_menu(telefone)
-                    return jsonify({"status": "ok", "motivo": "voltar_menu"}), 200
-
-                if texto_opcao == "3":
-                    ativar_atendimento_humano(telefone)
-                    return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
+            if texto_opcao == "3":
+                ativar_atendimento_humano(telefone)
+                return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
 
             enviar_duvida_retorno_fluxo(telefone)
             return jsonify({"status": "ok", "motivo": "duvida_retorno_reenviado"}), 200
