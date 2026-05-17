@@ -7357,8 +7357,8 @@ def webhook():
         # ==========================================
         # ACESSÓRIOS
         # ==========================================
-        if etapa in [\"acessorios\", \"acessorios_modelo\", \"acessorios_orcamento\", \"acessorios_nome\"]:
-            if etapa in [\"acessorios\", \"acessorios_modelo\"]:
+        if etapa in ["acessorios", "acessorios_modelo", "acessorios_orcamento", "acessorios_nome"]:
+            if etapa in ["acessorios", "acessorios_modelo"]:
                 modelo_informado = limpar_texto(texto).upper()
 
                 if not modelo_informado:
