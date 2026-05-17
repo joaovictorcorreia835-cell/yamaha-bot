@@ -7,6 +7,15 @@ import os
 import re
 import unicodedata
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
 try:
     from pypdf import PdfReader
 except ImportError:
@@ -17,6 +26,8 @@ except ImportError:
 
 
 PASTA_MANUAIS = os.getenv("CAMINHO_MANUAIS", os.path.join("static", "manuais"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODELO_DUVIDAS = os.getenv("OPENAI_MODELO_DUVIDAS", "gpt-4o-mini").strip()
 
 MANUAIS_YAMAHA = {
     "crosser": "manual_crosser150_2025_eta.pdf",
@@ -68,6 +79,17 @@ def log_info(*args):
 
 def log_erro(*args):
     print("[IA DÚVIDAS][ERRO]", *args, flush=True)
+
+
+def obter_cliente_openai():
+    if not OPENAI_API_KEY or OpenAI is None:
+        return None
+
+    try:
+        return OpenAI(api_key=OPENAI_API_KEY)
+    except Exception as e:
+        log_erro("Erro ao criar cliente OpenAI:", repr(e))
+        return None
 
 
 def normalizar_texto(texto):
@@ -510,6 +532,7 @@ def frase_ruim_para_resumo(frase, assunto):
         "am ",
         "tir da posicao",
         "luz indicadora do pisca",
+        "luz indicadora do farol alto",
         "ponto morto",
     ]
 
@@ -526,6 +549,93 @@ def frase_ruim_para_resumo(frase, assunto):
             return True
 
     return False
+
+
+def humanizar_frase_manual(frase, assunto):
+    frase_norm = normalizar_texto(frase)
+
+    if assunto == "garantia":
+        if "condicionada" in frase_norm and "manual do proprietario" in frase_norm:
+            return (
+                "A garantia depende do cumprimento do termo de garantia e das orientações "
+                "do manual do proprietário."
+            )
+
+        if "manutencao" in frase_norm and "condicao indispensavel" in frase_norm:
+            return (
+                "O manual reforça que a manutenção correta da moto é essencial para manter "
+                "a cobertura da garantia."
+            )
+
+        if "perda da garantia" in frase_norm or "perda da cobertura" in frase_norm:
+            return (
+                "Situações de mau uso, alterações ou instalação inadequada de componentes "
+                "podem comprometer a cobertura."
+            )
+
+    if assunto == "revisao":
+        if "manutencao periodica" in frase_norm or "tabela de manutencao" in frase_norm:
+            return (
+                "O manual orienta seguir a tabela de manutenção periódica, respeitando os "
+                "prazos e quilometragens indicados para o modelo."
+            )
+
+    if assunto == "painel":
+        if "problema no motor" in frase_norm or "monitora o motor" in frase_norm:
+            return (
+                "Se a luz de advertência do motor acender ou piscar, o manual indica que "
+                "pode haver falha em um circuito elétrico que monitora o motor."
+            )
+
+        if "abs" in frase_norm and "advertencia" in frase_norm:
+            return (
+                "Se a luz de advertência do ABS acender durante a pilotagem, o manual orienta "
+                "atenção, pois o sistema pode não funcionar corretamente."
+            )
+
+    if assunto == "pneu" and ("pressao" in frase_norm or "calibragem" in frase_norm):
+        return (
+            "A calibragem deve seguir a pressão indicada no manual para o modelo e para a "
+            "condição de uso da moto."
+        )
+
+    if assunto == "bateria" and ("bateria" in frase_norm or "partida" in frase_norm):
+        return (
+            "O manual relaciona esse ponto ao sistema elétrico da motocicleta, que deve ser "
+            "verificado quando houver falha ou dificuldade de partida."
+        )
+
+    if assunto == "combustivel" and ("combustivel" in frase_norm or "gasolina" in frase_norm):
+        return "O manual indica o combustível recomendado e a capacidade do tanque para esse modelo."
+
+    return frase
+
+
+def montar_resposta_manual_humana(modelo_detectado, paragrafos):
+    paragrafos_limpos = []
+    vistos = set()
+
+    for paragrafo in paragrafos:
+        paragrafo = limpar_frase_manual(paragrafo)
+        chave = normalizar_texto(paragrafo)
+
+        if not paragrafo or chave in vistos:
+            continue
+
+        vistos.add(chave)
+        paragrafos_limpos.append(paragrafo)
+
+        if len(paragrafos_limpos) >= 2:
+            break
+
+    if not paragrafos_limpos:
+        return ""
+
+    return (
+        f"📘 Pelo manual da Yamaha *{modelo_detectado.upper()}*, encontrei o seguinte:\n\n"
+        + "\n\n".join(paragrafos_limpos)
+        + "\n\nSe quiser, posso encaminhar você para um consultor confirmar os detalhes. 🤝"
+    )
 
 
 def extrair_valor_campo(trecho, campo, proximos_campos=None):
@@ -590,9 +700,9 @@ def resumir_oleo_manual(modelo_detectado, trecho):
         return ""
 
     return (
-        f"📘 Pelo manual da Yamaha *{modelo_detectado.upper()}*:\n\n"
+        f"📘 Pelo manual da Yamaha *{modelo_detectado.upper()}*, a indicação de óleo é:\n\n"
         + "\n".join(linhas[:4])
-        + "\n\nSe quiser, posso encaminhar você para um consultor confirmar detalhes específicos. 🤝"
+        + "\n\nSe quiser, posso encaminhar você para um consultor confirmar os detalhes. 🤝"
     )
 
 
@@ -633,13 +743,200 @@ def resumir_trecho_manual(modelo_detectado, pergunta, trecho, assunto):
     if not selecionadas:
         return ""
 
-    corpo = "\n\n".join(selecionadas)
+    paragrafos = [
+        humanizar_frase_manual(frase, assunto)
+        for frase in selecionadas
+    ]
 
-    return (
-        f"📘 Pelo manual da Yamaha *{modelo_detectado.upper()}*:\n\n"
-        f"{corpo}\n\n"
-        "Se quiser, posso encaminhar você para um consultor confirmar detalhes específicos. 🤝"
+    return montar_resposta_manual_humana(modelo_detectado, paragrafos)
+
+
+def limitar_resposta_manual_ia(texto):
+    texto = str(texto or "").strip()
+
+    if not texto:
+        return ""
+
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
+    paragrafos = [
+        limpar_trecho(p)
+        for p in re.split(r"\n\s*\n", texto)
+        if p.strip()
+    ]
+
+    if not paragrafos:
+        paragrafos = [limpar_trecho(texto)]
+
+    if len(paragrafos) == 1 and len(paragrafos[0]) > 520:
+        frases = dividir_frases_manual(paragrafos[0])
+        paragrafos = frases[:3] if frases else paragrafos
+
+    paragrafos = paragrafos[:4]
+    resposta = "\n\n".join(paragrafos)
+
+    if len(resposta) > 1200:
+        resposta = resposta[:1200].rsplit(" ", 1)[0].strip()
+
+        if resposta and resposta[-1] not in ".!?":
+            resposta += "."
+
+    return resposta
+
+
+def resposta_ia_indica_sem_base(texto):
+    texto_norm = normalizar_texto(texto)
+
+    sinais = [
+        "nao encontrei essa informacao com seguranca",
+        "manual nao traz resposta suficiente",
+        "nao ha informacao suficiente",
+        "encaminhar para um consultor",
+    ]
+
+    return any(sinal in texto_norm for sinal in sinais)
+
+
+def transformar_trecho_manual_com_ia(modelo_detectado, pergunta, trecho, assunto):
+    cliente = obter_cliente_openai()
+
+    if cliente is None:
+        return ""
+
+    trecho = limpar_trecho(trecho)
+
+    if not trecho:
+        return ""
+
+    prompt_sistema = (
+        "Você é um consultor de pós-venda Yamaha. Responda em português do Brasil, "
+        "com tom humano, profissional e comercial. Use SOMENTE as informações do trecho "
+        "do manual fornecido. Não invente, não complete com conhecimento externo e não "
+        "dê diagnóstico definitivo. Se o trecho não responder com segurança, responda "
+        "exatamente: \"Não encontrei essa informação com segurança no manual. Vou encaminhar "
+        "para um consultor te ajudar melhor. 🤝\". Limite a resposta a no máximo 4 parágrafos "
+        "curtos e termine oferecendo atendimento humano."
     )
+
+    prompt_usuario = (
+        f"Modelo identificado: {modelo_detectado}\n"
+        f"Assunto: {assunto or 'não identificado'}\n"
+        f"Pergunta do cliente: {pergunta}\n\n"
+        "Trecho oficial extraído do manual:\n"
+        f"{trecho[:3500]}\n\n"
+        "Transforme o trecho acima em uma resposta curta, clara e útil para o cliente."
+    )
+
+    try:
+        resposta = cliente.chat.completions.create(
+            model=OPENAI_MODELO_DUVIDAS,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": prompt_sistema},
+                {"role": "user", "content": prompt_usuario},
+            ],
+        )
+
+        conteudo = resposta.choices[0].message.content.strip()
+        return limitar_resposta_manual_ia(conteudo)
+
+    except Exception as e:
+        log_erro("Erro ao transformar resposta do manual com IA:", repr(e))
+        return ""
+
+
+def responder_duvida_manual_com_ia(modelo, pergunta_cliente):
+    modelo_original = str(modelo or "").strip()
+    pergunta_original = str(pergunta_cliente or "").strip()
+
+    modelo_norm = normalizar_texto(modelo_original)
+    pergunta_norm = normalizar_texto(pergunta_original)
+
+    if not pergunta_norm:
+        return {
+            "encontrou": False,
+            "modelo": modelo_original,
+            "assunto": "",
+            "fonte": "sem_pergunta",
+            "resposta": "Me envie sua dúvida para eu consultar a base Yamaha.",
+        }
+
+    if not modelo_norm:
+        return {
+            "encontrou": False,
+            "modelo": "",
+            "assunto": identificar_assunto(pergunta_norm),
+            "fonte": "sem_modelo",
+            "resposta": "Informe o modelo da sua Yamaha para eu consultar o manual correto.",
+        }
+
+    modelo_detectado = identificar_modelo(modelo_norm)
+
+    if not modelo_detectado:
+        return {
+            "encontrou": False,
+            "modelo": modelo_original,
+            "assunto": identificar_assunto(pergunta_norm),
+            "fonte": "modelo_nao_encontrado",
+            "resposta": "Ainda não encontrei o manual desse modelo na base.",
+        }
+
+    assunto = identificar_assunto(pergunta_norm)
+    trecho = buscar_resposta_manual(modelo_detectado, pergunta_norm)
+
+    if not trecho:
+        return {
+            "encontrou": False,
+            "modelo": modelo_detectado,
+            "assunto": assunto,
+            "fonte": "nao_encontrado",
+            "resposta": (
+                "Não encontrei essa informação com segurança no manual. "
+                "Vou encaminhar para um consultor te ajudar melhor. 🤝"
+            ),
+        }
+
+    resposta_local = resumir_trecho_manual(
+        modelo_detectado=modelo_detectado,
+        pergunta=pergunta_norm,
+        trecho=trecho,
+        assunto=assunto,
+    )
+
+    resposta_ia = transformar_trecho_manual_com_ia(
+        modelo_detectado=modelo_detectado,
+        pergunta=pergunta_original,
+        trecho=trecho,
+        assunto=assunto,
+    )
+
+    if resposta_ia and not resposta_ia_indica_sem_base(resposta_ia):
+        return {
+            "encontrou": True,
+            "modelo": modelo_detectado,
+            "assunto": assunto,
+            "fonte": "manual_pdf_ia",
+            "resposta": resposta_ia,
+        }
+
+    if resposta_local:
+        return {
+            "encontrou": True,
+            "modelo": modelo_detectado,
+            "assunto": assunto,
+            "fonte": "manual_pdf_resumo_local",
+            "resposta": resposta_local,
+        }
+
+    return {
+        "encontrou": False,
+        "modelo": modelo_detectado,
+        "assunto": assunto,
+        "fonte": "resumo_inseguro",
+        "resposta": (
+            "Não encontrei essa informação com segurança no manual. "
+            "Vou encaminhar para um consultor te ajudar melhor. 🤝"
+        ),
+    }
 
 
 def responder_duvida_manual(modelo, pergunta_cliente):

@@ -45,9 +45,10 @@ except Exception as e:
     print("[ERRO] Não foi possível importar ia_comercial:", repr(e), flush=True)
 
 try:
-    from ia_duvidas import responder_duvida_manual
+    from ia_duvidas import responder_duvida_manual, responder_duvida_manual_com_ia
 except Exception as e:
     responder_duvida_manual = None
+    responder_duvida_manual_com_ia = None
     print("[ERRO] Não foi possível importar ia_duvidas:", repr(e), flush=True)
 
 
@@ -3712,16 +3713,24 @@ def identificar_modelo_duvida_manual(pergunta="", modelo_salvo=""):
 
 
 def resposta_duvida_manual_segura(modelo, pergunta):
-    if not responder_duvida_manual:
+    funcao_resposta = responder_duvida_manual_com_ia or responder_duvida_manual
+
+    if not funcao_resposta:
         return None
 
     try:
-        resultado = responder_duvida_manual(modelo, pergunta)
+        resultado = funcao_resposta(modelo, pergunta)
 
         if not isinstance(resultado, dict):
             return None
 
-        if resultado.get("encontrou") and resultado.get("fonte") == "manual_pdf":
+        fontes_seguras = {
+            "manual_pdf",
+            "manual_pdf_ia",
+            "manual_pdf_resumo_local",
+        }
+
+        if resultado.get("encontrou") and resultado.get("fonte") in fontes_seguras:
             resposta = limpar_texto(resultado.get("resposta", ""))
             return resposta or None
 
