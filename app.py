@@ -637,7 +637,9 @@ def etapa_bloqueia_ia_comercial(etapa):
         "garantia_acompanhar_cpf",
         "garantia_acompanhar_descricao",
         "atacado",
+        "atacado_cotacao",
         "atacado_cotacao_itens",
+        "atacado_cadastro",
         "atacado_cadastro_empresa",
         "atacado_cadastro_responsavel",
         "atacado_cadastro_cidade",
@@ -811,7 +813,7 @@ def enviar_catalogo_atacado(telefone):
             "📎 Catálogo de atacado Motoshow Yamaha"
         )
 
-        clientes[telefone]["etapa"] = "atacado_cotacao_itens"
+        clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
         clientes[telefone]["intencao_ia"] = "atacado"
         clientes[telefone]["proxima_acao"] = "ATACADO_COTACAO_ITENS"
         clientes[telefone]["nivel_interesse"] = "QUENTE"
@@ -839,7 +841,7 @@ def enviar_catalogo_atacado(telefone):
         enviar_mensagem(
             telefone,
             "📎 Segue nosso catálogo de atacado.\n\n"
-            "Você deseja cotação de alguma peça ou produto? \n"
+            "Você deseja cotação de alguma peça ou produto?\n"
             "Se sim, envie a lista dos itens por aqui. 😊"
         )
 
@@ -1008,7 +1010,7 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
         enviar_mensagem(telefone, menu_atacado())
         return True
 
-    if etapa == "atacado_cotacao_itens":
+    if etapa in ["atacado_catalogo_enviado", "atacado_cotacao", "atacado_cotacao_itens"]:
         if not texto:
             enviar_mensagem(
                 telefone,
@@ -1027,11 +1029,11 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
         )
         return True
 
-    if etapa in ["atacado_catalogo_enviado", "atacado_catalogo_erro"]:
+    if etapa == "atacado_catalogo_erro":
         clientes[telefone]["etapa"] = "atacado_cotacao_itens"
         return processar_fluxo_atacado(telefone, texto, texto_opcao)
 
-    if etapa == "atacado_cadastro_empresa":
+    if etapa in ["atacado_cadastro", "atacado_cadastro_empresa"]:
         clientes[telefone]["empresa"] = texto
         clientes[telefone]["etapa"] = "atacado_cadastro_responsavel"
         enviar_mensagem(telefone, "Informe o *nome do responsável*.")
@@ -1296,7 +1298,9 @@ ETAPAS_COLETA_RESTRITA = {
     "garantia_acompanhar_cpf",
     "garantia_acompanhar_descricao",
     "atacado",
+    "atacado_cotacao",
     "atacado_cotacao_itens",
+    "atacado_cadastro",
     "atacado_cadastro_empresa",
     "atacado_cadastro_responsavel",
     "atacado_cadastro_cidade",
@@ -6617,7 +6621,9 @@ def etapa_permite_ia_livre(etapa):
         "garantia_acompanhar_cpf",
         "garantia_acompanhar_descricao",
         "atacado",
+        "atacado_cotacao",
         "atacado_cotacao_itens",
+        "atacado_cadastro",
         "atacado_cadastro_empresa",
         "atacado_cadastro_responsavel",
         "atacado_cadastro_cidade",
@@ -7928,7 +7934,9 @@ def webhook():
         # ==========================================
         if etapa in [
             "atacado",
+            "atacado_cotacao",
             "atacado_cotacao_itens",
+            "atacado_cadastro",
             "atacado_cadastro_empresa",
             "atacado_cadastro_responsavel",
             "atacado_cadastro_cidade",
