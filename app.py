@@ -6639,7 +6639,285 @@ def processar_fluxo_revisao(
 
             enviar_mensagem(
                 telefone,
-                "🔧 Qual revisão deseja realizar?\n\nExemplo:\n1ª Revisão"
+                "🔧 *Qual revisão você deseja agendar?*\n\n"
+                "1️⃣ 1ª Revisão\n"
+                "2️⃣ 2ª Revisão\n"
+                "3️⃣ 3ª Revisão\n"
+                "4️⃣ 4ª Revisão\n"
+                "5️⃣ 5ª Revisão ou acima\n\n"
+                "Digite apenas o número da revisão."
+            )
+
+            return True
+
+        # ==========================================
+        # REVISÃO
+        # ==========================================
+        elif etapa == "revisao_revisao":
+
+            revisao = normalizar_revisao_para_fluxo(texto)
+
+            if not revisao:
+                enviar_mensagem(
+                    telefone,
+                    "🔧 *Qual revisão você deseja agendar?*\n\n"
+                    "1️⃣ 1ª Revisão\n"
+                    "2️⃣ 2ª Revisão\n"
+                    "3️⃣ 3ª Revisão\n"
+                    "4️⃣ 4ª Revisão\n"
+                    "5️⃣ 5ª Revisão ou acima\n\n"
+                    "Digite apenas o número da revisão."
+                )
+                return True
+
+            clientes[telefone]["revisao"] = revisao
+            clientes[telefone]["etapa"] = "revisao_dia"
+
+            enviar_mensagem(
+                telefone,
+                "📅 *Qual dia deseja agendar?*\n\n"
+                "1️⃣ Segunda-feira\n"
+                "2️⃣ Terça-feira\n"
+                "3️⃣ Quarta-feira\n"
+                "4️⃣ Quinta-feira\n"
+                "5️⃣ Sexta-feira\n"
+                "6️⃣ Sábado\n\n"
+                "Digite apenas o número do dia."
+            )
+
+            return True
+
+        # ==========================================
+        # DIA
+        # ==========================================
+        elif etapa == "revisao_dia":
+
+            dia = numero_dia_por_texto(texto)
+
+            if dia not in [1, 2, 3, 4, 5, 6]:
+                enviar_mensagem(
+                    telefone,
+                    "📅 Informe um dia válido.\n\n"
+                    "1️⃣ Segunda\n"
+                    "2️⃣ Terça\n"
+                    "3️⃣ Quarta\n"
+                    "4️⃣ Quinta\n"
+                    "5️⃣ Sexta\n"
+                    "6️⃣ Sábado"
+                )
+                return True
+
+            clientes[telefone]["dia"] = dia
+            clientes[telefone]["etapa"] = "revisao_data"
+
+            enviar_mensagem(
+                telefone,
+                "📆 Informe a *data desejada*.\n\n"
+                "Exemplo:\n25/05/2026"
+            )
+
+            return True
+
+        # ==========================================
+        # DATA
+        # ==========================================
+        elif etapa == "revisao_data":
+
+            if not validar_data(texto):
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Informe uma data válida.\n\n"
+                    "Exemplo:\n25/05/2026"
+                )
+                return True
+
+            clientes[telefone]["data"] = texto
+            clientes[telefone]["etapa"] = "revisao_horario"
+
+            horarios = obter_horarios_disponiveis(
+                clientes[telefone].get("revisao"),
+                clientes[telefone].get("dia")
+            )
+
+            if not horarios:
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Não encontrei horários disponíveis para essa revisão."
+                )
+                return True
+
+            mensagem = "⏰ *Escolha um horário:*\n\n"
+
+            for i, horario in enumerate(horarios, start=1):
+                mensagem += f"{i}️⃣ {horario}\n"
+
+            mensagem += "\nDigite apenas o número do horário."
+
+            enviar_mensagem(telefone, mensagem)
+
+            return True
+
+        # ==========================================
+        # HORÁRIO
+        # ==========================================
+        elif etapa == "revisao_horario":
+
+            horarios = obter_horarios_disponiveis(
+                clientes[telefone].get("revisao"),
+                clientes[telefone].get("dia")
+            )
+
+            try:
+                indice = int(texto) - 1
+            except Exception:
+                indice = -1
+
+            if indice < 0 or indice >= len(horarios):
+                enviar_mensagem(
+                    telefone,
+                    "⚠️ Escolha um horário válido."
+                )
+                return True
+
+            clientes[telefone]["horario"] = horarios[indice]
+            clientes[telefone]["etapa"] = "revisao_tipo_atendimento"
+
+            enviar_mensagem(
+                telefone,
+                "🏍️ *Tipo de atendimento:*\n\n"
+                "1️⃣ Aguardar na concessionária\n"
+                "2️⃣ Deixar a moto e retirar depois"
+            )
+
+            return True
+
+        # ==========================================
+        # TIPO ATENDIMENTO
+        # ==========================================
+        elif etapa == "revisao_tipo_atendimento":
+
+            tipo = extrair_tipo_atendimento(texto)
+
+            if not tipo:
+
+                if texto_opcao == "1":
+                    tipo = "AGUARDAR NA CONCESSIONÁRIA"
+
+                elif texto_opcao == "2":
+                    tipo = "DEIXAR A MOTO E RETIRAR DEPOIS"
+
+            if not tipo:
+                enviar_mensagem(
+                    telefone,
+                    "🏍️ Escolha uma opção válida.\n\n"
+                    "1️⃣ Aguardar na concessionária\n"
+                    "2️⃣ Deixar a moto e retirar depois"
+                )
+                return True
+
+            clientes[telefone]["tipo_atendimento"] = tipo
+            clientes[telefone]["etapa"] = "revisao_venda"
+
+            enviar_mensagem(
+                telefone,
+                "🛒 Deseja adicionar algum item?\n\n"
+                "Exemplo:\nÓleo\nPastilha\nPneu\n\n"
+                "Caso não queira, digite *não*."
+            )
+
+            return True
+
+        # ==========================================
+        # VENDA ADICIONAL
+        # ==========================================
+        elif etapa == "revisao_venda":
+
+            if normalizar_texto(texto) in ["nao", "não", "nenhum"]:
+                clientes[telefone]["venda_adicional"] = "NÃO"
+
+            else:
+                clientes[telefone]["venda_adicional"] = texto
+
+            clientes[telefone]["etapa"] = "revisao_observacao"
+
+            enviar_mensagem(
+                telefone,
+                "📝 Deseja adicionar alguma observação?\n\n"
+                "Caso não queira, digite *não*."
+            )
+
+            return True
+
+        # ==========================================
+        # OBSERVAÇÃO
+        # ==========================================
+        elif etapa == "revisao_observacao":
+
+            if normalizar_texto(texto) in ["nao", "não", "nenhuma"]:
+                clientes[telefone]["observacao"] = ""
+
+            else:
+                clientes[telefone]["observacao"] = texto
+
+            clientes[telefone]["etapa"] = "revisao_confirmacao"
+
+            resumo = (
+                "📋 *CONFIRMAÇÃO DO AGENDAMENTO*\n\n"
+                f"👤 Cliente: {clientes[telefone].get('nome')}\n"
+                f"🏍️ Moto: {clientes[telefone].get('modelo')}\n"
+                f"📅 Ano: {clientes[telefone].get('ano')}\n"
+                f"📍 KM: {clientes[telefone].get('km_atual')}\n"
+                f"🔧 Revisão: {clientes[telefone].get('revisao')}\n"
+                f"📆 Data: {clientes[telefone].get('data')}\n"
+                f"⏰ Horário: {clientes[telefone].get('horario')}\n"
+                f"🏍️ Atendimento: {clientes[telefone].get('tipo_atendimento')}\n"
+                f"🛒 Venda adicional: {clientes[telefone].get('venda_adicional')}\n"
+                f"📝 Observação: {clientes[telefone].get('observacao') or 'Nenhuma'}\n\n"
+                "1️⃣ Confirmar\n"
+                "2️⃣ Cancelar"
+            )
+
+            enviar_mensagem(telefone, resumo)
+
+            return True
+
+        # ==========================================
+        # CONFIRMAÇÃO
+        # ==========================================
+        elif etapa == "revisao_confirmacao":
+
+            if texto_opcao == "1":
+
+                protocolo = gerar_protocolo()
+
+                clientes[telefone]["protocolo"] = protocolo
+                clientes[telefone]["status"] = STATUS_AGENDADO
+
+                enviar_mensagem(
+                    telefone,
+                    "✅ *Agendamento realizado com sucesso!*\n\n"
+                    f"📋 Protocolo: {protocolo}\n\n"
+                    "Obrigado por escolher a Motoshow Yamaha."
+                )
+
+                resetar_cliente(telefone)
+
+                return True
+
+            if texto_opcao == "2":
+
+                enviar_mensagem(
+                    telefone,
+                    "❌ Agendamento cancelado."
+                )
+
+                resetar_cliente(telefone)
+
+                return True
+
+            enviar_mensagem(
+                telefone,
+                "1️⃣ Confirmar\n2️⃣ Cancelar"
             )
 
             return True
