@@ -6773,39 +6773,52 @@ def processar_fluxo_revisao(
                 clientes[telefone].get("dia")
             )
 
-            if not horarios:
-                enviar_mensagem(
-                    telefone,
-                    "⚠️ Não encontrei horários disponíveis para essa revisão."
-                )
-                return True
+            log_info("HORARIOS DISPONIVEIS:", horarios)
+            log_info("TEXTO:", texto)
+            log_info("TEXTO_OPCAO:", texto_opcao)
 
-            opcao_horario = texto_opcao or texto
-            indice = None
+            opcao = texto_opcao or texto
 
-            if opcao_horario.isdigit():
-                indice = int(opcao_horario) - 1
+            if not str(opcao).isdigit():
 
-            if indice is None or indice < 0 or indice >= len(horarios):
                 mensagem = "⏰ *Escolha um horário válido:*\n\n"
 
                 for i, horario in enumerate(horarios, start=1):
                     mensagem += f"{i}️⃣ {horario}\n"
 
-                mensagem += "\nDigite apenas o *número do horário*."
+                mensagem += "\nDigite apenas o número do horário."
 
                 enviar_mensagem(telefone, mensagem)
+
                 return True
 
-            clientes[telefone]["horario"] = horarios[indice]
+            indice = int(opcao) - 1
+
+            if indice < 0 or indice >= len(horarios):
+
+                mensagem = "⏰ *Escolha um horário válido:*\n\n"
+
+                for i, horario in enumerate(horarios, start=1):
+                    mensagem += f"{i}️⃣ {horario}\n"
+
+                mensagem += "\nDigite apenas o número do horário."
+
+                enviar_mensagem(telefone, mensagem)
+
+                return True
+
+            horario_escolhido = horarios[indice]
+
+            clientes[telefone]["horario"] = horario_escolhido
             clientes[telefone]["etapa"] = "revisao_tipo_atendimento"
+
+            log_info("HORARIO ESCOLHIDO:", horario_escolhido)
 
             enviar_mensagem(
                 telefone,
                 "🏍️ *Tipo de atendimento:*\n\n"
                 "1️⃣ Aguardar na concessionária\n"
-                "2️⃣ Deixar a moto e retirar depois\n\n"
-                "Digite apenas o número da opção."
+                "2️⃣ Deixar a moto e retirar depois"
             )
 
             return True
