@@ -7040,6 +7040,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
             "telefone": telefone,
             "intencao": intencao,
             "confianca": confianca,
+            "etapa_atual": etapa_atual,
             "dados_extraidos": dados_extraidos,
         },
     )
@@ -7052,19 +7053,26 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         "garantia",
         "atacado",
         "humano",
+        "atendimento_humano",
         "duvidas",
         "duvida",
         "dúvidas",
         "dúvida",
         "consultar_agendamento",
+        "orcamento",
+        "acompanhar_garantia",
         "cancelar_agendamento",
+        "cancelar_revisao",
         "reagendar_agendamento",
+        "reagendar_revisao",
+        "nao_interessado",
     ]
 
     if confianca < 0.55 and intencao not in intencoes_validas:
         return False
 
     if intencao == "agendar_revisao":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "agendar_revisao", "etapa_atual": etapa_atual})
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
         iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos)
 
@@ -7077,6 +7085,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     if intencao == "valor_revisao":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "valor_revisao", "etapa_atual": etapa_atual})
         aplicar_dados_ia_no_cliente(telefone, dados_extraidos)
 
         resposta_duvida = ""
@@ -7107,10 +7116,17 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     if intencao == "pecas":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "pecas", "etapa_atual": etapa_atual})
+        iniciar_fluxo_pecas(telefone, texto)
+        return True
+
+    if intencao == "orcamento":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "orcamento_pecas", "etapa_atual": etapa_atual})
         iniciar_fluxo_pecas(telefone, texto)
         return True
 
     if intencao == "acessorios":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "acessorios", "etapa_atual": etapa_atual})
         modelo_ia = limpar_texto(dados_extraidos.get("modelo", ""))
 
         if modelo_ia:
@@ -7121,14 +7137,35 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     if intencao == "garantia":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "garantia", "etapa_atual": etapa_atual})
         iniciar_fluxo_garantia(telefone)
         return True
 
+    if intencao == "acompanhar_garantia":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "acompanhar_garantia", "etapa_atual": etapa_atual})
+        iniciar_cliente(telefone)
+        clientes[telefone]["intencao_ia"] = "acompanhar_garantia"
+        clientes[telefone]["etapa"] = "garantia_acompanhar_nome"
+        clientes[telefone]["atendimento_humano"] = False
+        clientes[telefone]["nome"] = ""
+        clientes[telefone]["modelo"] = ""
+        clientes[telefone]["cpf"] = ""
+        clientes[telefone]["observacao"] = ""
+        clientes[telefone]["ultima_interacao"] = agora()
+        enviar_mensagem(
+            telefone,
+            "Certo. Vou te ajudar a acompanhar sua garantia.\n\n"
+            "Informe seu *nome completo*."
+        )
+        return True
+
     if intencao == "atacado":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "atacado", "etapa_atual": etapa_atual})
         iniciar_fluxo_atacado(telefone)
         return True
 
     if intencao in ["duvidas", "duvida", "dúvidas", "dúvida"]:
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "duvidas", "etapa_atual": etapa_atual})
         etapa_anterior = clientes[telefone].get("etapa", "")
         clientes[telefone]["ultima_interacao"] = agora()
         clientes[telefone]["intencao_ia"] = "duvidas"
@@ -7149,6 +7186,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     if intencao == "consultar_agendamento":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "consultar_agendamento", "etapa_atual": etapa_atual})
         clientes[telefone]["etapa"] = "consulta_agendamento_cpf"
 
         enviar_mensagem(
@@ -7158,7 +7196,8 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
         return True
 
-    if intencao == "cancelar_agendamento":
+    if intencao in ["cancelar_agendamento", "cancelar_revisao"]:
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "cancelar_revisao", "etapa_atual": etapa_atual})
         clientes[telefone]["etapa"] = "cancelar_agendamento_cpf"
 
         enviar_mensagem(
@@ -7168,7 +7207,8 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
         return True
 
-    if intencao == "reagendar_agendamento":
+    if intencao in ["reagendar_agendamento", "reagendar_revisao"]:
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "reagendar_revisao", "etapa_atual": etapa_atual})
         clientes[telefone]["etapa"] = "reagendar_agendamento_cpf"
 
         enviar_mensagem(
@@ -7178,8 +7218,18 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
         return True
 
-    if intencao == "humano":
+    if intencao in ["humano", "atendimento_humano"]:
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "atendimento_humano", "etapa_atual": etapa_atual})
         ativar_atendimento_humano(telefone)
+        return True
+
+    if intencao == "nao_interessado":
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "nao_interessado", "etapa_atual": etapa_atual})
+        clientes[telefone]["status_retorno"] = "NAO_INTERESSADO"
+        clientes[telefone]["nivel_interesse"] = "BAIXO"
+        clientes[telefone]["ultima_interacao"] = agora()
+        enviar_mensagem(telefone, "Tudo bem. Quando precisar, é só chamar.")
+        resetar_cliente(telefone)
         return True
 
     return False
