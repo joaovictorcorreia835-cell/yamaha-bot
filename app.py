@@ -637,6 +637,14 @@ def etapa_bloqueia_ia_comercial(etapa):
         "garantia_acompanhar_cpf",
         "garantia_acompanhar_descricao",
         "atacado",
+        "atacado_cotacao_itens",
+        "atacado_cadastro_empresa",
+        "atacado_cadastro_responsavel",
+        "atacado_cadastro_cidade",
+        "atacado_cadastro_cnpj",
+        "atacado_cadastro_telefone",
+        "atacado_cadastro_segmento",
+        "atacado_cadastro_produtos",
         "atacado_catalogo_enviado",
         "atacado_catalogo_erro",
         "atendimento_humano",
@@ -797,63 +805,23 @@ def enviar_catalogo_atacado(telefone):
 
         iniciar_cliente(telefone)
 
-        enviar_mensagem(
-            telefone,
-            "📦 Perfeito! Vou te enviar agora o catálogo de atacado da Motoshow Yamaha."
-        )
-
         enviado = enviar_pdf(
             telefone,
             PDF_CATALOGO_ATACADO,
             "📎 Catálogo de atacado Motoshow Yamaha"
         )
 
-        clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
+        clientes[telefone]["etapa"] = "atacado_cotacao_itens"
         clientes[telefone]["intencao_ia"] = "atacado"
-        clientes[telefone]["proxima_acao"] = "CATALOGO_ATACADO_ENVIADO"
+        clientes[telefone]["proxima_acao"] = "ATACADO_COTACAO_ITENS"
         clientes[telefone]["nivel_interesse"] = "QUENTE"
-
-        if enviado:
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Logista / Atacado",
-                status="CATALOGO_ATACADO_ENVIADO",
-                etapa="atacado_catalogo_enviado",
-                dados=clientes[telefone],
-                atendimento_humano=False,
-                concluido=False,
-                origem=clientes[telefone].get("origem", "Campanha Atacado"),
-                observacao=PDF_CATALOGO_ATACADO,
-                intencao_ia="atacado",
-            )
-
-            enviar_mensagem(
-                telefone,
-                "✅ Catálogo enviado.\n\n"
-                "Deseja falar com um consultor do atacado agora?\n\n"
-                "1️⃣ Sim, falar com consultor\n"
-                "2️⃣ Voltar ao menu\n\n"
-                "Digite apenas o número da opção desejada."
-            )
-
-            return True
-
-        clientes[telefone]["etapa"] = "atacado_catalogo_erro"
-
-        enviar_mensagem(
-            telefone,
-            "⚠️ Não consegui enviar o catálogo agora.\n\n"
-            "Deseja falar com um consultor para receber manualmente?\n\n"
-            "1️⃣ Sim, falar com consultor\n"
-            "2️⃣ Voltar ao menu\n\n"
-            "Digite apenas o número da opção desejada."
-        )
+        clientes[telefone]["ultima_interacao"] = agora()
 
         salvar_evento_atendimento(
             telefone=telefone,
             setor="Logista / Atacado",
-            status="ERRO_ENVIO_CATALOGO_ATACADO",
-            etapa="atacado_catalogo_erro",
+            status="CATALOGO_ATACADO_ENVIADO" if enviado else "ERRO_ENVIO_CATALOGO_ATACADO",
+            etapa="atacado_catalogo_enviado" if enviado else "atacado_catalogo_erro",
             dados=clientes[telefone],
             atendimento_humano=False,
             concluido=False,
@@ -862,11 +830,258 @@ def enviar_catalogo_atacado(telefone):
             intencao_ia="atacado",
         )
 
-        return False
+        if not enviado:
+            enviar_mensagem(
+                telefone,
+                "⚠️ Não consegui enviar o catálogo agora, mas vamos continuar seu atendimento."
+            )
+
+        enviar_mensagem(
+            telefone,
+            "📎 Segue nosso catálogo de atacado.\n\n"
+            "Você deseja cotação de alguma peça ou produto? \n"
+            "Se sim, envie a lista dos itens por aqui. 😊"
+        )
+
+        return enviado
 
     except Exception as e:
         log_erro("Erro enviar_catalogo_atacado:", repr(e))
         return False
+
+
+def menu_atacado():
+    return (
+        "📦 *Central Atacado Motoshow Yamaha*\n\n"
+        "1️⃣ Solicitar Catálogo de Atacado\n"
+        "2️⃣ Solicitar Cotação de Peças\n"
+        "3️⃣ Cadastro de Novo Parceiro\n"
+        "4️⃣ Falar com Consultor\n"
+        "5️⃣ Voltar ao Menu Principal\n\n"
+        "Digite apenas o número da opção desejada."
+    )
+
+
+def iniciar_fluxo_atacado(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    clientes[telefone]["etapa"] = "atacado"
+    clientes[telefone]["intencao_ia"] = "atacado"
+    clientes[telefone]["atendimento_humano"] = False
+    clientes[telefone]["ultima_interacao"] = agora()
+    clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
+    clientes[telefone]["itens_cotacao"] = ""
+    clientes[telefone]["empresa"] = ""
+    clientes[telefone]["responsavel"] = ""
+    clientes[telefone]["cidade"] = ""
+    clientes[telefone]["cnpj"] = ""
+    clientes[telefone]["telefone_comercial"] = ""
+    clientes[telefone]["segmento"] = ""
+    clientes[telefone]["produtos_interesse"] = ""
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Logista / Atacado",
+        status=STATUS_NOVO_ATENDIMENTO,
+        etapa="atacado_iniciado",
+        dados=clientes[telefone],
+        atendimento_humano=False,
+        concluido=False,
+        origem=clientes[telefone].get("origem", "BOT"),
+    )
+
+    return enviar_mensagem(telefone, menu_atacado())
+
+
+def finalizar_atacado_com_humano(telefone, etapa_evento, mensagem):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+    clientes[telefone]["atendimento_humano"] = True
+    clientes[telefone]["etapa"] = "atendimento_humano"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Logista / Atacado",
+        status=STATUS_ATENDIMENTO_HUMANO,
+        etapa=etapa_evento,
+        dados=clientes[telefone],
+        atendimento_humano=True,
+        concluido=False,
+        origem=clientes[telefone].get("origem", "BOT"),
+    )
+
+    if mensagem:
+        enviar_mensagem(telefone, mensagem)
+
+    return True
+
+
+def mensagem_cotacao_atacado_recebida():
+    return (
+        "✅ Cotação recebida com sucesso.\n\n"
+        "Nossa equipe comercial irá analisar os itens e continuará o atendimento por aqui. 🤝"
+    )
+
+
+def resumo_cadastro_atacado(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return ""
+
+    iniciar_cliente(telefone)
+    dados = clientes.get(telefone, {})
+
+    return (
+        "📋 *Resumo do Cadastro de Parceiro*\n\n"
+        f"Empresa: {dados.get('empresa', '-') or '-'}\n"
+        f"Responsável: {dados.get('responsavel', '-') or '-'}\n"
+        f"Cidade: {dados.get('cidade', '-') or '-'}\n"
+        f"CNPJ: {dados.get('cnpj', '-') or '-'}\n"
+        f"Telefone comercial: {dados.get('telefone_comercial', '-') or '-'}\n"
+        f"Segmento: {dados.get('segmento', '-') or '-'}\n"
+        f"Produtos de interesse: {dados.get('produtos_interesse', '-') or '-'}\n\n"
+        "✅ Cadastro de parceiro recebido com sucesso.\n\n"
+        "Nossa equipe comercial irá analisar seus dados e continuará o atendimento por aqui. 🤝"
+    )
+
+
+def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
+    telefone = limpar_telefone(telefone)
+    texto = limpar_texto(texto)
+    texto_opcao = limpar_opcao(texto_opcao or texto)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    etapa = limpar_texto(clientes[telefone].get("etapa", "")).lower()
+    clientes[telefone]["intencao_ia"] = "atacado"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    if etapa == "atacado":
+        if texto_opcao == "1":
+            enviar_catalogo_atacado(telefone)
+            return True
+
+        if texto_opcao == "2":
+            clientes[telefone]["etapa"] = "atacado_cotacao_itens"
+            enviar_mensagem(
+                telefone,
+                "Envie a lista das peças/produtos que deseja cotar."
+            )
+            return True
+
+        if texto_opcao == "3":
+            clientes[telefone]["etapa"] = "atacado_cadastro_empresa"
+            enviar_mensagem(telefone, "Informe o *nome da empresa*.")
+            return True
+
+        if texto_opcao == "4":
+            finalizar_atacado_com_humano(
+                telefone=telefone,
+                etapa_evento="atacado_consultor",
+                mensagem=(
+                    "Perfeito! Vou encaminhar seu atendimento para um consultor comercial.\n\n"
+                    "Quando quiser voltar ao menu automático, envie *menu*."
+                ),
+            )
+            return True
+
+        if texto_opcao == "5":
+            enviar_menu_principal(telefone)
+            return True
+
+        enviar_mensagem(telefone, menu_atacado())
+        return True
+
+    if etapa == "atacado_cotacao_itens":
+        if not texto:
+            enviar_mensagem(
+                telefone,
+                "Envie a lista das peças/produtos que deseja cotar."
+            )
+            return True
+
+        clientes[telefone]["itens_cotacao"] = texto
+        clientes[telefone]["itens"] = texto
+        clientes[telefone]["observacao"] = texto
+
+        finalizar_atacado_com_humano(
+            telefone=telefone,
+            etapa_evento="atacado_cotacao_itens",
+            mensagem=mensagem_cotacao_atacado_recebida(),
+        )
+        return True
+
+    if etapa in ["atacado_catalogo_enviado", "atacado_catalogo_erro"]:
+        clientes[telefone]["etapa"] = "atacado_cotacao_itens"
+        return processar_fluxo_atacado(telefone, texto, texto_opcao)
+
+    if etapa == "atacado_cadastro_empresa":
+        clientes[telefone]["empresa"] = texto
+        clientes[telefone]["etapa"] = "atacado_cadastro_responsavel"
+        enviar_mensagem(telefone, "Informe o *nome do responsável*.")
+        return True
+
+    if etapa == "atacado_cadastro_responsavel":
+        clientes[telefone]["responsavel"] = texto
+        clientes[telefone]["etapa"] = "atacado_cadastro_cidade"
+        enviar_mensagem(telefone, "Informe a *cidade*.")
+        return True
+
+    if etapa == "atacado_cadastro_cidade":
+        clientes[telefone]["cidade"] = texto
+        clientes[telefone]["etapa"] = "atacado_cadastro_cnpj"
+        enviar_mensagem(telefone, "Informe o *CNPJ*.")
+        return True
+
+    if etapa == "atacado_cadastro_cnpj":
+        clientes[telefone]["cnpj"] = texto
+        clientes[telefone]["etapa"] = "atacado_cadastro_telefone"
+        enviar_mensagem(telefone, "Informe o *telefone comercial*.")
+        return True
+
+    if etapa == "atacado_cadastro_telefone":
+        clientes[telefone]["telefone_comercial"] = texto
+        clientes[telefone]["etapa"] = "atacado_cadastro_segmento"
+        enviar_mensagem(telefone, "Informe o *segmento da empresa*.")
+        return True
+
+    if etapa == "atacado_cadastro_segmento":
+        clientes[telefone]["segmento"] = texto
+        clientes[telefone]["etapa"] = "atacado_cadastro_produtos"
+        enviar_mensagem(
+            telefone,
+            "Quais produtos tem interesse em comprar no atacado?"
+        )
+        return True
+
+    if etapa == "atacado_cadastro_produtos":
+        clientes[telefone]["produtos_interesse"] = texto
+        clientes[telefone]["observacao"] = texto
+
+        finalizar_atacado_com_humano(
+            telefone=telefone,
+            etapa_evento="atacado_cadastro_parceiro",
+            mensagem=resumo_cadastro_atacado(telefone),
+        )
+        return True
+
+    return False
 
 
 def processar_followups_inteligentes():
@@ -1081,6 +1296,14 @@ ETAPAS_COLETA_RESTRITA = {
     "garantia_acompanhar_cpf",
     "garantia_acompanhar_descricao",
     "atacado",
+    "atacado_cotacao_itens",
+    "atacado_cadastro_empresa",
+    "atacado_cadastro_responsavel",
+    "atacado_cadastro_cidade",
+    "atacado_cadastro_cnpj",
+    "atacado_cadastro_telefone",
+    "atacado_cadastro_segmento",
+    "atacado_cadastro_produtos",
     "atacado_catalogo_enviado",
     "atacado_catalogo_erro",
     "atendimento_humano",
@@ -1537,9 +1760,17 @@ def estado_padrao_cliente():
         "acessorio_desejado": "",
 
         "itens": "",
+        "itens_cotacao": "",
         "venda_adicional": "",
         "observacao": "",
         "tipo_atendimento": "",
+        "empresa": "",
+        "responsavel": "",
+        "cidade": "",
+        "cnpj": "",
+        "telefone_comercial": "",
+        "segmento": "",
+        "produtos_interesse": "",
 
         "duvidas_ia": 0,
         "concluido": False,
@@ -6386,6 +6617,14 @@ def etapa_permite_ia_livre(etapa):
         "garantia_acompanhar_cpf",
         "garantia_acompanhar_descricao",
         "atacado",
+        "atacado_cotacao_itens",
+        "atacado_cadastro_empresa",
+        "atacado_cadastro_responsavel",
+        "atacado_cadastro_cidade",
+        "atacado_cadastro_cnpj",
+        "atacado_cadastro_telefone",
+        "atacado_cadastro_segmento",
+        "atacado_cadastro_produtos",
         "atacado_catalogo_enviado",
         "atacado_catalogo_erro",
 
@@ -6545,27 +6784,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
             return True
 
         if opcao_normalizada in ["5", "OPCAO_5", "MENU_ATACADO"]:
-            clientes[telefone]["etapa"] = "atacado"
-            clientes[telefone]["intencao_ia"] = "atacado"
-            clientes[telefone]["atendimento_humano"] = False
-            clientes[telefone]["ultima_interacao"] = agora()
-            clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
-
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Logista / Atacado",
-                status=STATUS_NOVO_ATENDIMENTO,
-                etapa="atacado_iniciado",
-                dados=clientes[telefone],
-                atendimento_humano=False,
-                concluido=False,
-                origem=clientes[telefone].get("origem", "BOT"),
-            )
-
-            enviar_mensagem(
-                telefone,
-                "📦 *Logista / Atacado*\n\nDigite sua solicitação de atacado:"
-            )
+            iniciar_fluxo_atacado(telefone)
             return True
 
         if opcao_normalizada in ["6", "OPCAO_6", "MENU_DUVIDAS"]:
@@ -6597,11 +6816,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
         return True
 
     if opcao_normalizada in ["MENU_ATACADO", "ATACADO_TABELA"]:
-        clientes[telefone]["etapa"] = "atacado"
-        enviar_mensagem(
-            telefone,
-            "📦 *Logista / Atacado*\n\nDigite sua solicitação de atacado:"
-        )
+        iniciar_fluxo_atacado(telefone)
         return True
 
     if opcao_normalizada == "MENU_DUVIDAS":
@@ -6799,30 +7014,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         return True
 
     if intencao == "atacado":
-        clientes[telefone]["etapa"] = "atacado"
-        clientes[telefone]["atendimento_humano"] = False
-        clientes[telefone]["ultima_interacao"] = agora()
-        clientes[telefone]["intencao_ia"] = "atacado"
-
-        salvar_evento_atendimento(
-            telefone=telefone,
-            setor="Logista / Atacado",
-            status=STATUS_NOVO_ATENDIMENTO,
-            etapa="atacado_iniciado",
-            dados=clientes[telefone],
-            atendimento_humano=False,
-            concluido=False,
-            origem=clientes[telefone].get("origem", "BOT"),
-        )
-
-        if resposta_texto:
-            enviar_mensagem(telefone, resposta_texto)
-
-        enviar_mensagem(
-            telefone,
-            "📦 *Logista / Atacado*\n\nDigite sua solicitação de atacado:"
-        )
-
+        iniciar_fluxo_atacado(telefone)
         return True
 
     if intencao in ["duvidas", "duvida", "dúvidas", "dúvida"]:
@@ -7734,48 +7926,24 @@ def webhook():
         # ==========================================
         # ATACADO
         # ==========================================
-        if etapa == "atacado":
-            if texto_opcao == "1":
-                enviar_catalogo_atacado(telefone)
-                return jsonify({"status": "ok", "motivo": "atacado_catalogo"}), 200
+        if etapa in [
+            "atacado",
+            "atacado_cotacao_itens",
+            "atacado_cadastro_empresa",
+            "atacado_cadastro_responsavel",
+            "atacado_cadastro_cidade",
+            "atacado_cadastro_cnpj",
+            "atacado_cadastro_telefone",
+            "atacado_cadastro_segmento",
+            "atacado_cadastro_produtos",
+            "atacado_catalogo_enviado",
+            "atacado_catalogo_erro",
+        ]:
+            if processar_fluxo_atacado(telefone, texto, texto_opcao):
+                return jsonify({"status": "ok", "motivo": "fluxo_atacado"}), 200
 
-            if texto_opcao == "2":
-                ativar_atendimento_humano(telefone)
-                return jsonify({"status": "ok", "motivo": "atacado_consultor"}), 200
-
-            if texto_opcao == "3":
-                clientes[telefone]["status_retorno"] = "DEPOIS"
-                clientes[telefone]["nivel_interesse"] = "BAIXO"
-
-                enviar_mensagem(
-                    telefone,
-                    "Tudo bem 👍\n\nQuando quiser consultar peças, óleo Yamalube ou acessórios no atacado, é só chamar."
-                )
-
-                resetar_cliente(telefone)
-                return jsonify({"status": "ok", "motivo": "atacado_depois"}), 200
-
-            clientes[telefone]["observacao"] = texto
-            clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
-
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Logista / Atacado",
-                status=STATUS_ATENDIMENTO_HUMANO,
-                etapa="atacado",
-                dados=clientes[telefone],
-                atendimento_humano=True,
-                concluido=False,
-                origem=clientes[telefone].get("origem", "Campanha Atacado"),
-            )
-
-            enviar_mensagem(
-                telefone,
-                "✅ Perfeito. Vou encaminhar seu atendimento para o setor de atacado."
-            )
-
-            ativar_atendimento_humano(telefone)
-            return jsonify({"status": "ok", "motivo": "atacado_humano"}), 200
+            iniciar_fluxo_atacado(telefone)
+            return jsonify({"status": "ok", "motivo": "atacado_menu_reenviado"}), 200
 
         enviar_menu(telefone)
         return jsonify({"status": "ok", "motivo": "fallback_menu"}), 200
