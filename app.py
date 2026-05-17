@@ -7552,6 +7552,35 @@ def webhook():
         if not texto and tipo_mensagem not in ["button", "audio", "image", "video", "document", "media"]:
             return jsonify({"status": "ignorado", "motivo": "sem_texto"}), 200
 
+        etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
+
+        # ==========================================
+        # ATACADO CATÁLOGO - RETORNO IMEDIATO
+        # Antes de qualquer IA, menu rápido ou revisão
+        # ==========================================
+        if etapa == "atacado_catalogo_enviado":
+            clientes[telefone]["itens_cotacao"] = texto
+            clientes[telefone]["itens"] = texto
+            clientes[telefone]["observacao"] = texto
+
+            enviar_mensagem(
+                telefone,
+                "✅ Cotação recebida com sucesso.\n\n"
+                "Nossa equipe comercial irá analisar os itens e continuará o atendimento por aqui. 🤝"
+            )
+
+            clientes[telefone]["atendimento_humano"] = True
+            clientes[telefone]["etapa"] = "atendimento_humano"
+            clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+            clientes[telefone]["ultima_interacao"] = agora()
+
+            return jsonify({"status": "ok", "fluxo": "atacado_cotacao"}), 200
+
+        if etapa == "atacado" and texto_opcao == "1":
+            enviar_catalogo_atacado(telefone)
+            clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
+            return jsonify({"status": "ok", "fluxo": "atacado_catalogo"}), 200
+
         # ==========================================
         # ATENDIMENTO HUMANO
         # ==========================================
@@ -7643,29 +7672,6 @@ def webhook():
         # ==========================================
         # ATACADO - PRIORIDADE ANTES DE IA / REVISÃO
         # ==========================================
-        if etapa == "atacado_catalogo_enviado":
-            clientes[telefone]["itens_cotacao"] = texto
-            clientes[telefone]["itens"] = texto
-            clientes[telefone]["observacao"] = texto
-
-            enviar_mensagem(
-                telefone,
-                "✅ Cotação recebida com sucesso.\n\n"
-                "Nossa equipe comercial irá analisar os itens e continuará o atendimento por aqui. 🤝"
-            )
-
-            clientes[telefone]["atendimento_humano"] = True
-            clientes[telefone]["etapa"] = "atendimento_humano"
-            clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
-            clientes[telefone]["ultima_interacao"] = agora()
-
-            return jsonify({"status": "ok", "fluxo": "atacado_cotacao"}), 200
-
-        if etapa == "atacado" and texto_opcao == "1":
-            enviar_catalogo_atacado(telefone)
-            clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
-            return jsonify({"status": "ok", "fluxo": "atacado_catalogo"}), 200
-
         if etapa in [
             "atacado",
             "atacado_catalogo_enviado",
