@@ -368,6 +368,25 @@ def limpar_opcao(texto):
 
 
 # ==========================================
+# MENU INICIAL POR NUMERAÇÃO
+# ==========================================
+def menu_inicial():
+    return """👋 Olá! Seja bem-vindo(a) à Motoshow Yamaha.
+
+Como posso te ajudar hoje?
+
+1️⃣ Agendar Revisão
+2️⃣ Peças
+3️⃣ Acessórios
+4️⃣ Garantia
+5️⃣ Logista / Atacado
+6️⃣ Dúvidas
+7️⃣ Atendimento Humano
+
+Digite apenas o número da opção desejada."""
+
+
+# ==========================================
 # NORMALIZAR OPÇÕES DE MENU / BOTÕES
 # ==========================================
 def normalizar_opcao_menu(texto):
@@ -578,7 +597,6 @@ def formatar_valor_brl(valor):
     except Exception:
         return f"R$ {valor}"
 
-
 # ==========================================
 # IA COMERCIAL - FASE 1
 # ==========================================
@@ -610,6 +628,8 @@ def etapa_bloqueia_ia_comercial(etapa):
         "garantia",
         "atacado",
         "atacado_catalogo_enviado",
+        "atacado_catalogo_erro",
+        "atendimento_humano",
     ]
 
 
@@ -736,7 +756,7 @@ def enviar_venda_adicional_ia(telefone):
 
         enviar_mensagem(
             telefone,
-            mensagem + "\n\n1️⃣ Sim\n2️⃣ Não"
+            mensagem + "\n\n1️⃣ Sim\n2️⃣ Não\n\nDigite apenas o número da opção desejada."
         )
 
         salvar_evento_atendimento(
@@ -802,17 +822,21 @@ def enviar_catalogo_atacado(telefone):
                 "✅ Catálogo enviado.\n\n"
                 "Deseja falar com um consultor do atacado agora?\n\n"
                 "1️⃣ Sim, falar com consultor\n"
-                "2️⃣ Voltar ao menu"
+                "2️⃣ Voltar ao menu\n\n"
+                "Digite apenas o número da opção desejada."
             )
 
             return True
+
+        clientes[telefone]["etapa"] = "atacado_catalogo_erro"
 
         enviar_mensagem(
             telefone,
             "⚠️ Não consegui enviar o catálogo agora.\n\n"
             "Deseja falar com um consultor para receber manualmente?\n\n"
             "1️⃣ Sim, falar com consultor\n"
-            "2️⃣ Voltar ao menu"
+            "2️⃣ Voltar ao menu\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
         salvar_evento_atendimento(
@@ -1002,6 +1026,7 @@ def processar_recuperacao_clientes():
     finally:
         db.close()
 
+
 # ==========================================
 # CONTROLE DE BLOQUEIO DE IA NO FLUXO
 # ==========================================
@@ -1031,6 +1056,14 @@ ETAPAS_COLETA_RESTRITA = {
     "consulta_agendamento_cpf",
     "cancelar_agendamento_cpf",
     "reagendar_agendamento_cpf",
+
+    "pecas",
+    "acessorios",
+    "garantia",
+    "atacado",
+    "atacado_catalogo_enviado",
+    "atacado_catalogo_erro",
+    "atendimento_humano",
 }
 
 
@@ -1083,7 +1116,7 @@ def texto_pede_menu(texto):
         "voltar menu",
         "voltar ao menu",
         "inicio",
-        "início",
+        "iniciar",
         "comecar",
         "começar",
         "reiniciar",
@@ -1106,7 +1139,6 @@ def texto_pede_humano(texto):
     ]
 
     return any(normalizar_texto(g) in texto_norm for g in gatilhos)
-
 
 # ==========================================
 # APOIO ACESSÓRIOS
@@ -1220,7 +1252,12 @@ def nome_dia(numero):
 
 def numero_dia_por_texto(texto):
     try:
-        texto_norm = normalizar_texto(texto)
+        texto_limpo = limpar_opcao(texto)
+
+        if texto_limpo in ["1", "2", "3", "4", "5", "6"]:
+            return texto_limpo
+
+        texto_norm = normalizar_texto(texto_limpo)
         return MAPA_DIA_NUMERO.get(texto_norm, "")
     except Exception:
         return ""
@@ -1679,17 +1716,21 @@ def limpar_dados_fluxo_revisao(telefone):
     clientes[telefone]["cliente_recuperado"] = False
     clientes[telefone]["valor_estimado"] = 0
 
-    if not atendimento_humano_ativo:
-        clientes[telefone]["atendimento_humano"] = False
-
     clientes[telefone]["sances_enviado"] = False
     clientes[telefone]["sances_status"] = SANCES_STATUS_PENDENTE
     clientes[telefone]["sances_protocolo"] = ""
     clientes[telefone]["sances_erro"] = ""
     clientes[telefone]["sances_data_envio"] = ""
 
-    clientes[telefone]["status"] = STATUS_AGENDAMENTO_INICIADO
-    clientes[telefone]["etapa"] = "revisao_modelo"
+    if atendimento_humano_ativo:
+        clientes[telefone]["atendimento_humano"] = True
+        clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+        clientes[telefone]["etapa"] = "atendimento_humano"
+    else:
+        clientes[telefone]["atendimento_humano"] = False
+        clientes[telefone]["status"] = STATUS_AGENDAMENTO_INICIADO
+        clientes[telefone]["etapa"] = "revisao_modelo"
+
     clientes[telefone]["ultima_interacao"] = agora()
 
 
@@ -1815,8 +1856,6 @@ def processar_inatividade():
 
     except Exception as e:
         log_erro("Erro ao processar inatividade:", repr(e))
-
-
 # ==========================================
 # EXTRAÇÃO PAYLOAD - Z-API
 # ==========================================
@@ -1835,6 +1874,9 @@ def extrair_button_id(payload):
             if isinstance(payload.get("buttonsResponseMessage"), dict) else None,
 
             payload.get("buttonsResponseMessage", {}).get("selectedButtonId")
+            if isinstance(payload.get("buttonsResponseMessage"), dict) else None,
+
+            payload.get("buttonsResponseMessage", {}).get("message")
             if isinstance(payload.get("buttonsResponseMessage"), dict) else None,
 
             payload.get("listResponseMessage", {})
@@ -1860,6 +1902,9 @@ def extrair_button_id(payload):
                 if isinstance(message.get("buttonsResponseMessage"), dict) else None,
 
                 message.get("buttonsResponseMessage", {}).get("selectedButtonId")
+                if isinstance(message.get("buttonsResponseMessage"), dict) else None,
+
+                message.get("buttonsResponseMessage", {}).get("message")
                 if isinstance(message.get("buttonsResponseMessage"), dict) else None,
 
                 message.get("listResponseMessage", {})
@@ -1889,6 +1934,9 @@ def extrair_button_id(payload):
                 data.get("buttonsResponseMessage", {}).get("selectedButtonId")
                 if isinstance(data.get("buttonsResponseMessage"), dict) else None,
 
+                data.get("buttonsResponseMessage", {}).get("message")
+                if isinstance(data.get("buttonsResponseMessage"), dict) else None,
+
                 data.get("listResponseMessage", {})
                 .get("singleSelectReply", {})
                 .get("selectedRowId")
@@ -1912,6 +1960,9 @@ def extrair_button_id(payload):
                     if isinstance(data_message.get("buttonsResponseMessage"), dict) else None,
 
                     data_message.get("buttonsResponseMessage", {}).get("selectedButtonId")
+                    if isinstance(data_message.get("buttonsResponseMessage"), dict) else None,
+
+                    data_message.get("buttonsResponseMessage", {}).get("message")
                     if isinstance(data_message.get("buttonsResponseMessage"), dict) else None,
 
                     data_message.get("listResponseMessage", {})
@@ -2039,6 +2090,8 @@ def extrair_texto(payload):
         ]
 
         if isinstance(data, dict):
+            data_message = data.get("message", {}) or {}
+
             candidatos.extend([
                 data.get("text", {}).get("message")
                 if isinstance(data.get("text"), dict) else None,
@@ -2066,6 +2119,24 @@ def extrair_texto(payload):
                 data.get("document", {}).get("caption")
                 if isinstance(data.get("document"), dict) else None,
             ])
+
+            if isinstance(data_message, dict):
+                candidatos.extend([
+                    data_message.get("conversation"),
+                    data_message.get("extendedTextMessage", {}).get("text")
+                    if isinstance(data_message.get("extendedTextMessage"), dict) else None,
+
+                    data_message.get("text", {}).get("message")
+                    if isinstance(data_message.get("text"), dict) else None,
+
+                    data_message.get("text")
+                    if isinstance(data_message.get("text"), str) else None,
+
+                    data_message.get("body"),
+                    data_message.get("caption"),
+                    data_message.get("messageBody"),
+                    data_message.get("content"),
+                ])
 
         for valor in candidatos:
             valor = limpar_texto(valor)
@@ -2454,17 +2525,17 @@ def normalizar_botoes_zapi(botoes=None):
     botoes_formatados = []
 
     try:
-        for index, botao in enumerate((botoes or [])[:3], start=1):
+        for index, botao in enumerate((botoes or [])[:9], start=1):
             if not isinstance(botao, dict):
                 continue
 
-            label = limpar_texto(botao.get("label", ""))[:40]
+            label = limpar_texto(botao.get("label", ""))[:80]
             button_id = limpar_texto(
                 botao.get("id")
                 or botao.get("button_id")
                 or botao.get("value")
                 or f"OPCAO_{index}"
-            )[:60]
+            )[:80]
 
             if not label:
                 continue
@@ -2482,26 +2553,19 @@ def normalizar_botoes_zapi(botoes=None):
 
 def formatar_botoes_para_texto(botoes=None):
     try:
-        botoes_formatados = []
-
-        for botao in (botoes or [])[:9]:
-            if not isinstance(botao, dict):
-                continue
-
-            label = limpar_texto(botao.get("label", ""))[:40]
-
-            if label:
-                botoes_formatados.append(label)
+        botoes_formatados = normalizar_botoes_zapi(botoes)
 
         if not botoes_formatados:
             return ""
 
         texto = "\n\n"
 
-        for i, label in enumerate(botoes_formatados, start=1):
-            texto += f"{i} - {label}\n"
+        for i, botao in enumerate(botoes_formatados, start=1):
+            label = limpar_texto(botao.get("label", ""))
+            if label:
+                texto += f"{i}️⃣ {label}\n"
 
-        texto += "\nDigite o número da opção desejada."
+        texto += "\nDigite apenas o número da opção desejada."
 
         return texto
 
@@ -2543,41 +2607,15 @@ def enviar_mensagem_texto_zapi(telefone, mensagem):
 
 def enviar_mensagem_botoes_zapi(telefone, mensagem, botoes=None):
     try:
-        botoes_formatados = normalizar_botoes_zapi(botoes)
+        mensagem_final = mensagem + formatar_botoes_para_texto(botoes)
 
-        if not botoes_formatados:
-            return False, "Sem botões válidos", ""
-
-        payload = {
-            "phone": telefone,
-            "message": mensagem,
-            "buttonList": {
-                "buttons": botoes_formatados
-            }
-        }
-
-        response = requests.post(
-            URL_ZAPI_SEND_BUTTON_LIST,
-            json=payload,
-            headers=headers_zapi(),
-            timeout=30,
+        return enviar_mensagem_texto_zapi(
+            telefone=telefone,
+            mensagem=mensagem_final,
         )
 
-        try:
-            resposta_json = response.json()
-        except Exception:
-            resposta_json = response.text
-
-        log_info("STATUS BOTÕES Z-API:", response.status_code)
-        log_info("RESPOSTA BOTÕES Z-API:", resposta_json)
-
-        if not resposta_zapi_sucesso(response.status_code, resposta_json):
-            return False, resposta_json, ""
-
-        return True, resposta_json, extrair_id_envio_zapi(resposta_json)
-
     except Exception as e:
-        log_erro("Erro envio botões Z-API:", repr(e))
+        log_erro("Erro fallback botões para texto Z-API:", repr(e))
         return False, repr(e), ""
 
 
@@ -2601,29 +2639,7 @@ def enviar_mensagem(telefone, mensagem, botoes=None):
         botoes = botoes or []
 
         if botoes:
-            enviado_botoes, resposta_botoes, id_botoes = enviar_mensagem_botoes_zapi(
-                telefone=telefone,
-                mensagem=mensagem,
-                botoes=botoes,
-            )
-
-            if enviado_botoes:
-                return True
-
-            log_erro("Falha ao enviar botões. Usando fallback texto:", resposta_botoes)
-
-            mensagem_fallback = mensagem + formatar_botoes_para_texto(botoes)
-
-            enviado_texto, resposta_texto, id_texto = enviar_mensagem_texto_zapi(
-                telefone=telefone,
-                mensagem=mensagem_fallback,
-            )
-
-            if enviado_texto:
-                return True
-
-            log_erro("Falha envio fallback texto Z-API:", resposta_texto)
-            return False
+            mensagem = mensagem + formatar_botoes_para_texto(botoes)
 
         enviado_texto, resposta_texto, id_texto = enviar_mensagem_texto_zapi(
             telefone=telefone,
@@ -2980,17 +2996,7 @@ def enviar_menu(telefone):
     clientes[telefone]["categoria_duvida"] = ""
     clientes[telefone]["etapa_retorno_duvida"] = ""
 
-    mensagem = (
-        "Olá 👋\n\n"
-        "Seja bem-vindo ao *Pós-Vendas Motoshow Yamaha* 🏍️\n\n"
-        "Escolha uma opção abaixo ou me escreva o que precisa:"
-    )
-
-    return enviar_mensagem(
-        telefone,
-        mensagem,
-        botoes=botoes_menu_principal()
-    )
+    return enviar_mensagem(telefone, menu_inicial())
 
 
 def iniciar_fluxo_pecas(telefone, texto_inicial=""):
@@ -3110,9 +3116,9 @@ def menu_duvidas():
     return (
         "📘 *Central de Dúvidas*\n\n"
         "Posso te ajudar com informações rápidas sobre:\n\n"
-        "1 - Dúvidas sobre Revisões\n"
-        "2 - Dúvidas sobre Garantia\n"
-        "3 - Voltar ao menu principal\n\n"
+        "1️⃣ Dúvidas sobre Revisões\n"
+        "2️⃣ Dúvidas sobre Garantia\n"
+        "3️⃣ Voltar ao menu principal\n\n"
         "Digite apenas o número da opção desejada."
     )
 
@@ -3138,12 +3144,7 @@ def enviar_menu_duvidas(telefone):
     clientes[telefone]["ultima_interacao"] = agora()
     clientes[telefone]["atendimento_humano"] = False
 
-    return enviar_mensagem(
-        telefone,
-        "📘 *Central de Dúvidas*\n\n"
-        "Escolha uma opção abaixo:",
-        botoes=botoes_menu_duvidas()
-    )
+    return enviar_mensagem(telefone, menu_duvidas())
 
 
 def montar_mensagem_horarios(lista):
@@ -3153,12 +3154,11 @@ def montar_mensagem_horarios(lista):
     msg = "⏰ *Estes são os horários disponíveis:*\n\n"
 
     for i, h in enumerate(lista, start=1):
-        msg += f"{i} - {h}\n"
+        msg += f"{i}️⃣ {h}\n"
 
     msg += "\nMe responda com o *número do horário* que você prefere."
 
     return msg
-
 # ==========================================
 # VENDA ADICIONAL IA - FASE 1
 # ==========================================
@@ -3186,9 +3186,10 @@ def montar_mensagem_venda_adicional(telefone=""):
                 return (
                     "🛒 *Venda adicional inteligente*\n\n"
                     f"{mensagem_ia}\n\n"
-                    "Digite o item desejado ou responda:\n"
-                    "1 - Sim, incluir avaliação\n"
-                    "2 - Não, somente revisão"
+                    "Digite o item desejado ou responda:\n\n"
+                    "1️⃣ Sim, incluir avaliação\n"
+                    "2️⃣ Não, somente revisão\n\n"
+                    "Digite apenas o número da opção desejada."
                 )
 
     except Exception as e:
@@ -3247,47 +3248,11 @@ def montar_resumo_confirmacao(telefone):
         f"🚶 *Atendimento:* {tipo_atendimento}\n"
         f"🛒 *Adicionais:* {itens}\n"
         f"📝 *Observação:* {observacao}\n\n"
-        "Confirme digitando:\n"
-        "1 - Confirmar ✅\n"
-        "2 - Corrigir"
+        "Confirme digitando:\n\n"
+        "1️⃣ Confirmar ✅\n"
+        "2️⃣ Corrigir\n\n"
+        "Digite apenas o número da opção desejada."
     )
-
-
-def botoes_revisao_numero():
-    return [
-        {"id": "1", "label": "1ª Revisão"},
-        {"id": "2", "label": "2ª Revisão"},
-        {"id": "3", "label": "3ª Revisão"},
-    ]
-
-
-def botoes_dias_revisao():
-    return [
-        {"id": "1", "label": "Segunda"},
-        {"id": "2", "label": "Terça"},
-        {"id": "3", "label": "Quarta"},
-    ]
-
-
-def botoes_tipo_atendimento():
-    return [
-        {"id": "TIPO_AGUARDAR", "label": "Aguardar na loja"},
-        {"id": "TIPO_DEIXAR", "label": "Deixar e retirar"},
-    ]
-
-
-def botoes_venda_adicional():
-    return [
-        {"id": "ADICIONAR_ITEM", "label": "Sim, avaliar itens"},
-        {"id": "SEM_ITEM", "label": "Não, só revisão"},
-    ]
-
-
-def botoes_confirmacao_agendamento():
-    return [
-        {"id": "CONFIRMAR_AGENDAMENTO", "label": "Confirmar"},
-        {"id": "CORRIGIR_AGENDAMENTO", "label": "Corrigir"},
-    ]
 
 
 def mensagem_por_etapa_revisao(telefone, etapa):
@@ -3322,24 +3287,24 @@ def mensagem_por_etapa_revisao(telefone, etapa):
     if etapa == "revisao_revisao":
         return (
             "🛠️ *Qual revisão você deseja agendar?*\n\n"
-            "1 - 1ª Revisão\n"
-            "2 - 2ª Revisão\n"
-            "3 - 3ª Revisão\n"
-            "4 - 4ª Revisão\n"
-            "5 - 5ª Revisão ou acima\n\n"
-            "Responda com o número da revisão."
+            "1️⃣ 1ª Revisão\n"
+            "2️⃣ 2ª Revisão\n"
+            "3️⃣ 3ª Revisão\n"
+            "4️⃣ 4ª Revisão\n"
+            "5️⃣ 5ª Revisão ou acima\n\n"
+            "Digite apenas o número da revisão."
         )
 
     if etapa == "revisao_dia":
         return (
             "📅 *Qual dia você prefere?*\n\n"
-            "1 - Segunda\n"
-            "2 - Terça\n"
-            "3 - Quarta\n"
-            "4 - Quinta\n"
-            "5 - Sexta\n"
-            "6 - Sábado\n\n"
-            "Responda com o número do dia."
+            "1️⃣ Segunda\n"
+            "2️⃣ Terça\n"
+            "3️⃣ Quarta\n"
+            "4️⃣ Quinta\n"
+            "5️⃣ Sexta\n"
+            "6️⃣ Sábado\n\n"
+            "Digite apenas o número do dia."
         )
 
     if etapa == "revisao_data":
@@ -3351,8 +3316,9 @@ def mensagem_por_etapa_revisao(telefone, etapa):
     if etapa == "revisao_tipo_atendimento":
         return (
             "🏢 Me diga como será seu atendimento:\n\n"
-            "1 - Vou aguardar na concessionária\n"
-            "2 - Vou deixar a moto e retirar depois"
+            "1️⃣ Vou aguardar na concessionária\n"
+            "2️⃣ Vou deixar a moto e retirar depois\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
     if etapa == "revisao_venda":
@@ -3374,25 +3340,6 @@ def mensagem_por_etapa_revisao(telefone, etapa):
     return "Vamos continuar seu agendamento."
 
 
-def botoes_por_etapa_revisao(etapa):
-    if etapa == "revisao_revisao":
-        return botoes_revisao_numero()
-
-    if etapa == "revisao_dia":
-        return botoes_dias_revisao()
-
-    if etapa == "revisao_tipo_atendimento":
-        return botoes_tipo_atendimento()
-
-    if etapa == "revisao_venda":
-        return botoes_venda_adicional()
-
-    if etapa == "revisao_confirmacao":
-        return botoes_confirmacao_agendamento()
-
-    return []
-
-
 # ==========================================
 # ENVIO ETAPAS REVISÃO
 # ==========================================
@@ -3409,12 +3356,10 @@ def enviar_mensagem_etapa_revisao(telefone, etapa):
 
     try:
         mensagem = mensagem_por_etapa_revisao(telefone, etapa)
-        botoes = botoes_por_etapa_revisao(etapa)
 
         enviado = enviar_mensagem(
             telefone,
-            mensagem,
-            botoes=botoes
+            mensagem
         )
 
         salvar_evento_atendimento(
@@ -3432,7 +3377,6 @@ def enviar_mensagem_etapa_revisao(telefone, etapa):
     except Exception as e:
         log_erro("Erro enviar_mensagem_etapa_revisao:", repr(e))
         return False
-
 
 # ==========================================
 # APOIO IA
@@ -3532,7 +3476,12 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         or ""
     )
 
-    if opcao_menu:
+    opcao_menu_normalizada = normalizar_opcao_menu(opcao_menu)
+
+    if opcao_menu_normalizada:
+        dados["opcao_menu"] = opcao_menu_normalizada
+        dados["button_id"] = opcao_menu_normalizada
+    elif opcao_menu:
         dados["opcao_menu"] = opcao_menu
         dados["button_id"] = opcao_menu
 
@@ -3573,32 +3522,45 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     else:
         dia_numero = numero_dia_por_texto(dia_texto) if dia_texto else ""
 
-    if modelo and not dados.get("modelo") and etapa_atual in ["menu", "revisao_modelo", "acessorios_modelo", "pecas"]:
+    etapas_modelo = ["menu", "revisao_modelo", "acessorios_modelo", "pecas"]
+    etapas_nome = ["revisao_nome", "menu"]
+    etapas_cpf = ["revisao_cpf", "menu"]
+    etapas_ano = ["revisao_ano", "menu", "pecas"]
+    etapas_km = ["revisao_km", "menu"]
+    etapas_revisao = ["revisao_revisao", "menu"]
+    etapas_dia = ["revisao_dia", "menu"]
+    etapas_data = ["revisao_data", "menu"]
+    etapas_horario = ["revisao_horario", "menu"]
+    etapas_venda = ["revisao_venda", "menu"]
+    etapas_observacao = ["revisao_observacao", "menu", "pecas", "acessorios_orcamento"]
+    etapas_tipo = ["revisao_tipo_atendimento", "menu"]
+
+    if modelo and not dados.get("modelo") and etapa_atual in etapas_modelo:
         dados["modelo"] = modelo.upper()
 
-    if nome and not dados.get("nome") and etapa_atual in ["revisao_nome", "menu"]:
+    if nome and not dados.get("nome") and etapa_atual in etapas_nome:
         dados["nome"] = nome.upper()
 
-    if cpf and len(cpf) == 11 and not dados.get("cpf") and etapa_atual in ["revisao_cpf", "menu"]:
+    if cpf and len(cpf) == 11 and not dados.get("cpf") and etapa_atual in etapas_cpf:
         dados["cpf"] = cpf
 
-    if ano and not dados.get("ano") and etapa_atual in ["revisao_ano", "menu", "pecas"]:
+    if ano and not dados.get("ano") and etapa_atual in etapas_ano:
         dados["ano"] = ano
 
-    if km_atual and not dados.get("km_atual") and etapa_atual in ["revisao_km", "menu"]:
+    if km_atual and not dados.get("km_atual") and etapa_atual in etapas_km:
         dados["km_atual"] = km_atual
 
-    if revisao and not dados.get("revisao") and etapa_atual in ["revisao_revisao", "menu"]:
+    if revisao and not dados.get("revisao") and etapa_atual in etapas_revisao:
         dados["revisao"] = revisao
 
-    if dia_numero and not dados.get("dia") and etapa_atual in ["revisao_dia", "menu"]:
+    if dia_numero and not dados.get("dia") and etapa_atual in etapas_dia:
         dados["dia"] = dia_numero
         dados["dia_texto"] = nome_dia(dia_numero)
 
-    if data_normalizada and not dados.get("data") and etapa_atual in ["revisao_data", "menu"]:
+    if data_normalizada and not dados.get("data") and etapa_atual in etapas_data:
         dados["data"] = data_normalizada
 
-    if horario and not dados.get("horario") and etapa_atual in ["revisao_horario", "menu"]:
+    if horario and not dados.get("horario") and etapa_atual in etapas_horario:
         horario_limpo = horario.strip()
 
         if re.match(r"^\d{1,2}:\d{2}$", horario_limpo):
@@ -3610,12 +3572,12 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         item_adicional
         and not dados.get("venda_adicional")
         and item_adicional_valido(item_adicional)
-        and etapa_atual in ["revisao_venda", "menu"]
+        and etapa_atual in etapas_venda
     ):
         dados["itens"] = item_adicional
         dados["venda_adicional"] = item_adicional
 
-    if observacao and not dados.get("observacao") and etapa_atual in ["revisao_observacao", "menu", "pecas", "acessorios_orcamento"]:
+    if observacao and not dados.get("observacao") and etapa_atual in etapas_observacao:
         obs_norm = normalizar_texto(observacao)
 
         bloqueadas_obs = [
@@ -3627,7 +3589,7 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
         if obs_norm not in bloqueadas_obs and len(obs_norm) >= 8:
             dados["observacao"] = observacao
 
-    if tipo_atendimento and not dados.get("tipo_atendimento") and etapa_atual in ["revisao_tipo_atendimento", "menu"]:
+    if tipo_atendimento and not dados.get("tipo_atendimento") and etapa_atual in etapas_tipo:
         tipo_norm = normalizar_texto(tipo_atendimento)
 
         if "aguardar" in tipo_norm:
@@ -3638,6 +3600,8 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
 
         else:
             dados["tipo_atendimento"] = tipo_atendimento
+
+
 # ==========================================
 # IA COMERCIAL - FASE 1
 # ==========================================
@@ -3850,7 +3814,7 @@ def botoes_horarios_disponiveis(horarios):
     botoes = []
 
     try:
-        for i, horario in enumerate((horarios or [])[:3], start=1):
+        for i, horario in enumerate((horarios or [])[:9], start=1):
             botoes.append({
                 "id": str(i),
                 "label": horario
@@ -3951,8 +3915,7 @@ def enviar_proxima_etapa_revisao(telefone):
 
         enviar_mensagem(
             telefone,
-            montar_mensagem_horarios(horarios),
-            botoes=botoes_horarios_disponiveis(horarios)
+            montar_mensagem_horarios(horarios)
         )
 
         salvar_evento_atendimento(
@@ -3973,6 +3936,7 @@ def enviar_proxima_etapa_revisao(telefone):
     )
 
     return True
+
 
 # ==========================================
 # CAPACIDADE / HORÁRIOS
@@ -4274,8 +4238,6 @@ def salvar_atendimento_dashboard(telefone, dados):
         observacao=limpar_texto(dados.get("observacao", "")),
         intencao_ia=limpar_texto(dados.get("intencao_ia", "")),
     )
-
-
 # ==========================================
 # CONSULTA / CANCELAMENTO / REAGENDAMENTO
 # ==========================================
@@ -4458,8 +4420,10 @@ def responder_consulta_agendamento(telefone, cpf):
         enviar_mensagem(
             telefone,
             "⚠️ Não localizei agendamento ativo para este CPF.\n\n"
-            "Deseja iniciar um novo agendamento?",
-            botoes=botoes_novo_agendamento_menu()
+            "Deseja iniciar um novo agendamento?\n\n"
+            "1️⃣ Agendar revisão\n"
+            "2️⃣ Voltar ao menu\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
         return True
@@ -4495,8 +4459,11 @@ def responder_consulta_agendamento(telefone, cpf):
         f"📅 {ag.get('data_agendada', '')}\n"
         f"⏰ {ag.get('horario', '')}\n"
         f"📌 Protocolo: {ag.get('protocolo', '')}\n\n"
-        "O que deseja fazer?",
-        botoes=botoes_pos_consulta_agendamento()
+        "O que deseja fazer?\n\n"
+        "1️⃣ Reagendar\n"
+        "2️⃣ Cancelar\n"
+        "3️⃣ Menu principal\n\n"
+        "Digite apenas o número da opção desejada."
     )
 
     clientes[telefone]["cpf"] = cpf_limpo
@@ -4544,11 +4511,10 @@ def responder_cancelamento_agendamento(telefone, cpf):
             enviar_mensagem(
                 telefone,
                 "⚠️ Não encontrei agendamento ativo para este CPF.\n\n"
-                "Deseja voltar ao menu?",
-                botoes=[
-                    {"id": "MENU", "label": "Menu principal"},
-                    {"id": "MENU_HUMANO", "label": "Atendimento humano"},
-                ]
+                "Deseja voltar ao menu?\n\n"
+                "1️⃣ Menu principal\n"
+                "2️⃣ Atendimento humano\n\n"
+                "Digite apenas o número da opção desejada."
             )
 
             return True
@@ -4586,8 +4552,10 @@ def responder_cancelamento_agendamento(telefone, cpf):
             f"📅 {ag_cancelado.get('data_agendada', '')}\n"
             f"⏰ {ag_cancelado.get('horario', '')}\n"
             f"📌 Protocolo: {ag_cancelado.get('protocolo', '')}\n\n"
-            "Equipe Motoshow Yamaha",
-            botoes=botoes_cancelamento_menu()
+            "Equipe Motoshow Yamaha\n\n"
+            "1️⃣ Novo agendamento\n"
+            "2️⃣ Menu principal\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
         return True
@@ -4644,8 +4612,10 @@ def iniciar_reagendamento(telefone, cpf):
         enviar_mensagem(
             telefone,
             "⚠️ Não encontrei agendamento ativo para este CPF.\n\n"
-            "Deseja iniciar um novo agendamento?",
-            botoes=botoes_novo_agendamento_menu()
+            "Deseja iniciar um novo agendamento?\n\n"
+            "1️⃣ Agendar revisão\n"
+            "2️⃣ Voltar ao menu\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
         return True
@@ -4699,6 +4669,8 @@ def iniciar_reagendamento(telefone, cpf):
 
     enviar_mensagem_etapa_revisao(telefone, "revisao_dia")
     return True
+
+
 # ==========================================
 # FOLLOW-UP / LEMBRETES - VERSÃO INTELIGENTE
 # ==========================================
@@ -4835,18 +4807,14 @@ def processar_lembretes_agendamento():
                     f"⏰ *Horário:* {str(getattr(ag, 'horario', '') or '')}\n"
                     f"📌 *Protocolo:* {str(getattr(ag, 'protocolo', '') or '')}\n\n"
                     "📖 Lembre-se de trazer o manual da moto.\n\n"
-                    "Se precisar reagendar, responda esta mensagem ou digite *menu*."
+                    "Escolha uma opção:\n\n"
+                    "1️⃣ Confirmar presença\n"
+                    "2️⃣ Reagendar\n"
+                    "3️⃣ Falar com consultor\n\n"
+                    "Digite apenas o número da opção desejada."
                 )
 
-                enviado = enviar_mensagem(
-                    telefone,
-                    mensagem,
-                    botoes=[
-                        {"id": "CONFIRMAR_PRESENCA", "label": "Confirmar presença"},
-                        {"id": "REAGENDAR_AGENDAMENTO", "label": "Reagendar"},
-                        {"id": "MENU_HUMANO", "label": "Falar consultor"},
-                    ]
-                )
+                enviado = enviar_mensagem(telefone, mensagem)
 
                 if enviado and hasattr(ag, "lembrete_enviado"):
                     ag.lembrete_enviado = True
@@ -4922,7 +4890,6 @@ def processar_followup_inteligente():
     except Exception as e:
         log_erro("Erro processar_followup_inteligente:", repr(e))
         return False
-
 
 # ==========================================
 # APOIO DÚVIDAS / REVISÃO / SANCES
@@ -5158,16 +5125,18 @@ def mensagem_duvida_retorno_fluxo(telefone):
     if etapa_retorno and etapa_retorno.startswith("revisao"):
         return (
             "Posso continuar te ajudando por aqui 👇\n\n"
-            "1 - Continuar meu agendamento\n"
-            "2 - Fazer outra dúvida\n"
-            "3 - Falar com atendimento humano"
+            "1️⃣ Continuar meu agendamento\n"
+            "2️⃣ Fazer outra dúvida\n"
+            "3️⃣ Falar com atendimento humano\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
     return (
         "Posso continuar te ajudando por aqui 👇\n\n"
-        "1 - Fazer outra dúvida\n"
-        "2 - Voltar ao menu principal\n"
-        "3 - Falar com atendimento humano"
+        "1️⃣ Fazer outra dúvida\n"
+        "2️⃣ Voltar ao menu principal\n"
+        "3️⃣ Falar com atendimento humano\n\n"
+        "Digite apenas o número da opção desejada."
     )
 
 
@@ -5212,8 +5181,7 @@ def enviar_duvida_retorno_fluxo(telefone):
 
     return enviar_mensagem(
         telefone,
-        mensagem,
-        botoes=botoes_duvida_retorno_fluxo(telefone)
+        mensagem
     )
 
 
@@ -5931,7 +5899,15 @@ def montar_mensagem_followup_inteligente(at):
         ),
     }
 
-    return mensagens.get(contexto, mensagens["geral"])
+    mensagem = mensagens.get(contexto, mensagens["geral"])
+
+    return (
+        mensagem +
+        "\n\n1️⃣ Continuar atendimento\n"
+        "2️⃣ Falar com consultor\n"
+        "3️⃣ Menu principal\n\n"
+        "Digite apenas o número da opção desejada."
+    )
 
 
 def botoes_followup_inteligente():
@@ -6032,6 +6008,7 @@ def etapa_permite_ia_livre(etapa):
         "consulta_agendamento_cpf",
         "cancelar_agendamento_cpf",
         "reagendar_agendamento_cpf",
+        "pos_consulta_agendamento",
 
         "acessorios_modelo",
         "acessorios_orcamento",
@@ -6040,6 +6017,7 @@ def etapa_permite_ia_livre(etapa):
         "garantia",
         "atacado",
         "atacado_catalogo_enviado",
+        "atacado_catalogo_erro",
 
         "atendimento_humano",
     }
@@ -6053,6 +6031,7 @@ def texto_parece_menu_ou_saudacao(texto_normalizado):
     return texto_normalizado in [
         "menu",
         "inicio",
+        "iniciar",
         "voltar",
         "voltar menu",
         "voltar ao menu",
@@ -6075,6 +6054,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
     iniciar_cliente(telefone)
 
     opcao_normalizada = normalizar_opcao_menu(opcao) or opcao.upper()
+    etapa_atual = limpar_texto(clientes[telefone].get("etapa", "menu")).lower()
 
     clientes[telefone]["opcao_menu"] = opcao_normalizada
     clientes[telefone]["button_id"] = opcao_normalizada
@@ -6085,8 +6065,6 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
         resetar_cliente(telefone)
         enviar_menu(telefone)
         return True
-
-    etapa_atual = limpar_texto(clientes[telefone].get("etapa", "menu")).lower()
 
     # ==========================================
     # MENU DE DÚVIDAS
@@ -6123,23 +6101,57 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
     # ==========================================
     # RETORNO DE DÚVIDAS
     # ==========================================
-    if opcao_normalizada == "DUVIDA_CONTINUAR":
+    if etapa_atual == "duvidas_retorno":
         etapa_retorno = limpar_texto(
             clientes[telefone].get("etapa_retorno_duvida", "")
         )
 
         if etapa_retorno and etapa_retorno.startswith("revisao"):
-            clientes[telefone]["etapa"] = etapa_retorno
-            enviar_proxima_etapa_revisao(telefone)
+            if opcao_normalizada in ["1", "OPCAO_1", "DUVIDA_CONTINUAR"]:
+                clientes[telefone]["etapa"] = etapa_retorno
+                enviar_proxima_etapa_revisao(telefone)
+                return True
+
+            if opcao_normalizada in ["2", "OPCAO_2", "DUVIDA_OUTRA"]:
+                clientes[telefone]["etapa"] = "duvidas_menu"
+                enviar_menu_duvidas(telefone)
+                return True
+
+            if opcao_normalizada in ["3", "OPCAO_3", "MENU_HUMANO"]:
+                ativar_atendimento_humano(telefone)
+                return True
+
+        else:
+            if opcao_normalizada in ["1", "OPCAO_1", "DUVIDA_OUTRA"]:
+                clientes[telefone]["etapa"] = "duvidas_menu"
+                enviar_menu_duvidas(telefone)
+                return True
+
+            if opcao_normalizada in ["2", "OPCAO_2", "MENU"]:
+                enviar_menu(telefone)
+                return True
+
+            if opcao_normalizada in ["3", "OPCAO_3", "MENU_HUMANO"]:
+                ativar_atendimento_humano(telefone)
+                return True
+
+    # ==========================================
+    # PÓS CONSULTA DE AGENDAMENTO
+    # ==========================================
+    if etapa_atual == "pos_consulta_agendamento":
+        cpf_salvo = limpar_cpf(clientes[telefone].get("cpf", ""))
+
+        if opcao_normalizada in ["1", "OPCAO_1", "REAGENDAR_AGENDAMENTO"]:
+            iniciar_reagendamento(telefone, cpf_salvo)
             return True
 
-        enviar_menu(telefone)
-        return True
+        if opcao_normalizada in ["2", "OPCAO_2", "CANCELAR_AGENDAMENTO"]:
+            responder_cancelamento_agendamento(telefone, cpf_salvo)
+            return True
 
-    if opcao_normalizada == "DUVIDA_OUTRA":
-        clientes[telefone]["etapa"] = "duvidas_menu"
-        enviar_menu_duvidas(telefone)
-        return True
+        if opcao_normalizada in ["3", "OPCAO_3", "MENU"]:
+            enviar_menu(telefone)
+            return True
 
     # ==========================================
     # MENU PRINCIPAL
@@ -6217,20 +6229,20 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
     # ==========================================
     # OPÇÕES GERAIS FORA DO MENU
     # ==========================================
-    if opcao_normalizada in ["MENU_REVISAO", "AGENDAR_REVISAO", "OPCAO_1"]:
+    if opcao_normalizada in ["MENU_REVISAO", "AGENDAR_REVISAO"]:
         iniciar_fluxo_revisao_por_intencao(telefone, {})
         enviar_proxima_etapa_revisao(telefone)
         return True
 
-    if opcao_normalizada in ["MENU_PECAS", "OPCAO_2"]:
+    if opcao_normalizada == "MENU_PECAS":
         iniciar_fluxo_pecas(telefone)
         return True
 
-    if opcao_normalizada in ["MENU_ACESSORIOS", "OPCAO_3"]:
+    if opcao_normalizada == "MENU_ACESSORIOS":
         iniciar_fluxo_acessorios(telefone)
         return True
 
-    if opcao_normalizada in ["MENU_GARANTIA", "OPCAO_4"]:
+    if opcao_normalizada == "MENU_GARANTIA":
         clientes[telefone]["etapa"] = "garantia"
         enviar_mensagem(
             telefone,
@@ -6238,7 +6250,7 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
         )
         return True
 
-    if opcao_normalizada in ["MENU_ATACADO", "ATACADO_TABELA", "OPCAO_5"]:
+    if opcao_normalizada in ["MENU_ATACADO", "ATACADO_TABELA"]:
         clientes[telefone]["etapa"] = "atacado"
         enviar_mensagem(
             telefone,
@@ -6246,11 +6258,11 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
         )
         return True
 
-    if opcao_normalizada in ["MENU_DUVIDAS", "OPCAO_6"]:
+    if opcao_normalizada == "MENU_DUVIDAS":
         enviar_menu_duvidas(telefone)
         return True
 
-    if opcao_normalizada in ["MENU_HUMANO", "FALAR_CONSULTOR", "OPCAO_7"]:
+    if opcao_normalizada in ["MENU_HUMANO", "FALAR_CONSULTOR"]:
         ativar_atendimento_humano(telefone)
         return True
 
@@ -6412,14 +6424,14 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
         enviar_mensagem(
             telefone,
-            "Deseja agendar sua revisão agora?",
-            botoes=[
-                {"id": "AGENDAR_REVISAO", "label": "Agendar revisão"},
-                {"id": "MENU", "label": "Menu principal"},
-                {"id": "MENU_HUMANO", "label": "Atendimento humano"},
-            ]
+            "Deseja agendar sua revisão agora?\n\n"
+            "1️⃣ Agendar revisão\n"
+            "2️⃣ Menu principal\n"
+            "3️⃣ Atendimento humano\n\n"
+            "Digite apenas o número da opção desejada."
         )
 
+        clientes[telefone]["etapa"] = "menu"
         return True
 
     if intencao == "pecas":
@@ -6612,10 +6624,7 @@ def webhook():
         except Exception:
             tempo_sem_interacao = 0
 
-        if (
-            etapa_anterior != "menu"
-            and tempo_sem_interacao > TEMPO_INATIVIDADE
-        ):
+        if etapa_anterior != "menu" and tempo_sem_interacao > TEMPO_INATIVIDADE:
             resetar_cliente(telefone)
 
             enviar_mensagem(
@@ -6662,7 +6671,7 @@ def webhook():
             return jsonify({"status": "ok", "motivo": "menu_global"}), 200
 
         # ==========================================
-        # BOTÃO / OPÇÃO RÁPIDA
+        # OPÇÃO RÁPIDA POR NÚMERO / TEXTO
         # ==========================================
         if opcao_menu:
             if interpretar_opcao_menu_rapido(telefone, opcao_menu):
@@ -6739,24 +6748,34 @@ def webhook():
         # RETORNO APÓS DÚVIDA
         # ==========================================
         if etapa == "duvidas_retorno":
-            if texto_opcao == "1":
-                etapa_retorno = limpar_texto(clientes[telefone].get("etapa_retorno_duvida", ""))
+            etapa_retorno = limpar_texto(clientes[telefone].get("etapa_retorno_duvida", ""))
 
-                if etapa_retorno.startswith("revisao"):
+            if etapa_retorno.startswith("revisao"):
+                if texto_opcao == "1":
                     clientes[telefone]["etapa"] = etapa_retorno
                     enviar_proxima_etapa_revisao(telefone)
                     return jsonify({"status": "ok", "motivo": "retorno_revisao"}), 200
 
-                enviar_menu_duvidas(telefone)
-                return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
+                if texto_opcao == "2":
+                    enviar_menu_duvidas(telefone)
+                    return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
 
-            if texto_opcao == "2":
-                enviar_menu_duvidas(telefone)
-                return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
+                if texto_opcao == "3":
+                    ativar_atendimento_humano(telefone)
+                    return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
 
-            if texto_opcao == "3":
-                ativar_atendimento_humano(telefone)
-                return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
+            else:
+                if texto_opcao == "1":
+                    enviar_menu_duvidas(telefone)
+                    return jsonify({"status": "ok", "motivo": "outra_duvida"}), 200
+
+                if texto_opcao == "2":
+                    enviar_menu(telefone)
+                    return jsonify({"status": "ok", "motivo": "voltar_menu"}), 200
+
+                if texto_opcao == "3":
+                    ativar_atendimento_humano(telefone)
+                    return jsonify({"status": "ok", "motivo": "duvida_humano"}), 200
 
             enviar_duvida_retorno_fluxo(telefone)
             return jsonify({"status": "ok", "motivo": "duvida_retorno_reenviado"}), 200
@@ -6934,15 +6953,15 @@ def webhook():
         # ATACADO
         # ==========================================
         if etapa == "atacado":
-            if opcao_menu == "ATACADO_TABELA" or texto_opcao == "1":
+            if texto_opcao == "1":
                 enviar_catalogo_atacado(telefone)
                 return jsonify({"status": "ok", "motivo": "atacado_catalogo"}), 200
 
-            if opcao_menu == "ATACADO_CONSULTOR" or texto_opcao == "2":
+            if texto_opcao == "2":
                 ativar_atendimento_humano(telefone)
                 return jsonify({"status": "ok", "motivo": "atacado_consultor"}), 200
 
-            if opcao_menu == "ATACADO_DEPOIS" or texto_opcao == "3":
+            if texto_opcao == "3":
                 clientes[telefone]["status_retorno"] = "DEPOIS"
                 clientes[telefone]["nivel_interesse"] = "BAIXO"
 
