@@ -3049,6 +3049,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
     clientes[telefone]["itens"] = ""
     clientes[telefone]["venda_adicional"] = ""
     clientes[telefone]["acessorio_desejado"] = ""
+    clientes[telefone]["intencao_ia"] = "acessorios"
 
     salvar_evento_atendimento(
         telefone=telefone,
@@ -7356,8 +7357,8 @@ def webhook():
         # ==========================================
         # ACESSÓRIOS
         # ==========================================
-        if etapa in ["acessorios", "acessorios_modelo", "acessorios_orcamento", "acessorios_nome"]:
-            if etapa == "acessorios_modelo":
+            if etapa in ["acessorios", "acessorios_modelo", "acessorios_orcamento", "acessorios_nome"]:
+            if etapa in ["acessorios", "acessorios_modelo"]:
                 modelo_informado = limpar_texto(texto).upper()
 
                 if not modelo_informado:
@@ -7369,7 +7370,9 @@ def webhook():
 
                 clientes[telefone]["modelo"] = modelo_informado
                 clientes[telefone]["etapa"] = "acessorios_orcamento"
+                clientes[telefone]["intencao_ia"] = "acessorios"
                 clientes[telefone]["proxima_acao"] = "ACESSORIOS_ORCAMENTO"
+                clientes[telefone]["ultima_interacao"] = agora()
 
                 arquivo_pdf = obter_pdf_acessorios_por_modelo(modelo_informado)
 
@@ -7388,61 +7391,38 @@ def webhook():
                 if not enviado_pdf:
                     enviar_mensagem(
                         telefone,
-                        "⚠️ Não consegui enviar o catálogo agora, mas vamos continuar."
+                        "⚠️ Não consegui enviar o catálogo agora, mas vamos continuar seu atendimento."
                     )
 
                 enviar_mensagem(
                     telefone,
-                    "Agora me informe qual acessório você deseja orçamento."
+                    "Qual acessório você deseja receber orçamento?"
                 )
 
                 return jsonify({"status": "ok", "motivo": "acessorios_pdf"}), 200
 
-            if etapa == "acessorios_orcamento":
+            if etapa in ["acessorios_orcamento", "acessorios_nome"]:
                 acessorio_nome = limpar_texto(texto)
 
                 if not acessorio_nome:
                     enviar_mensagem(
                         telefone,
-                        "Por favor, informe o nome do acessório que deseja."
+                        "Por favor, informe o nome do acessório que deseja receber orçamento."
                     )
                     return jsonify({"status": "ok", "motivo": "acessorios_nome_vazio"}), 200
 
                 clientes[telefone]["acessorio_desejado"] = acessorio_nome
                 clientes[telefone]["observacao"] = acessorio_nome
                 clientes[telefone]["itens"] = acessorio_nome
-                clientes[telefone]["etapa"] = "acessorios_nome"
-                clientes[telefone]["proxima_acao"] = "ACESSORIOS_QUANTIDADE"
-
-                salvar_evento_atendimento(
-                    telefone=telefone,
-                    setor="Acessórios",
-                    status="ACESSORIO_DESEJADO_RECEBIDO",
-                    etapa="acessorios_orcamento",
-                    dados=clientes[telefone],
-                    atendimento_humano=False,
-                    concluido=False,
-                    origem=clientes[telefone].get("origem", "BOT"),
-                )
-
-                enviar_mensagem(
-                    telefone,
-                    f"✅ Anotei: *{acessorio_nome}*\n\nAgora me passe a quantidade desejada ou me informe se deseja fazer um orçamento para esse acessório."
-                )
-
-                return jsonify({"status": "ok", "motivo": "acessorios_nome_recebido"}), 200
-
-            if etapa == "acessorios_nome":
-                clientes[telefone]["observacao"] = texto
-                clientes[telefone]["itens"] = texto
-                clientes[telefone]["venda_adicional"] = texto
+                clientes[telefone]["etapa"] = "atendimento_humano"
+                clientes[telefone]["atendimento_humano"] = True
                 clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
 
                 salvar_evento_atendimento(
                     telefone=telefone,
                     setor="Acessórios",
                     status=STATUS_ATENDIMENTO_HUMANO,
-                    etapa=etapa,
+                    etapa="acessorios_orcamento",
                     dados=clientes[telefone],
                     atendimento_humano=True,
                     concluido=False,
@@ -7451,35 +7431,13 @@ def webhook():
 
                 enviar_mensagem(
                     telefone,
-                    "✅ Recebi sua solicitação de acessórios.\n\nNossa equipe vai continuar o atendimento."
+                    "✅ Recebi seu pedido. Vou encaminhar para um consultor e em breve ele continuará o atendimento."
                 )
 
                 ativar_atendimento_humano(telefone)
                 return jsonify({"status": "ok", "motivo": "acessorios_humano"}), 200
 
-            clientes[telefone]["observacao"] = texto
-            clientes[telefone]["itens"] = texto
-            clientes[telefone]["venda_adicional"] = texto
-            clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
-
-            salvar_evento_atendimento(
-                telefone=telefone,
-                setor="Acessórios",
-                status=STATUS_ATENDIMENTO_HUMANO,
-                etapa=etapa,
-                dados=clientes[telefone],
-                atendimento_humano=True,
-                concluido=False,
-                origem=clientes[telefone].get("origem", "BOT"),
-            )
-
-            enviar_mensagem(
-                telefone,
-                "✅ Recebi sua solicitação de acessórios.\n\nNossa equipe vai continuar o atendimento."
-            )
-
-            ativar_atendimento_humano(telefone)
-            return jsonify({"status": "ok", "motivo": "acessorios_humano"}), 200
+            return jsonify({"status": "ok", "motivo": "acessorios_invalido"}), 200
 
         # ==========================================
         # GARANTIA
