@@ -148,7 +148,7 @@
         table{
             width:100%;
             border-collapse:collapse;
-            min-width:1700px;
+            min-width:2100px;
         }
 
         thead{
@@ -360,7 +360,7 @@
             <h3>Total Clientes</h3>
 
             <div class="numero">
-                {{ atendimentos|length }}
+                {{ total_clientes_memoria if total_clientes_memoria is defined else atendimentos|length }}
             </div>
 
         </div>
@@ -514,6 +514,10 @@
 
                 <th>Modelo</th>
 
+                <th>Memória Cliente</th>
+
+                <th>Setor Recente</th>
+
                 <th>Revisão</th>
 
                 <th>Interesse</th>
@@ -613,6 +617,46 @@
 
                 <td>
                     {{ c.modelo or '-' }}
+                </td>
+
+                <td class="resposta-ia">
+                    {% if c.memoria_modelo or c.memoria_ano or c.memoria_pecas or c.memoria_acessorios %}
+                        <strong>{{ c.memoria_modelo or '-' }}</strong>
+                        {% if c.memoria_ano %}
+                            / {{ c.memoria_ano }}
+                        {% endif %}
+
+                        {% if c.memoria_ultima_revisao or c.memoria_data_ultima_revisao %}
+                            <br>
+                            Revisão:
+                            {{ c.memoria_ultima_revisao or '-' }}
+                            {% if c.memoria_data_ultima_revisao %}
+                                em {{ c.memoria_data_ultima_revisao }}
+                            {% endif %}
+                        {% endif %}
+
+                        {% if c.memoria_pecas %}
+                            <br>Peças: {{ c.memoria_pecas }}
+                        {% endif %}
+
+                        {% if c.memoria_acessorios %}
+                            <br>Acessórios: {{ c.memoria_acessorios }}
+                        {% endif %}
+                    {% else %}
+                        <span class="vazio">
+                            —
+                        </span>
+                    {% endif %}
+                </td>
+
+                <td>
+                    {{ c.memoria_setor or c.setor or '-' }}
+                    {% if c.memoria_nivel %}
+                        <br>
+                        <span class="small-text">
+                            {{ c.memoria_nivel }}
+                        </span>
+                    {% endif %}
                 </td>
 
                 <td>

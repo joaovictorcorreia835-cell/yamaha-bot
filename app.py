@@ -745,6 +745,7 @@ def responder_com_ia_comercial(telefone, texto, intencao="", modelo=""):
         iniciar_cliente(telefone)
 
         dados = clientes[telefone]
+        memoria = dados.get("memoria_cliente", {}) or buscar_memoria_cliente(telefone)
 
         if dados.get("atendimento_humano"):
             return False
@@ -752,7 +753,8 @@ def responder_com_ia_comercial(telefone, texto, intencao="", modelo=""):
         if etapa_bloqueia_ia_comercial(dados.get("etapa", "")):
             return False
 
-        nome = dados.get("nome", "")
+        nome = dados.get("nome", "") or memoria.get("nome", "")
+        modelo = modelo or dados.get("modelo", "") or memoria.get("modelo", "")
 
         resposta_ia = gerar_resposta_comercial(
             texto=texto,
@@ -935,6 +937,7 @@ def iniciar_fluxo_atacado(telefone):
         return False
 
     iniciar_cliente(telefone)
+    carregar_memoria_cliente_no_estado(telefone)
 
     clientes[telefone]["etapa"] = "atacado"
     clientes[telefone]["intencao_ia"] = "atacado"
@@ -961,6 +964,7 @@ def iniciar_fluxo_atacado(telefone):
         origem=clientes[telefone].get("origem", "BOT"),
     )
 
+    enviar_mensagem_memoria_cliente(telefone, "atacado")
     return enviar_mensagem(telefone, menu_atacado())
 
 
@@ -1926,6 +1930,12 @@ def estado_padrao_cliente():
         "sances_protocolo": "",
         "sances_erro": "",
         "sances_data_envio": "",
+
+        "memoria_cliente": {},
+        "memoria_usada": False,
+        "modelo_memoria": "",
+        "nome_memoria": "",
+        "ano_memoria": "",
     }
 
 
@@ -1937,6 +1947,323 @@ def iniciar_cliente(telefone):
 
     if telefone not in clientes:
         clientes[telefone] = estado_padrao_cliente()
+
+
+def primeiro_valor(*valores):
+    for valor in valores:
+        valor = limpar_texto(valor)
+
+        if valor:
+            return valor
+
+    return ""
+
+
+def nivel_cliente_por_historico(atendimentos):
+    if not atendimentos:
+        return "novo"
+
+    for at in atendimentos:
+        temperatura = normalizar_texto(getattr(at, "temperatura_lead", ""))
+        nivel = normalizar_texto(getattr(at, "nivel_interesse", ""))
+
+        if temperatura == "quente" or nivel in ["alto", "quente"]:
+            return "quente"
+
+    for at in atendimentos:
+        temperatura = normalizar_texto(getattr(at, "temperatura_lead", ""))
+        nivel = normalizar_texto(getattr(at, "nivel_interesse", ""))
+
+        if temperatura == "morno" or nivel in ["medio", "morno"]:
+            return "morno"
+
+    if len(atendimentos) >= 2:
+        return "recorrente"
+
+    for at in atendimentos:
+        temperatura = normalizar_texto(getattr(at, "temperatura_lead", ""))
+        nivel = normalizar_texto(getattr(at, "nivel_interesse", ""))
+
+        if temperatura == "frio" or nivel in ["baixo", "frio"]:
+            return "frio"
+
+    return "novo"
+
+
+def lista_unica_memoria(valores, limite=6):
+    itens = []
+    vistos = set()
+
+    for valor in valores:
+        valor = limpar_texto(valor)
+
+        if not valor:
+            continue
+
+        for item in re.split(r",|;|\n|\+", valor):
+            item = limpar_item_adicional(item)
+            chave = normalizar_texto(item)
+
+            if not item or chave in vistos:
+                continue
+
+            vistos.add(chave)
+            itens.append(item)
+
+            if len(itens) >= limite:
+                return itens
+
+    return itens
+
+
+def buscar_memoria_cliente(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return {}
+
+    db = SessionLocal()
+
+    try:
+        atendimentos = (
+            db.query(Atendimento)
+            .filter(Atendimento.telefone == telefone)
+            .order_by(Atendimento.id.desc())
+            .limit(50)
+            .all()
+        )
+
+        agendamentos = (
+            db.query(AgendamentoRevisao)
+            .filter(AgendamentoRevisao.telefone == telefone)
+            .order_by(AgendamentoRevisao.id.desc())
+            .limit(20)
+            .all()
+        )
+
+        ultimo_at = atendimentos[0] if atendimentos else None
+        ultimo_ag = agendamentos[0] if agendamentos else None
+
+        revisoes = [
+            ag for ag in agendamentos
+            if limpar_texto(getattr(ag, "revisao", ""))
+            or limpar_texto(getattr(ag, "data_agendada", ""))
+        ]
+
+        ultima_revisao = revisoes[0] if revisoes else None
+
+        setores = [
+            limpar_texto(getattr(at, "setor", ""))
+            for at in atendimentos
+            if limpar_texto(getattr(at, "setor", ""))
+        ]
+
+        historico_garantia = [
+            at for at in atendimentos
+            if "garantia" in normalizar_texto(getattr(at, "setor", ""))
+            or "garantia" in normalizar_texto(getattr(at, "etapa", ""))
+        ]
+
+        historico_atacado = [
+            at for at in atendimentos
+            if "atacado" in normalizar_texto(getattr(at, "setor", ""))
+            or "logista" in normalizar_texto(getattr(at, "setor", ""))
+            or "atacado" in normalizar_texto(getattr(at, "etapa", ""))
+        ]
+
+        pecas = lista_unica_memoria(
+            [
+                getattr(at, "produto_interesse", "")
+                or getattr(at, "itens", "")
+                or getattr(at, "observacao", "")
+                for at in atendimentos
+                if "peca" in normalizar_texto(getattr(at, "setor", ""))
+                or normalizar_texto(getattr(at, "intencao_ia", "")) in ["pecas", "orcamento"]
+            ]
+        )
+
+        acessorios = lista_unica_memoria(
+            [
+                getattr(at, "produto_interesse", "")
+                or getattr(at, "itens", "")
+                or getattr(at, "observacao", "")
+                for at in atendimentos
+                if "acessorio" in normalizar_texto(getattr(at, "setor", ""))
+                or normalizar_texto(getattr(at, "intencao_ia", "")) == "acessorios"
+            ]
+        )
+
+        memoria = {
+            "telefone": telefone,
+            "nome": primeiro_valor(
+                getattr(ultimo_at, "nome", "") if ultimo_at else "",
+                getattr(ultimo_ag, "nome", "") if ultimo_ag else "",
+            ),
+            "modelo": primeiro_valor(
+                getattr(ultimo_at, "modelo", "") if ultimo_at else "",
+                getattr(ultimo_ag, "modelo", "") if ultimo_ag else "",
+            ),
+            "ano": primeiro_valor(
+                getattr(ultimo_at, "ano", "") if ultimo_at else "",
+                getattr(ultimo_ag, "ano", "") if ultimo_ag else "",
+            ),
+            "ultima_revisao": limpar_texto(
+                getattr(ultima_revisao, "revisao", "") if ultima_revisao else ""
+            ),
+            "data_ultima_revisao": limpar_texto(
+                getattr(ultima_revisao, "data_agendada", "") if ultima_revisao else ""
+            ),
+            "pecas": pecas,
+            "acessorios": acessorios,
+            "historico_garantia": len(historico_garantia),
+            "historico_atacado": len(historico_atacado),
+            "nivel_cliente": nivel_cliente_por_historico(atendimentos),
+            "ultima_interacao": (
+                (
+                    getattr(ultimo_at, "ultima_interacao", None)
+                    or getattr(ultimo_at, "data", None)
+                )
+                if ultimo_at
+                else None
+            ),
+            "setor_recente": setores[0] if setores else "",
+            "status_atual": limpar_texto(
+                getattr(ultimo_at, "status", "") if ultimo_at else ""
+            ),
+            "nivel_interesse": limpar_texto(
+                getattr(ultimo_at, "nivel_interesse", "") if ultimo_at else ""
+            ),
+            "observacoes": primeiro_valor(
+                getattr(ultimo_at, "observacoes", "") if ultimo_at else "",
+                getattr(ultimo_at, "observacao", "") if ultimo_at else "",
+            )[:500],
+            "total_atendimentos": len(atendimentos),
+            "total_agendamentos": len(agendamentos),
+        }
+
+        return memoria
+
+    except Exception as e:
+        log_erro("Erro buscar_memoria_cliente:", repr(e))
+        return {}
+
+    finally:
+        db.close()
+
+
+def atualizar_memoria_cliente(telefone, dados=None):
+    telefone = limpar_telefone(telefone)
+    dados = dados or {}
+
+    if not telefone:
+        return {}
+
+    iniciar_cliente(telefone)
+
+    memoria = buscar_memoria_cliente(telefone)
+
+    if dados:
+        for chave in [
+            "nome",
+            "modelo",
+            "ano",
+            "ultima_revisao",
+            "data_ultima_revisao",
+            "nivel_cliente",
+            "nivel_interesse",
+            "setor_recente",
+            "status_atual",
+            "observacoes",
+        ]:
+            valor = limpar_texto(dados.get(chave, ""))
+
+            if valor:
+                memoria[chave] = valor
+
+    clientes[telefone]["memoria_cliente"] = memoria
+    clientes[telefone]["nome_memoria"] = limpar_texto(memoria.get("nome", ""))
+    clientes[telefone]["modelo_memoria"] = limpar_texto(memoria.get("modelo", ""))
+    clientes[telefone]["ano_memoria"] = limpar_texto(memoria.get("ano", ""))
+
+    return memoria
+
+
+def carregar_memoria_cliente_no_estado(telefone):
+    memoria = atualizar_memoria_cliente(telefone)
+
+    if not memoria:
+        return {}
+
+    if not clientes[telefone].get("nome") and memoria.get("nome"):
+        clientes[telefone]["nome_memoria"] = memoria.get("nome", "")
+
+    if not clientes[telefone].get("modelo") and memoria.get("modelo"):
+        clientes[telefone]["modelo_memoria"] = memoria.get("modelo", "")
+
+    if not clientes[telefone].get("ano") and memoria.get("ano"):
+        clientes[telefone]["ano_memoria"] = memoria.get("ano", "")
+
+    return memoria
+
+
+def mensagem_memoria_cliente(telefone, contexto="geral"):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone or telefone not in clientes:
+        return ""
+
+    memoria = clientes[telefone].get("memoria_cliente", {}) or {}
+
+    if not memoria or clientes[telefone].get("memoria_usada"):
+        return ""
+
+    nome = limpar_texto(memoria.get("nome", "")).split(" ")[0]
+    modelo = limpar_texto(memoria.get("modelo", "")).upper()
+    ultima_revisao = limpar_texto(memoria.get("ultima_revisao", ""))
+    data_ultima = limpar_texto(memoria.get("data_ultima_revisao", ""))
+    nivel = limpar_texto(memoria.get("nivel_cliente", ""))
+
+    if not any([nome, modelo, ultima_revisao, nivel and nivel != "novo"]):
+        return ""
+
+    clientes[telefone]["memoria_usada"] = True
+
+    saudacao = f"{nome}, " if nome else ""
+
+    if contexto == "revisao" and modelo:
+        if ultima_revisao:
+            complemento_data = f" em {data_ultima}" if data_ultima else ""
+            return (
+                f"{saudacao}vi aqui que sua última revisão registrada foi a "
+                f"{ultima_revisao}ª da *{modelo}*{complemento_data}. "
+                "Posso te ajudar com o próximo agendamento."
+            )
+
+        return f"{saudacao}vi aqui que você costuma falar sobre sua *{modelo}*. 😊"
+
+    if contexto in ["pecas", "acessorios"] and modelo:
+        return f"{saudacao}vi aqui que seu histórico mais recente é com a *{modelo}*. 😊"
+
+    if contexto == "atacado" and memoria.get("historico_atacado", 0):
+        return f"{saudacao}vi aqui que você já teve atendimento comercial de atacado com a gente."
+
+    if contexto == "garantia" and memoria.get("historico_garantia", 0):
+        return f"{saudacao}vi aqui que você já teve atendimento de garantia registrado conosco."
+
+    if modelo:
+        return f"{saudacao}vi aqui que você costuma falar sobre sua *{modelo}*. 😊"
+
+    return ""
+
+
+def enviar_mensagem_memoria_cliente(telefone, contexto="geral"):
+    mensagem = mensagem_memoria_cliente(telefone, contexto)
+
+    if mensagem:
+        enviar_mensagem(telefone, mensagem)
+        return True
+
+    return False
 
 
 def resetar_cliente(telefone, preservar_humano=False):
@@ -3431,6 +3758,24 @@ def salvar_evento_atendimento(
         except Exception as e:
             log_erro("[RPA] Erro ao avaliar tarefa do atendimento:", repr(e))
 
+        try:
+            atualizar_memoria_cliente(
+                telefone,
+                {
+                    "nome": nome,
+                    "modelo": modelo,
+                    "ano": ano,
+                    "ultima_revisao": revisao,
+                    "data_ultima_revisao": data_agendada,
+                    "nivel_interesse": limpar_texto(base.get("nivel_interesse", "")),
+                    "setor_recente": limpar_texto(setor),
+                    "status_atual": normalizar_status(status),
+                    "observacoes": observacoes,
+                },
+            )
+        except Exception as e:
+            log_erro("Erro ao atualizar memória do cliente:", repr(e))
+
         return True
 
     except Exception as e:
@@ -3526,6 +3871,7 @@ def enviar_menu_garantia(telefone):
 
 def iniciar_fluxo_garantia(telefone):
     iniciar_cliente(telefone)
+    carregar_memoria_cliente_no_estado(telefone)
     clientes[telefone]["intencao_ia"] = "garantia"
     clientes[telefone]["ultima_interacao"] = agora()
     clientes[telefone]["status"] = STATUS_NOVO_ATENDIMENTO
@@ -3537,6 +3883,7 @@ def iniciar_fluxo_garantia(telefone):
     clientes[telefone]["km_atual"] = ""
     clientes[telefone]["observacao"] = ""
 
+    enviar_mensagem_memoria_cliente(telefone, "garantia")
     return enviar_menu_garantia(telefone)
 
 
@@ -3747,6 +4094,7 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
         return False
 
     iniciar_cliente(telefone)
+    carregar_memoria_cliente_no_estado(telefone)
 
     clientes[telefone]["etapa"] = "pecas"
     clientes[telefone]["atendimento_humano"] = False
@@ -3763,6 +4111,8 @@ def iniciar_fluxo_pecas(telefone, texto_inicial=""):
         atendimento_humano=False,
         concluido=False,
     )
+
+    enviar_mensagem_memoria_cliente(telefone, "pecas")
 
     return enviar_mensagem(
         telefone,
@@ -3782,6 +4132,7 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         return False
 
     iniciar_cliente(telefone)
+    carregar_memoria_cliente_no_estado(telefone)
 
     clientes[telefone]["etapa"] = "acessorios_modelo"
     clientes[telefone]["atendimento_humano"] = False
@@ -3840,6 +4191,8 @@ def iniciar_fluxo_acessorios(telefone, texto_inicial=""):
         )
 
         return True
+
+    enviar_mensagem_memoria_cliente(telefone, "acessorios")
 
     return enviar_mensagem(
         telefone,
@@ -3969,7 +4322,11 @@ def processar_pergunta_duvida_manual(telefone, texto, categoria="manual"):
 
     modelo_duvida = identificar_modelo_duvida_manual(
         pergunta=texto,
-        modelo_salvo=clientes[telefone].get("modelo", ""),
+        modelo_salvo=(
+            clientes[telefone].get("modelo", "")
+            or clientes[telefone].get("modelo_memoria", "")
+            or (clientes[telefone].get("memoria_cliente", {}) or {}).get("modelo", "")
+        ),
     )
 
     resposta = resposta_duvida_manual_segura(
@@ -4637,6 +4994,7 @@ def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
         return ""
 
     iniciar_cliente(telefone)
+    memoria = carregar_memoria_cliente_no_estado(telefone)
 
     origem_atual = clientes[telefone].get("origem", "BOT")
     atendimento_humano_atual = clientes[telefone].get("atendimento_humano", False)
@@ -4657,6 +5015,15 @@ def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
             dados_extraidos
         )
 
+    if not clientes[telefone].get("modelo") and memoria.get("modelo"):
+        clientes[telefone]["modelo"] = memoria.get("modelo", "")
+
+    if not clientes[telefone].get("ano") and memoria.get("ano"):
+        clientes[telefone]["ano"] = memoria.get("ano", "")
+
+    if not clientes[telefone].get("nome") and memoria.get("nome"):
+        clientes[telefone]["nome"] = memoria.get("nome", "")
+
     salvar_evento_atendimento(
         telefone=telefone,
         setor="Revisão",
@@ -4667,6 +5034,8 @@ def iniciar_fluxo_revisao_por_intencao(telefone, dados_extraidos=None):
         concluido=False,
         origem=clientes.get(telefone, {}).get("origem", "BOT"),
     )
+
+    enviar_mensagem_memoria_cliente(telefone, "revisao")
 
     proxima = primeira_etapa_pendente_revisao(telefone)
     clientes[telefone]["etapa"] = proxima
@@ -7980,9 +8349,42 @@ def pagina_clientes():
             .all()
         )
 
+        memorias_por_telefone = {}
+
+        for atendimento in atendimentos:
+            telefone_atendimento = limpar_telefone(getattr(atendimento, "telefone", ""))
+
+            try:
+                if telefone_atendimento not in memorias_por_telefone:
+                    memorias_por_telefone[telefone_atendimento] = buscar_memoria_cliente(
+                        telefone_atendimento
+                    )
+
+                memoria = memorias_por_telefone.get(telefone_atendimento, {})
+            except Exception:
+                memoria = {}
+
+            atendimento.memoria_modelo = memoria.get("modelo", "")
+            atendimento.memoria_ano = memoria.get("ano", "")
+            atendimento.memoria_setor = memoria.get("setor_recente", "")
+            atendimento.memoria_status = memoria.get("status_atual", "")
+            atendimento.memoria_nivel = memoria.get("nivel_cliente", "")
+            atendimento.memoria_interesse = memoria.get("nivel_interesse", "")
+            atendimento.memoria_ultima_revisao = memoria.get("ultima_revisao", "")
+            atendimento.memoria_data_ultima_revisao = memoria.get("data_ultima_revisao", "")
+            atendimento.memoria_pecas = ", ".join(memoria.get("pecas", [])[:3])
+            atendimento.memoria_acessorios = ", ".join(memoria.get("acessorios", [])[:3])
+
+        total_clientes_memoria = len({
+            limpar_telefone(getattr(atendimento, "telefone", ""))
+            for atendimento in atendimentos
+            if limpar_telefone(getattr(atendimento, "telefone", ""))
+        })
+
         return render_template(
             "clientes.html",
             atendimentos=atendimentos,
+            total_clientes_memoria=total_clientes_memoria,
         )
 
     except Exception as e:
@@ -8159,8 +8561,12 @@ def montar_mensagem_followup_inteligente(at):
     if contexto == "ignorar":
         return ""
 
-    nome = limpar_texto(getattr(at, "nome", "") or "").title()
-    modelo = limpar_texto(getattr(at, "modelo", "") or "").upper()
+    telefone_memoria = limpar_telefone(getattr(at, "telefone", "") or "")
+    memoria = buscar_memoria_cliente(telefone_memoria) if telefone_memoria else {}
+    nome = limpar_texto(getattr(at, "nome", "") or memoria.get("nome", "")).title()
+    modelo = limpar_texto(getattr(at, "modelo", "") or memoria.get("modelo", "")).upper()
+    pecas_memoria = memoria.get("pecas", []) or []
+    acessorios_memoria = memoria.get("acessorios", []) or []
 
     saudacao = f"Oi, {nome}! " if nome else "Oi! "
 
@@ -8210,13 +8616,22 @@ def montar_mensagem_followup_inteligente(at):
 
         "pecas": (
             saudacao +
-            "vi que você iniciou uma solicitação de peças e não finalizou.\n\n"
+            (
+                f"passando para saber se ainda deseja orçamento de {pecas_memoria[0]}.\n\n"
+                if pecas_memoria else
+                "vi que você iniciou uma solicitação de peças e não finalizou.\n\n"
+            ) +
             "Se quiser, posso continuar seu atendimento agora 🔧"
         ),
 
         "acessorios": (
             saudacao +
-            "vi que você iniciou uma solicitação de acessórios e não finalizou.\n\n"
+            (
+                f"passando para saber se ainda deseja orçamento de {acessorios_memoria[0]}"
+                f"{f' para sua *{modelo}*' if modelo else ''}.\n\n"
+                if acessorios_memoria else
+                "vi que você iniciou uma solicitação de acessórios e não finalizou.\n\n"
+            ) +
             "Se quiser, posso continuar seu atendimento agora 🏍️"
         ),
 
@@ -9506,6 +9921,7 @@ def webhook():
             registrar_mensagem_processada(message_id)
 
         iniciar_cliente(telefone)
+        carregar_memoria_cliente_no_estado(telefone)
 
         etapa_anterior = limpar_texto(clientes[telefone].get("etapa", "menu")) or "menu"
         ultima_interacao_anterior = clientes[telefone].get("ultima_interacao", agora())
