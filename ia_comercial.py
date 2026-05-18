@@ -590,7 +590,7 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
 # ==========================================
 # MENSAGEM ATACADO COM ENGAJAMENTO
 # ==========================================
-def gerar_mensagem_atacado(nome="", empresa=""):
+def gerar_mensagem_atacado_basica(nome="", empresa=""):
     nome = limpar_texto(nome)
     empresa = limpar_texto(empresa)
 
@@ -615,6 +615,222 @@ def gerar_mensagem_atacado(nome="", empresa=""):
         "2️⃣ Falar com consultor\n"
         "3️⃣ Ver depois"
     )
+
+PARCEIRO_QUENTE = "PARCEIRO_QUENTE"
+PARCEIRO_MORNO = "PARCEIRO_MORNO"
+PARCEIRO_FRIO = "PARCEIRO_FRIO"
+NOVO_PARCEIRO = "NOVO_PARCEIRO"
+
+
+def classificar_parceiro_atacado(dados_cliente=None, mensagem=""):
+    dados_cliente = dados_cliente or {}
+    mensagem_norm = normalizar_texto(mensagem)
+    etapa = normalizar_texto(dados_cliente.get("etapa", ""))
+
+    if (
+        dados_cliente.get("itens_cotacao")
+        or texto_parece_lista_itens(mensagem)
+        or any(p in mensagem_norm for p in [
+            "comprar agora",
+            "fechar pedido",
+            "manda cotacao",
+            "fazer pedido",
+            "quero comprar",
+            "pode separar",
+            "orcamento",
+            "cotacao",
+            "cotar",
+        ])
+    ):
+        return PARCEIRO_QUENTE
+
+    if (
+        etapa in [
+            "atacado_cadastro",
+            "atacado_cadastro_empresa",
+            "atacado_cadastro_responsavel",
+            "atacado_cadastro_cidade",
+            "atacado_cadastro_cnpj",
+            "atacado_cadastro_telefone",
+            "atacado_cadastro_segmento",
+            "atacado_cadastro_produtos",
+        ]
+        or dados_cliente.get("empresa")
+        or dados_cliente.get("cnpj")
+    ):
+        return NOVO_PARCEIRO
+
+    if (
+        etapa in ["atacado_catalogo_enviado", "atacado_cotacao_itens"]
+        or dados_cliente.get("catalogo_enviado")
+        or any(p in mensagem_norm for p in [
+            "catalogo",
+            "tabela",
+            "tenho interesse",
+            "sou lojista",
+            "sou logista",
+            "oficina",
+            "revenda",
+            "parceria",
+        ])
+    ):
+        return PARCEIRO_MORNO
+
+    return PARCEIRO_FRIO
+
+
+def recomendar_produtos_atacado(segmento="", produtos_interesse="", historico=None):
+    segmento_norm = normalizar_texto(segmento)
+    interesse_norm = normalizar_texto(produtos_interesse)
+    historico_norm = normalizar_texto(" ".join(historico or []))
+    contexto = " ".join([segmento_norm, interesse_norm, historico_norm])
+
+    if "oficina" in contexto or "mecanica" in contexto:
+        base = ["óleo Yamalube", "filtros", "kit relação", "pastilhas", "cabos", "lâmpadas"]
+    elif "moto peca" in contexto or "motopeca" in contexto or "moto pecas" in contexto:
+        base = ["linha Yamaha", "lubrificantes", "filtros", "pastilhas", "acessórios"]
+    elif "loja" in contexto or "pecas" in contexto:
+        base = ["itens de giro", "óleo Yamalube", "filtros", "kit relação", "acessórios"]
+    elif "revenda" in contexto or "lojista" in contexto or "logista" in contexto:
+        base = ["kits de revisão", "combos de óleo e filtro", "produtos de maior giro", "acessórios Yamaha"]
+    else:
+        base = ["óleo Yamalube", "filtros", "kit relação", "pastilhas", "kits de revisão", "acessórios Yamaha"]
+
+    extras = []
+
+    if "oleo" in interesse_norm:
+        extras.append("filtros")
+
+    if "filtro" in interesse_norm:
+        extras.append("óleo Yamalube")
+
+    if "revisao" in interesse_norm:
+        extras.extend(["kits de revisão", "pastilhas"])
+
+    recomendados = []
+    vistos = set()
+
+    for item in base + extras:
+        chave = normalizar_texto(item)
+
+        if chave in vistos:
+            continue
+
+        vistos.add(chave)
+        recomendados.append(item)
+
+    return recomendados[:8]
+
+
+def campanha_atacado_por_dados(dados):
+    produto = normalizar_texto(
+        dados.get("produto", "")
+        or dados.get("produtos_interesse", "")
+        or dados.get("itens_cotacao", "")
+    )
+
+    if "filtro" in produto:
+        foco = "filtros"
+        complemento = "para montar uma cotação com itens de giro para oficina e balcão"
+    elif "relacao" in produto or "kit" in produto:
+        foco = "kits de relação"
+        complemento = "para reposição e manutenção preventiva"
+    elif "pastilha" in produto:
+        foco = "pastilhas"
+        complemento = "para atender clientes que buscam manutenção rápida e segura"
+    elif "acessorio" in produto:
+        foco = "acessórios Yamaha"
+        complemento = "para aumentar o ticket médio nas vendas"
+    elif "revisao" in produto:
+        foco = "kits de revisão"
+        complemento = "com óleo, filtros e itens de maior giro"
+    else:
+        foco = "óleo Yamalube"
+        complemento = "com possibilidade de combinar filtros e itens de giro"
+
+    return (
+        f"Campanha sugerida: destaque *{foco}* para clientes de atacado, "
+        f"{complemento}. Um consultor deve confirmar condições, disponibilidade e valores."
+    )
+
+
+def gerar_mensagem_atacado(tipo="boas_vindas", dados=None, nome="", empresa=""):
+    tipos_validos = {
+        "boas_vindas",
+        "catalogo_enviado",
+        "cotacao_recebida",
+        "cadastro_parceiro",
+        "followup_catalogo",
+        "followup_cotacao",
+        "parceiro_quente",
+        "campanha_atacado",
+    }
+
+    if isinstance(dados, str) and not nome:
+        nome = dados
+        dados = {}
+
+    if tipo not in tipos_validos:
+        nome = limpar_texto(nome or tipo)
+        tipo = "boas_vindas"
+
+    dados = dados or {}
+    nome = limpar_texto(nome or dados.get("nome", "") or dados.get("responsavel", ""))
+    empresa = limpar_texto(empresa or dados.get("empresa", ""))
+    segmento = limpar_texto(dados.get("segmento", ""))
+    produtos = limpar_texto(dados.get("produtos_interesse", "") or dados.get("itens_cotacao", ""))
+    recomendados = recomendar_produtos_atacado(segmento, produtos, dados.get("historico", []))
+    recomendacao_txt = ", ".join(recomendados[:5])
+    saudacao = f"Olá, {nome}!" if nome else "Olá!"
+
+    if tipo == "catalogo_enviado":
+        return (
+            "📎 Segue nosso catálogo de atacado.\n\n"
+            "Você deseja cotação de alguma peça ou produto?\n"
+            "Se sim, envie a lista dos itens por aqui. 😊"
+        )
+
+    if tipo == "cotacao_recebida":
+        return (
+            "Recebi sua lista de itens para cotação. Vou encaminhar para um consultor comercial "
+            "priorizar seu atendimento. 🤝"
+        )
+
+    if tipo == "cadastro_parceiro":
+        return (
+            "✅ Cadastro de parceiro recebido com sucesso.\n\n"
+            "Nossa equipe comercial irá analisar seus dados e continuará o atendimento por aqui. 🤝"
+        )
+
+    if tipo == "followup_catalogo":
+        return (
+            f"{saudacao} conseguiu verificar nosso catálogo de atacado?\n\n"
+            "Se quiser, pode me enviar a lista de peças ou produtos que deseja cotar "
+            "que nossa equipe comercial te ajuda."
+        )
+
+    if tipo == "followup_cotacao":
+        return (
+            f"{saudacao} passando para confirmar se ainda deseja seguir com a cotação de atacado.\n\n"
+            "Nossa equipe comercial pode te ajudar a revisar os itens e condições com segurança."
+        )
+
+    if tipo == "parceiro_quente":
+        return (
+            "Perfeito, recebi seu interesse de compra no atacado.\n\n"
+            "Vou encaminhar para um consultor comercial priorizar seu atendimento e confirmar "
+            "valores, condições e disponibilidade. 🤝"
+        )
+
+    if tipo == "campanha_atacado":
+        return campanha_atacado_por_dados(dados)
+
+    mensagem = gerar_mensagem_atacado_basica(nome=nome, empresa=empresa)
+
+    if recomendacao_txt:
+        mensagem += f"\n\nPara esse perfil, vale olhar principalmente: {recomendacao_txt}."
+
+    return mensagem
 
 
 # ==========================================

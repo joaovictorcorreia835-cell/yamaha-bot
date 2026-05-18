@@ -19,7 +19,7 @@ from sqlalchemy import or_
 
 load_dotenv()
 
-from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao, TarefaRPA
+from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao, LeadAtacado, TarefaRPA
 from ia_intencao import classificar_intencao, responder_duvida_por_tabela
 
 try:
@@ -36,6 +36,8 @@ try:
         gerar_mensagem_recuperacao,
         gerar_mensagem_venda_adicional,
         gerar_mensagem_atacado,
+        classificar_parceiro_atacado,
+        recomendar_produtos_atacado,
     )
 except Exception as e:
     gerar_resposta_comercial = None
@@ -44,6 +46,8 @@ except Exception as e:
     gerar_mensagem_recuperacao = None
     gerar_mensagem_venda_adicional = None
     gerar_mensagem_atacado = None
+    classificar_parceiro_atacado = None
+    recomendar_produtos_atacado = None
     print("[ERRO] Não foi possível importar ia_comercial:", repr(e), flush=True)
 
 try:
@@ -880,7 +884,11 @@ def enviar_catalogo_atacado(telefone):
         clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
         clientes[telefone]["intencao_ia"] = "atacado"
         clientes[telefone]["proxima_acao"] = "ATACADO_COTACAO_ITENS"
-        clientes[telefone]["nivel_interesse"] = "QUENTE"
+        clientes[telefone]["proxima_acao_atacado"] = "AGUARDAR_LISTA_COTACAO"
+        clientes[telefone]["catalogo_enviado"] = True
+        clientes[telefone]["nivel_interesse_atacado"] = "PARCEIRO_MORNO"
+        clientes[telefone]["nivel_interesse"] = "MEDIO"
+        clientes[telefone]["temperatura_lead"] = "MORNO"
         clientes[telefone]["ultima_interacao"] = agora()
 
         salvar_evento_atendimento(
@@ -894,6 +902,12 @@ def enviar_catalogo_atacado(telefone):
             origem=clientes[telefone].get("origem", "Campanha Atacado"),
             observacao=PDF_CATALOGO_ATACADO,
             intencao_ia="atacado",
+        )
+
+        salvar_lead_atacado(
+            telefone,
+            status="CATALOGO_ENVIADO",
+            mensagem="Catálogo de atacado enviado.",
         )
 
         if not enviado:
@@ -916,6 +930,215 @@ def enviar_catalogo_atacado(telefone):
     except Exception as e:
         log_erro("Erro enviar_catalogo_atacado:", repr(e))
         return False
+
+
+def classificar_atacado_estado(telefone, mensagem=""):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return "PARCEIRO_FRIO"
+
+    iniciar_cliente(telefone)
+    dados = clientes.get(telefone, {})
+
+    if classificar_parceiro_atacado:
+        try:
+            nivel = classificar_parceiro_atacado(dados, mensagem)
+        except Exception as e:
+            log_erro("Erro classificar parceiro atacado:", repr(e))
+            nivel = ""
+    else:
+        nivel = ""
+
+    if not nivel:
+        texto_norm = normalizar_texto(mensagem)
+
+        if dados.get("itens_cotacao") or "cotacao" in texto_norm or "orcamento" in texto_norm:
+            nivel = "PARCEIRO_QUENTE"
+        elif dados.get("empresa") or dados.get("cnpj"):
+            nivel = "NOVO_PARCEIRO"
+        elif dados.get("etapa") == "atacado_catalogo_enviado" or "catalogo" in texto_norm:
+            nivel = "PARCEIRO_MORNO"
+        else:
+            nivel = "PARCEIRO_FRIO"
+
+    clientes[telefone]["nivel_interesse_atacado"] = nivel
+    clientes[telefone]["nivel_interesse"] = {
+        "PARCEIRO_QUENTE": "ALTO",
+        "PARCEIRO_MORNO": "MEDIO",
+        "PARCEIRO_FRIO": "BAIXO",
+        "NOVO_PARCEIRO": "MEDIO",
+    }.get(nivel, clientes[telefone].get("nivel_interesse", "MEDIO"))
+    clientes[telefone]["temperatura_lead"] = {
+        "PARCEIRO_QUENTE": "QUENTE",
+        "PARCEIRO_MORNO": "MORNO",
+        "PARCEIRO_FRIO": "FRIO",
+        "NOVO_PARCEIRO": "MORNO",
+    }.get(nivel, clientes[telefone].get("temperatura_lead", "MORNO"))
+
+    return nivel
+
+
+def atualizar_recomendacoes_atacado(telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return []
+
+    iniciar_cliente(telefone)
+    dados = clientes.get(telefone, {})
+    historico = []
+
+    memoria = dados.get("memoria_cliente", {}) or {}
+
+    if memoria.get("pecas"):
+        historico.extend(memoria.get("pecas", []))
+
+    if memoria.get("acessorios"):
+        historico.extend(memoria.get("acessorios", []))
+
+    if recomendar_produtos_atacado:
+        try:
+            recomendacoes = recomendar_produtos_atacado(
+                dados.get("segmento", ""),
+                dados.get("produtos_interesse", "") or dados.get("itens_cotacao", ""),
+                historico,
+            )
+        except Exception as e:
+            log_erro("Erro recomendar produtos atacado:", repr(e))
+            recomendacoes = []
+    else:
+        recomendacoes = []
+
+    if not recomendacoes:
+        recomendacoes = [
+            "óleo Yamalube",
+            "filtros",
+            "kit relação",
+            "pastilhas",
+            "kits de revisão",
+            "acessórios Yamaha",
+        ]
+
+    clientes[telefone]["recomendacoes_atacado"] = recomendacoes
+
+    return recomendacoes
+
+
+def mensagem_atacado_ia(tipo, telefone):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return ""
+
+    iniciar_cliente(telefone)
+    dados = dict(clientes.get(telefone, {}))
+    dados["historico"] = atualizar_recomendacoes_atacado(telefone)
+
+    if gerar_mensagem_atacado:
+        try:
+            return limpar_texto(gerar_mensagem_atacado(tipo, dados))
+        except Exception as e:
+            log_erro("Erro gerar mensagem atacado:", repr(e))
+
+    fallback = {
+        "catalogo_enviado": (
+            "📎 Segue nosso catálogo de atacado.\n\n"
+            "Você deseja cotação de alguma peça ou produto?\n"
+            "Se sim, envie a lista dos itens por aqui. 😊"
+        ),
+        "cotacao_recebida": (
+            "Recebi sua lista de itens para cotação. Vou encaminhar para um consultor comercial "
+            "priorizar seu atendimento. 🤝"
+        ),
+        "cadastro_parceiro": (
+            "✅ Cadastro de parceiro recebido com sucesso.\n\n"
+            "Nossa equipe comercial irá analisar seus dados e continuará o atendimento por aqui. 🤝"
+        ),
+        "followup_catalogo": (
+            "Olá 😊 conseguiu verificar nosso catálogo de atacado? Se quiser, pode me enviar "
+            "a lista de peças ou produtos que deseja cotar que nossa equipe comercial te ajuda."
+        ),
+        "followup_cotacao": (
+            "Olá 😊 passando para confirmar se ainda deseja seguir com a cotação de atacado. "
+            "Nossa equipe comercial pode continuar te ajudando por aqui."
+        ),
+    }
+
+    return fallback.get(tipo, "")
+
+
+def salvar_lead_atacado(telefone, status="NOVO", mensagem=""):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+    dados = clientes.get(telefone, {})
+    nivel = dados.get("nivel_interesse_atacado") or classificar_atacado_estado(telefone, mensagem)
+    recomendacoes = atualizar_recomendacoes_atacado(telefone)
+    agora_db = agora_datetime()
+    db = SessionLocal()
+
+    try:
+        lead = (
+            db.query(LeadAtacado)
+            .filter(LeadAtacado.telefone == telefone)
+            .order_by(LeadAtacado.id.desc())
+            .first()
+        )
+
+        if not lead:
+            lead = LeadAtacado(telefone=telefone)
+
+        lead.empresa = limpar_texto(dados.get("empresa", ""))
+        lead.responsavel = limpar_texto(dados.get("responsavel", "") or dados.get("nome", ""))
+        lead.cidade = limpar_texto(dados.get("cidade", ""))
+        lead.cnpj = limpar_texto(dados.get("cnpj", ""))
+        lead.segmento = limpar_texto(dados.get("segmento", ""))
+        lead.telefone_comercial = limpar_texto(dados.get("telefone_comercial", ""))
+        lead.interesse = limpar_texto(
+            dados.get("produtos_interesse", "")
+            or dados.get("itens_cotacao", "")
+            or dados.get("produto_interesse", "")
+            or mensagem
+        )
+        lead.produtos_interesse = limpar_texto(dados.get("produtos_interesse", ""))
+        lead.itens_cotacao = limpar_texto(dados.get("itens_cotacao", "") or dados.get("itens", ""))
+        lead.status = limpar_texto(status or nivel or "NOVO")
+        lead.origem = "atacado"
+        lead.intencao_ia = "atacado"
+        lead.nivel_interesse = limpar_texto(dados.get("nivel_interesse", ""))
+        lead.nivel_interesse_atacado = nivel
+        lead.proxima_acao = limpar_texto(dados.get("proxima_acao", ""))
+        lead.proxima_acao_atacado = limpar_texto(dados.get("proxima_acao_atacado", ""))
+        lead.catalogo_enviado = dados.get("etapa") == "atacado_catalogo_enviado" or bool(dados.get("catalogo_enviado"))
+
+        if lead.catalogo_enviado and not getattr(lead, "data_catalogo_enviado", None):
+            lead.data_catalogo_enviado = agora_db
+
+        lead.observacoes = "\n".join([
+            f"Classificação atacado: {nivel}",
+            f"Recomendações: {', '.join(recomendacoes)}",
+            f"Última mensagem: {limpar_texto(mensagem)}",
+        ]).strip()
+        lead.ultima_interacao = agora_db
+        lead.data_ultimo_contato = agora_db
+
+        db.add(lead)
+        db.commit()
+
+        log_info("Lead atacado salvo:", {"telefone": telefone, "nivel": nivel, "status": status})
+        return True
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro salvar lead atacado:", repr(e))
+        return False
+
+    finally:
+        db.close()
 
 
 def menu_atacado():
@@ -1044,11 +1267,15 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
 
     if etapa == "atacado":
         if texto_opcao == "1":
+            classificar_atacado_estado(telefone, "catalogo")
             enviar_catalogo_atacado(telefone)
             return True
 
         if texto_opcao == "2":
             clientes[telefone]["etapa"] = "atacado_cotacao_itens"
+            clientes[telefone]["proxima_acao_atacado"] = "AGUARDAR_LISTA_COTACAO"
+            classificar_atacado_estado(telefone, "cotacao")
+            salvar_lead_atacado(telefone, status="AGUARDANDO_COTACAO", mensagem=texto)
             enviar_mensagem(
                 telefone,
                 "Envie a lista das peças/produtos que deseja cotar."
@@ -1057,10 +1284,17 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
 
         if texto_opcao == "3":
             clientes[telefone]["etapa"] = "atacado_cadastro_empresa"
+            clientes[telefone]["proxima_acao_atacado"] = "CONCLUIR_CADASTRO_PARCEIRO"
+            clientes[telefone]["nivel_interesse_atacado"] = "NOVO_PARCEIRO"
+            classificar_atacado_estado(telefone, "cadastro")
+            salvar_lead_atacado(telefone, status="CADASTRO_INICIADO", mensagem=texto)
             enviar_mensagem(telefone, "Informe o *nome da empresa*.")
             return True
 
         if texto_opcao == "4":
+            clientes[telefone]["nivel_interesse_atacado"] = "PARCEIRO_QUENTE"
+            clientes[telefone]["proxima_acao_atacado"] = "CONSULTOR_COMERCIAL"
+            salvar_lead_atacado(telefone, status="CONSULTOR_SOLICITADO", mensagem=texto)
             finalizar_atacado_com_humano(
                 telefone=telefone,
                 etapa_evento="atacado_consultor",
@@ -1093,13 +1327,17 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
         clientes[telefone]["oportunidade_comercial"] = True
         clientes[telefone]["nivel_interesse"] = "ALTO"
         clientes[telefone]["temperatura_lead"] = "QUENTE"
+        clientes[telefone]["nivel_interesse_atacado"] = "PARCEIRO_QUENTE"
         clientes[telefone]["proxima_acao"] = "ENCAMINHAR_CONSULTOR"
+        clientes[telefone]["proxima_acao_atacado"] = "PRIORIZAR_CONSULTOR_COMERCIAL"
         clientes[telefone]["status_comercial"] = "COTACAO_ATACADO"
+        classificar_atacado_estado(telefone, texto)
+        salvar_lead_atacado(telefone, status="COTACAO_RECEBIDA", mensagem=texto)
 
         finalizar_atacado_com_humano(
             telefone=telefone,
             etapa_evento="atacado_cotacao_itens",
-            mensagem=mensagem_cotacao_atacado_recebida(),
+            mensagem=mensagem_atacado_ia("cotacao_recebida", telefone) or mensagem_cotacao_atacado_recebida(),
         )
         return True
 
@@ -1109,37 +1347,51 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
 
     if etapa in ["atacado_cadastro", "atacado_empresa", "atacado_cadastro_empresa"]:
         clientes[telefone]["empresa"] = texto
+        clientes[telefone]["nivel_interesse_atacado"] = "NOVO_PARCEIRO"
+        clientes[telefone]["proxima_acao_atacado"] = "COLETAR_RESPONSAVEL"
         clientes[telefone]["etapa"] = "atacado_cadastro_responsavel"
+        salvar_lead_atacado(telefone, status="CADASTRO_EM_ANDAMENTO", mensagem=texto)
         enviar_mensagem(telefone, "Informe o *nome do responsável*.")
         return True
 
     if etapa in ["atacado_responsavel", "atacado_cadastro_responsavel"]:
         clientes[telefone]["responsavel"] = texto
+        clientes[telefone]["proxima_acao_atacado"] = "COLETAR_CIDADE"
         clientes[telefone]["etapa"] = "atacado_cadastro_cidade"
+        salvar_lead_atacado(telefone, status="CADASTRO_EM_ANDAMENTO", mensagem=texto)
         enviar_mensagem(telefone, "Informe a *cidade*.")
         return True
 
     if etapa in ["atacado_cidade", "atacado_cadastro_cidade"]:
         clientes[telefone]["cidade"] = texto
+        clientes[telefone]["proxima_acao_atacado"] = "COLETAR_CNPJ"
         clientes[telefone]["etapa"] = "atacado_cadastro_cnpj"
+        salvar_lead_atacado(telefone, status="CADASTRO_EM_ANDAMENTO", mensagem=texto)
         enviar_mensagem(telefone, "Informe o *CNPJ*.")
         return True
 
     if etapa in ["atacado_cnpj", "atacado_cadastro_cnpj"]:
         clientes[telefone]["cnpj"] = texto
+        clientes[telefone]["proxima_acao_atacado"] = "COLETAR_TELEFONE_COMERCIAL"
         clientes[telefone]["etapa"] = "atacado_cadastro_telefone"
+        salvar_lead_atacado(telefone, status="CADASTRO_EM_ANDAMENTO", mensagem=texto)
         enviar_mensagem(telefone, "Informe o *telefone comercial*.")
         return True
 
     if etapa in ["atacado_telefone_comercial", "atacado_cadastro_telefone"]:
         clientes[telefone]["telefone_comercial"] = texto
+        clientes[telefone]["proxima_acao_atacado"] = "COLETAR_SEGMENTO"
         clientes[telefone]["etapa"] = "atacado_cadastro_segmento"
+        salvar_lead_atacado(telefone, status="CADASTRO_EM_ANDAMENTO", mensagem=texto)
         enviar_mensagem(telefone, "Informe o *segmento da empresa*.")
         return True
 
     if etapa in ["atacado_segmento", "atacado_cadastro_segmento"]:
         clientes[telefone]["segmento"] = texto
+        atualizar_recomendacoes_atacado(telefone)
+        clientes[telefone]["proxima_acao_atacado"] = "COLETAR_PRODUTOS_INTERESSE"
         clientes[telefone]["etapa"] = "atacado_cadastro_produtos"
+        salvar_lead_atacado(telefone, status="CADASTRO_EM_ANDAMENTO", mensagem=texto)
         enviar_mensagem(
             telefone,
             "Quais produtos tem interesse em comprar no atacado?"
@@ -1149,6 +1401,10 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
     if etapa in ["atacado_produtos_interesse", "atacado_cadastro_produtos"]:
         clientes[telefone]["produtos_interesse"] = texto
         clientes[telefone]["observacao"] = texto
+        clientes[telefone]["nivel_interesse_atacado"] = "NOVO_PARCEIRO"
+        clientes[telefone]["proxima_acao_atacado"] = "ANALISAR_CADASTRO_PARCEIRO"
+        atualizar_recomendacoes_atacado(telefone)
+        salvar_lead_atacado(telefone, status="CADASTRO_RECEBIDO", mensagem=texto)
 
         finalizar_atacado_com_humano(
             telefone=telefone,
@@ -1936,6 +2192,11 @@ def estado_padrao_cliente():
         "modelo_memoria": "",
         "nome_memoria": "",
         "ano_memoria": "",
+
+        "nivel_interesse_atacado": "",
+        "proxima_acao_atacado": "",
+        "data_ultimo_contato_atacado": "",
+        "recomendacoes_atacado": [],
     }
 
 
@@ -7361,11 +7622,19 @@ def montar_metricas_crm(filtro="hoje"):
             fim,
         )
 
+        query_leads_atacado = aplicar_periodo_crm(
+            db.query(LeadAtacado),
+            LeadAtacado,
+            inicio,
+            fim,
+        )
+
         atendimentos = query_atendimentos.all()
         agendamentos = query_agendamentos.order_by(
             AgendamentoRevisao.id.desc()
         ).all()
         tarefas_rpa = query_rpa.order_by(TarefaRPA.id.desc()).all()
+        leads_atacado_lista = query_leads_atacado.order_by(LeadAtacado.id.desc()).all()
 
         def status_atendimento(obj):
             return normalizar_status(getattr(obj, "status", "") or "")
@@ -7440,6 +7709,35 @@ def montar_metricas_crm(filtro="hoje"):
             1 for a in atendimentos
             if "atacado" in normalizar_texto(getattr(a, "setor", ""))
             or normalizar_texto(getattr(a, "intencao_ia", "")) == "atacado"
+        ) or len(leads_atacado_lista)
+
+        parceiros_quentes_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "parceiro_quente"
+            or normalizar_texto(getattr(lead, "nivel_interesse", "")) in ["alto", "quente"]
+            or "cotacao" in normalizar_texto(getattr(lead, "status", ""))
+        )
+
+        parceiros_mornos_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "parceiro_morno"
+        )
+
+        parceiros_frios_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "parceiro_frio"
+        )
+
+        novos_parceiros_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "novo_parceiro"
+            or "cadastro" in normalizar_texto(getattr(lead, "status", ""))
+        )
+
+        cotacoes_atacado_recebidas = sum(
+            1 for lead in leads_atacado_lista
+            if limpar_texto(getattr(lead, "itens_cotacao", ""))
+            or "cotacao" in normalizar_texto(getattr(lead, "status", ""))
         )
 
         leads_comerciais = sum(
@@ -7477,6 +7775,8 @@ def montar_metricas_crm(filtro="hoje"):
         contador_setores = Counter()
         contador_modelos = Counter()
         contador_produtos = Counter()
+        contador_cidades_atacado = Counter()
+        contador_produtos_atacado = Counter()
 
         for at in atendimentos:
             adicionar_ranking(contador_setores, getattr(at, "setor", ""))
@@ -7525,6 +7825,22 @@ def montar_metricas_crm(filtro="hoje"):
 
                 if item_adicional_valido(item_limpo):
                     contador_itens[item_limpo] += 1
+                    contador_produtos[item_limpo] += 1
+
+        for lead in leads_atacado_lista:
+            adicionar_ranking(contador_cidades_atacado, getattr(lead, "cidade", ""))
+
+            itens_lead = " ".join([
+                limpar_texto(getattr(lead, "produtos_interesse", "")),
+                limpar_texto(getattr(lead, "itens_cotacao", "")),
+                limpar_texto(getattr(lead, "interesse", "")),
+            ])
+
+            for item in re.split(r",|;|\n|\+", itens_lead):
+                item_limpo = limpar_item_adicional(item)
+
+                if item_adicional_valido(item_limpo):
+                    contador_produtos_atacado[item_limpo] += 1
                     contador_produtos[item_limpo] += 1
 
         taxa_conversao = 0
@@ -7593,6 +7909,11 @@ def montar_metricas_crm(filtro="hoje"):
             "duvidas_ia": duvidas_ia,
             "ia_conversando": ia_conversando,
             "leads_atacado": leads_atacado,
+            "parceiros_quentes_atacado": parceiros_quentes_atacado,
+            "parceiros_mornos_atacado": parceiros_mornos_atacado,
+            "parceiros_frios_atacado": parceiros_frios_atacado,
+            "novos_parceiros_atacado": novos_parceiros_atacado,
+            "cotacoes_atacado_recebidas": cotacoes_atacado_recebidas,
             "leads_comerciais": leads_comerciais,
             "leads_quentes": leads_quentes,
             "oportunidades_comerciais": oportunidades_comerciais,
@@ -7617,6 +7938,9 @@ def montar_metricas_crm(filtro="hoje"):
             "ranking_modelos": contador_modelos.most_common(10),
             "ranking_setores": contador_setores.most_common(10),
             "ranking_produtos": contador_produtos.most_common(10),
+            "ranking_cidades_atacado": contador_cidades_atacado.most_common(10),
+            "ranking_produtos_atacado": contador_produtos_atacado.most_common(10),
+            "leads_atacado_lista": leads_atacado_lista[:20],
             "total_itens_vendidos": sum(contador_itens.values()),
             "total_agendamentos_periodo": total_agendamentos,
             "taxa_conversao": taxa_conversao,
@@ -7640,6 +7964,11 @@ def montar_metricas_crm(filtro="hoje"):
             "duvidas_ia": 0,
             "ia_conversando": 0,
             "leads_atacado": 0,
+            "parceiros_quentes_atacado": 0,
+            "parceiros_mornos_atacado": 0,
+            "parceiros_frios_atacado": 0,
+            "novos_parceiros_atacado": 0,
+            "cotacoes_atacado_recebidas": 0,
             "leads_comerciais": 0,
             "leads_quentes": 0,
             "oportunidades_comerciais": 0,
@@ -7664,6 +7993,9 @@ def montar_metricas_crm(filtro="hoje"):
             "ranking_modelos": [],
             "ranking_setores": [],
             "ranking_produtos": [],
+            "ranking_cidades_atacado": [],
+            "ranking_produtos_atacado": [],
+            "leads_atacado_lista": [],
             "total_itens_vendidos": 0,
             "total_agendamentos_periodo": 0,
             "taxa_conversao": 0,
@@ -7972,6 +8304,7 @@ def dashboard():
         query_atendimentos = db.query(Atendimento)
         query_agendamentos = db.query(AgendamentoRevisao)
         query_rpa = db.query(TarefaRPA)
+        query_leads_atacado = db.query(LeadAtacado)
 
         if filtro == "hoje":
             inicio = datetime.combine(hoje, datetime.min.time())
@@ -8015,6 +8348,12 @@ def dashboard():
                     TarefaRPA.data_criacao <= fim,
                 )
 
+            if hasattr(LeadAtacado, "data"):
+                query_leads_atacado = query_leads_atacado.filter(
+                    LeadAtacado.data >= inicio,
+                    LeadAtacado.data <= fim,
+                )
+
         atendimentos = query_atendimentos.all()
 
         agendamentos_lista = (
@@ -8028,6 +8367,13 @@ def dashboard():
             query_rpa
             .order_by(TarefaRPA.id.desc())
             .limit(50)
+            .all()
+        )
+
+        leads_atacado_lista = (
+            query_leads_atacado
+            .order_by(LeadAtacado.id.desc())
+            .limit(120)
             .all()
         )
 
@@ -8235,10 +8581,28 @@ def dashboard():
                     contador_itens[item_limpo] += 1
                     contador_produtos[item_limpo] += 1
 
+        for lead in leads_atacado_lista:
+            adicionar_ranking(contador_cidades_atacado, getattr(lead, "cidade", ""))
+
+            itens_lead = " ".join([
+                limpar_texto(getattr(lead, "produtos_interesse", "")),
+                limpar_texto(getattr(lead, "itens_cotacao", "")),
+                limpar_texto(getattr(lead, "interesse", "")),
+            ])
+
+            for item in re.split(r",|;|\n|\+", itens_lead):
+                item_limpo = limpar_item_adicional(item)
+
+                if item_adicional_valido(item_limpo):
+                    contador_produtos_atacado[item_limpo] += 1
+                    contador_produtos[item_limpo] += 1
+
         ranking_itens = contador_itens.most_common(10)
         ranking_modelos = contador_modelos.most_common(10)
         ranking_setores = contador_setores.most_common(10)
         ranking_produtos = contador_produtos.most_common(10)
+        ranking_cidades_atacado = contador_cidades_atacado.most_common(10)
+        ranking_produtos_atacado = contador_produtos_atacado.most_common(10)
         total_itens_vendidos = sum(contador_itens.values())
         total_agendamentos_periodo = len(agendamentos_lista)
 
@@ -8304,6 +8668,11 @@ def dashboard():
             duvidas_ia=duvidas_ia,
             ia_conversando=ia_conversando,
             leads_atacado=leads_atacado,
+            parceiros_quentes_atacado=parceiros_quentes_atacado,
+            parceiros_mornos_atacado=parceiros_mornos_atacado,
+            parceiros_frios_atacado=parceiros_frios_atacado,
+            novos_parceiros_atacado=novos_parceiros_atacado,
+            cotacoes_atacado_recebidas=cotacoes_atacado_recebidas,
             leads_comerciais=leads_comerciais,
             leads_quentes=leads_quentes,
             oportunidades_comerciais=oportunidades_comerciais,
@@ -8322,6 +8691,9 @@ def dashboard():
             ranking_modelos=ranking_modelos,
             ranking_setores=ranking_setores,
             ranking_produtos=ranking_produtos,
+            ranking_cidades_atacado=ranking_cidades_atacado,
+            ranking_produtos_atacado=ranking_produtos_atacado,
+            leads_atacado_lista=leads_atacado_lista,
             agendamentos=agendamentos_lista,
             atendimentos_ia=atendimentos_ia,
             pergunta_gestor=pergunta_gestor,
@@ -8569,6 +8941,52 @@ def montar_mensagem_followup_inteligente(at):
     acessorios_memoria = memoria.get("acessorios", []) or []
 
     saudacao = f"Oi, {nome}! " if nome else "Oi! "
+
+    if contexto == "atacado":
+        etapa_atacado = normalizar_texto(getattr(at, "etapa", "") or "")
+        status_atacado = normalizar_texto(getattr(at, "status", "") or "")
+
+        if "catalogo" in etapa_atacado or "catalogo" in status_atacado:
+            tipo_atacado = "followup_catalogo"
+        elif "cotacao" in etapa_atacado or "cotacao" in status_atacado:
+            tipo_atacado = "followup_cotacao"
+        elif "cadastro" in etapa_atacado or "cadastro" in status_atacado:
+            tipo_atacado = "cadastro_parceiro"
+        else:
+            tipo_atacado = "followup_catalogo"
+
+        mensagem_atacado = ""
+
+        if gerar_mensagem_atacado:
+            try:
+                mensagem_atacado = limpar_texto(
+                    gerar_mensagem_atacado(
+                        tipo_atacado,
+                        {
+                            "nome": nome,
+                            "empresa": getattr(at, "empresa", ""),
+                            "segmento": getattr(at, "segmento", ""),
+                            "itens_cotacao": getattr(at, "itens", "") or getattr(at, "produto_interesse", ""),
+                        },
+                    )
+                )
+            except Exception as e:
+                log_erro("Erro follow-up atacado IA:", repr(e))
+
+        if not mensagem_atacado:
+            mensagem_atacado = (
+                f"{saudacao}conseguiu verificar nosso catálogo de atacado?\n\n"
+                "Se quiser, pode me enviar a lista de peças ou produtos que deseja cotar "
+                "que nossa equipe comercial te ajuda."
+            )
+
+        return (
+            mensagem_atacado +
+            "\n\n1️⃣ Continuar atendimento\n"
+            "2️⃣ Falar com consultor\n"
+            "3️⃣ Menu principal\n\n"
+            "Digite apenas o número da opção desejada."
+        )
 
     if gerar_mensagem_followup:
         try:
@@ -9943,13 +10361,19 @@ def webhook():
             clientes[telefone]["oportunidade_comercial"] = True
             clientes[telefone]["nivel_interesse"] = "ALTO"
             clientes[telefone]["temperatura_lead"] = "QUENTE"
+            clientes[telefone]["nivel_interesse_atacado"] = "PARCEIRO_QUENTE"
             clientes[telefone]["proxima_acao"] = "ENCAMINHAR_CONSULTOR"
+            clientes[telefone]["proxima_acao_atacado"] = "PRIORIZAR_CONSULTOR_COMERCIAL"
             clientes[telefone]["status_comercial"] = "COTACAO_ATACADO"
+            classificar_atacado_estado(telefone, texto)
+            salvar_lead_atacado(telefone, status="COTACAO_RECEBIDA", mensagem=texto)
 
             enviar_mensagem(
                 telefone,
-                "✅ Cotação recebida com sucesso.\n\n"
-                "Nossa equipe comercial irá analisar os itens e continuará o atendimento por aqui. 🤝"
+                mensagem_atacado_ia("cotacao_recebida", telefone) or (
+                    "✅ Cotação recebida com sucesso.\n\n"
+                    "Nossa equipe comercial irá analisar os itens e continuará o atendimento por aqui. 🤝"
+                )
             )
 
             clientes[telefone]["atendimento_humano"] = True
@@ -9971,6 +10395,7 @@ def webhook():
             return jsonify({"status": "ok", "fluxo": "atacado_cotacao"}), 200
 
         if etapa == "atacado" and texto_opcao == "1":
+            classificar_atacado_estado(telefone, "catalogo")
             enviar_catalogo_atacado(telefone)
             clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
             return jsonify({"status": "ok", "fluxo": "atacado_catalogo"}), 200

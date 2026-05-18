@@ -155,11 +155,15 @@ class LeadAtacado(Base):
     cnpj = Column(String, index=True, nullable=True)
     cidade = Column(String, nullable=True)
     responsavel = Column(String, nullable=True)
+    segmento = Column(String, nullable=True)
+    telefone_comercial = Column(String, nullable=True)
 
     campanha = Column(String, index=True, nullable=True)
     origem = Column(String, default="BOT", index=True)
 
     interesse = Column(Text, nullable=True)
+    produtos_interesse = Column(Text, nullable=True)
+    itens_cotacao = Column(Text, nullable=True)
 
     status = Column(String, default="NOVO", index=True)
     status_retorno = Column(String, default="AGUARDANDO", index=True)
@@ -170,9 +174,12 @@ class LeadAtacado(Base):
     intencao_ia = Column(String, nullable=True)
     proxima_acao = Column(String, nullable=True)
     nivel_interesse = Column(String, nullable=True)
+    nivel_interesse_atacado = Column(String, nullable=True)
+    proxima_acao_atacado = Column(String, nullable=True)
 
     catalogo_enviado = Column(Boolean, default=False)
     data_catalogo_enviado = Column(DateTime, nullable=True)
+    data_ultimo_contato = Column(DateTime, nullable=True)
 
     observacoes = Column(Text, nullable=True)
 
@@ -390,8 +397,35 @@ def migrar_tabela_rpa():
     Base.metadata.create_all(bind=engine, tables=[TarefaRPA.__table__])
 
 
+def migrar_colunas_leads_atacado():
+    Base.metadata.create_all(bind=engine, tables=[LeadAtacado.__table__])
+
+    colunas = {
+        coluna["name"]
+        for coluna in inspect(engine).get_columns("leads_atacado")
+    }
+
+    novas_colunas = {
+        "segmento": "VARCHAR",
+        "telefone_comercial": "VARCHAR",
+        "produtos_interesse": "TEXT",
+        "itens_cotacao": "TEXT",
+        "nivel_interesse_atacado": "VARCHAR",
+        "proxima_acao_atacado": "VARCHAR",
+        "data_ultimo_contato": "TIMESTAMP",
+    }
+
+    with engine.begin() as conn:
+        for nome, definicao in novas_colunas.items():
+            if nome in colunas:
+                continue
+
+            conn.execute(text(f"ALTER TABLE leads_atacado ADD COLUMN {nome} {definicao}"))
+
+
 def criar_banco():
     Base.metadata.create_all(bind=engine)
     migrar_colunas_followup()
     migrar_colunas_sances()
+    migrar_colunas_leads_atacado()
     migrar_tabela_rpa()

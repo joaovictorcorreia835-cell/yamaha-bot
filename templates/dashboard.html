@@ -508,6 +508,41 @@
         </div>
 
         <div class="card roxo">
+            <h3>Parceiros Quentes</h3>
+            <div class="numero">
+                {{ parceiros_quentes_atacado if parceiros_quentes_atacado is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card amarelo">
+            <h3>Parceiros Mornos</h3>
+            <div class="numero">
+                {{ parceiros_mornos_atacado if parceiros_mornos_atacado is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card cinza">
+            <h3>Parceiros Frios</h3>
+            <div class="numero">
+                {{ parceiros_frios_atacado if parceiros_frios_atacado is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card verde">
+            <h3>Cadastros Atacado</h3>
+            <div class="numero">
+                {{ novos_parceiros_atacado if novos_parceiros_atacado is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card ciano">
+            <h3>Cotações Atacado</h3>
+            <div class="numero">
+                {{ cotacoes_atacado_recebidas if cotacoes_atacado_recebidas is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card roxo">
             <h3>Leads Quentes</h3>
             <div class="numero">
                 {{ leads_quentes if leads_quentes is defined else 0 }}
@@ -828,6 +863,120 @@
             {% else %}
                 <div class="vazio">
                     Nenhum follow-up pendente no período selecionado.
+                </div>
+            {% endif %}
+        </div>
+
+    </div>
+
+    <div class="table-section">
+
+        <h2>Leads de Atacado</h2>
+
+        {% if leads_atacado_lista %}
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Empresa</th>
+                            <th>Responsável</th>
+                            <th>Telefone</th>
+                            <th>Cidade</th>
+                            <th>Segmento</th>
+                            <th>Classificação</th>
+                            <th>Próxima Ação</th>
+                            <th>Produtos / Cotação</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for lead in leads_atacado_lista %}
+                        <tr>
+                            <td>{{ lead.empresa or '-' }}</td>
+                            <td>{{ lead.responsavel or '-' }}</td>
+                            <td>{{ lead.telefone or '-' }}</td>
+                            <td>{{ lead.cidade or '-' }}</td>
+                            <td>{{ lead.segmento or '-' }}</td>
+                            <td>{{ lead.nivel_interesse_atacado or lead.nivel_interesse or '-' }}</td>
+                            <td>{{ lead.proxima_acao_atacado or lead.proxima_acao or '-' }}</td>
+                            <td class="resposta-ia">
+                                {{ lead.itens_cotacao or lead.produtos_interesse or lead.interesse or '-' }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="vazio">
+                Nenhum lead de atacado registrado no período selecionado.
+            </div>
+        {% endif %}
+
+    </div>
+
+    <div class="grid">
+
+        <div class="table-section">
+            <h2>Atacado - Cidades com Mais Leads</h2>
+
+            {% if ranking_cidades_atacado %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Cidade</th>
+                                <th>Leads</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for cidade, qtd in ranking_cidades_atacado %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ cidade }}</td>
+                                <td>{{ qtd }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="vazio">
+                    Nenhuma cidade identificada nos leads de atacado.
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="table-section">
+            <h2>Atacado - Produtos Mais Pedidos</h2>
+
+            {% if ranking_produtos_atacado %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Produto</th>
+                                <th>Pedidos</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for produto, qtd in ranking_produtos_atacado %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ produto }}</td>
+                                <td>{{ qtd }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="vazio">
+                    Nenhum produto de atacado identificado no período.
                 </div>
             {% endif %}
         </div>
