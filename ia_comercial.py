@@ -3,7 +3,31 @@
 # Fase 1: conversão, follow-up, recuperação e venda adicional
 # ==========================================
 
+import os
 import re
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODELO_COMERCIAL = os.getenv("OPENAI_MODELO_COMERCIAL", "gpt-4o-mini").strip()
+
+
+def obter_cliente_openai():
+    if not OPENAI_API_KEY or OpenAI is None:
+        return None
+
+    try:
+        return OpenAI(api_key=OPENAI_API_KEY)
+    except Exception:
+        return None
 
 
 # ==========================================
@@ -426,7 +450,45 @@ def gerar_mensagem_atacado(nome="", empresa=""):
 # ==========================================
 def gerar_mensagem_followup(nivel, modelo="", etapa="", nome=""):
     modelo = modelo or "sua moto"
-    nome = f"{nome}, " if nome else ""
+    nome_limpo = limpar_texto(nome)
+    nome = f"{nome_limpo}, " if nome_limpo else ""
+    etapa_limpa = limpar_texto(etapa)
+
+    cliente = obter_cliente_openai()
+
+    if cliente is not None:
+        try:
+            resposta = cliente.chat.completions.create(
+                model=OPENAI_MODELO_COMERCIAL,
+                temperature=0.3,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Você escreve follow-ups comerciais curtos para uma concessionária Yamaha. "
+                            "Seja humano, profissional e objetivo. Não prometa valores, descontos ou prazos. "
+                            "Use no máximo 2 parágrafos curtos e termine com uma pergunta simples para retomar o atendimento."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Nome: {nome_limpo or 'cliente'}\n"
+                            f"Modelo: {modelo}\n"
+                            f"Etapa/contexto: {etapa_limpa or 'atendimento iniciado'}\n"
+                            f"Nível do follow-up: {nivel}\n"
+                            "Crie a mensagem."
+                        ),
+                    },
+                ],
+            )
+
+            conteudo = limpar_texto(resposta.choices[0].message.content)
+
+            if conteudo:
+                return conteudo[:700]
+        except Exception:
+            pass
 
     if nivel == 1:
         return (

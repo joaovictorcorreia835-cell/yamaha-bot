@@ -14,6 +14,7 @@ from collections import Counter, deque
 
 import pandas as pd
 from dotenv import load_dotenv
+from sqlalchemy import or_
 
 load_dotenv()
 
@@ -1223,6 +1224,7 @@ def processar_recuperacao_clientes():
             return
 
         limite = datetime.now() - timedelta(days=90)
+        janela_reenvio = datetime.now() - timedelta(days=30)
 
         agendamentos = db.query(AgendamentoRevisao).filter(
             AgendamentoRevisao.criado_em <= limite
@@ -1235,6 +1237,20 @@ def processar_recuperacao_clientes():
                 if not telefone:
                     continue
 
+                if cliente_em_atendimento_humano(telefone):
+                    continue
+
+                recuperacao_recente = (
+                    db.query(Atendimento)
+                    .filter(Atendimento.telefone == telefone)
+                    .filter(Atendimento.setor == "RECUPERACAO_IA")
+                    .filter(Atendimento.data >= janela_reenvio)
+                    .first()
+                )
+
+                if recuperacao_recente:
+                    continue
+
                 mensagem = gerar_mensagem_recuperacao(
                     modelo=getattr(ag, "modelo", ""),
                     nome=getattr(ag, "nome", ""),
@@ -1243,14 +1259,35 @@ def processar_recuperacao_clientes():
                 if not mensagem:
                     continue
 
-                enviar_mensagem(telefone, mensagem)
+                retorno_zapi = enviar_mensagem(telefone, mensagem)
+
+                log_info(
+                    "RECUPERACAO IA enviada:",
+                    {
+                        "telefone": telefone,
+                        "mensagem": mensagem,
+                        "retorno_zapi": retorno_zapi,
+                    },
+                )
+
+                if not retorno_zapi:
+                    continue
 
                 salvar_evento_atendimento(
                     telefone=telefone,
                     setor="RECUPERACAO_IA",
                     status="RECUPERACAO_ENVIADA",
                     etapa="recuperacao_ia",
-                    dados={},
+                    dados={
+                        "telefone": telefone,
+                        "nome": getattr(ag, "nome", ""),
+                        "modelo": getattr(ag, "modelo", ""),
+                        "followup_enviado": True,
+                        "followup_respondido": False,
+                        "data_followup": agora_datetime(),
+                        "proxima_acao": "RECUPERAR_CLIENTE_REVISAO",
+                        "nivel_interesse": "MORNO",
+                    },
                     atendimento_humano=False,
                     concluido=False,
                     origem="IA_RECUPERACAO",
@@ -1935,6 +1972,14 @@ def atualizar_ultima_mensagem_cliente(telefone, texto=""):
 
             if hasattr(atendimento, "followup_respondido"):
                 atendimento.followup_respondido = True
+
+            if (
+                hasattr(atendimento, "followup_enviado")
+                and bool(getattr(atendimento, "followup_enviado", False))
+                and hasattr(atendimento, "followup_recuperado")
+            ):
+                atendimento.followup_recuperado = True
+                clientes[telefone]["followup_recuperado"] = True
 
             db.commit()
 
@@ -3195,6 +3240,15 @@ def salvar_evento_atendimento(
             )
         except Exception:
             setar("followup_nivel", 0)
+
+        setar("followup_enviado", bool(base.get("followup_enviado", False)))
+        setar("followup_respondido", bool(base.get("followup_respondido", False)))
+        setar("followup_recuperado", bool(base.get("followup_recuperado", False)))
+
+        data_followup = base.get("data_followup")
+
+        if isinstance(data_followup, datetime):
+            setar("data_followup", data_followup)
 
         setar(
             "ultima_acao_ia",
@@ -5618,7 +5672,7 @@ def escolher_mensagem_followup(at):
 
 def processar_followup_inteligente():
     try:
-        processar_followups_inteligentes()
+        processar_followups_banco()
         return True
 
     except Exception as e:
@@ -6481,6 +6535,9 @@ def identificar_contexto_followup(at):
     etapa = normalizar_texto(getattr(at, "etapa", "") or "")
     status = normalizar_status(getattr(at, "status", "") or "")
 
+    if status == normalizar_status(STATUS_FINALIZADO) and ("revis" in setor or "revis" in etapa):
+        return "pos_revisao"
+
     if status in [
         normalizar_status(STATUS_AGENDADO),
         normalizar_status(STATUS_CONFIRMADO),
@@ -6539,6 +6596,7 @@ def obter_tempos_followup_por_contexto(contexto):
         "garantia": 90 * 60,
         "atacado": 90 * 60,
         "duvidas": 90 * 60,
+        "pos_revisao": 24 * 60 * 60,
         "geral": 90 * 60,
     }
 
@@ -6555,6 +6613,27 @@ def montar_mensagem_followup_inteligente(at):
     modelo = limpar_texto(getattr(at, "modelo", "") or "").upper()
 
     saudacao = f"Oi, {nome}! " if nome else "Oi! "
+
+    if gerar_mensagem_followup:
+        try:
+            mensagem_ia = gerar_mensagem_followup(
+                nivel=int(getattr(at, "followup_nivel", 0) or 1) or 1,
+                modelo=modelo,
+                etapa=contexto,
+                nome=nome,
+            )
+            mensagem_ia = limpar_texto(mensagem_ia)
+
+            if mensagem_ia:
+                return (
+                    mensagem_ia +
+                    "\n\n1ï¸âƒ£ Continuar atendimento\n"
+                    "2ï¸âƒ£ Falar com consultor\n"
+                    "3ï¸âƒ£ Menu principal\n\n"
+                    "Digite apenas o nÃºmero da opÃ§Ã£o desejada."
+                )
+        except Exception as e:
+            log_erro("Erro mensagem follow-up IA:", repr(e))
 
     mensagens = {
         "fechamento_revisao": (
@@ -6609,6 +6688,12 @@ def montar_mensagem_followup_inteligente(at):
             "Posso continuar te ajudando agora?"
         ),
 
+        "pos_revisao": (
+            saudacao +
+            "passando para saber se ficou tudo certo com sua revisao na Motoshow Yamaha.\n\n"
+            "Se precisar de algum ajuste, peca ou orientacao, posso encaminhar para nossa equipe."
+        ),
+
         "geral": (
             saudacao +
             "vi que você começou um atendimento e não finalizou.\n\n"
@@ -6625,6 +6710,163 @@ def montar_mensagem_followup_inteligente(at):
         "3️⃣ Menu principal\n\n"
         "Digite apenas o número da opção desejada."
     )
+
+
+def horario_comercial_followup():
+    agora_local = datetime.now()
+
+    if agora_local.weekday() >= 6:
+        return False
+
+    hora_inicio = env_int("FOLLOWUP_HORA_INICIO", 8)
+    hora_fim = env_int("FOLLOWUP_HORA_FIM", 18)
+
+    return hora_inicio <= agora_local.hour < hora_fim
+
+
+def marcar_followup_enviado(at, contexto, mensagem, retorno_zapi):
+    agora_dt = agora_datetime()
+    nivel_atual = int(getattr(at, "followup_nivel", 0) or 0)
+    novo_nivel = max(1, nivel_atual + 1)
+
+    if hasattr(at, "followup_enviado"):
+        at.followup_enviado = True
+
+    if hasattr(at, "data_followup"):
+        at.data_followup = agora_dt
+
+    if hasattr(at, "followup_nivel"):
+        at.followup_nivel = novo_nivel
+
+    if hasattr(at, "followup_1"):
+        at.followup_1 = True
+
+    if hasattr(at, "followup_respondido"):
+        at.followup_respondido = False
+
+    if hasattr(at, "ultima_acao_ia"):
+        at.ultima_acao_ia = f"FOLLOWUP_{contexto}".upper()
+
+    if hasattr(at, "proxima_acao"):
+        at.proxima_acao = "AGUARDAR_RESPOSTA_FOLLOWUP"
+
+    if hasattr(at, "nivel_interesse") and not getattr(at, "nivel_interesse", ""):
+        at.nivel_interesse = "MEDIO"
+
+    if hasattr(at, "observacoes"):
+        observacao_atual = limpar_texto(getattr(at, "observacoes", "") or "")
+        registro = f"Follow-up IA enviado ({contexto}). Retorno Z-API: {retorno_zapi}."
+        at.observacoes = f"{observacao_atual}\n{registro}".strip()
+
+    telefone = limpar_telefone(getattr(at, "telefone", "") or "")
+
+    if telefone:
+        iniciar_cliente(telefone)
+        clientes[telefone]["followup_enviado"] = True
+        clientes[telefone]["followup_respondido"] = False
+        clientes[telefone]["data_followup"] = agora_dt
+        clientes[telefone]["followup_nivel"] = novo_nivel
+        clientes[telefone]["proxima_acao"] = "AGUARDAR_RESPOSTA_FOLLOWUP"
+        clientes[telefone]["nivel_interesse"] = getattr(at, "nivel_interesse", "") or "MEDIO"
+
+
+def processar_followups_banco():
+    if not horario_comercial_followup():
+        return False
+
+    db = SessionLocal()
+
+    try:
+        agora_dt = agora_datetime()
+        vistos = set()
+        houve_alteracao = False
+
+        atendimentos = (
+            db.query(Atendimento)
+            .filter(or_(Atendimento.atendimento_humano == False, Atendimento.atendimento_humano.is_(None)))
+            .filter(or_(Atendimento.followup_respondido == False, Atendimento.followup_respondido.is_(None)))
+            .filter(or_(Atendimento.followup_enviado == False, Atendimento.followup_enviado.is_(None)))
+            .filter(Atendimento.data >= (agora_dt - timedelta(days=30)))
+            .order_by(Atendimento.id.desc())
+            .limit(120)
+            .all()
+        )
+
+        for at in atendimentos:
+            telefone = limpar_telefone(getattr(at, "telefone", "") or "")
+
+            if not telefone or telefone in vistos:
+                continue
+
+            vistos.add(telefone)
+
+            if cliente_em_atendimento_humano(telefone):
+                continue
+
+            contexto = identificar_contexto_followup(at)
+
+            if contexto == "ignorar":
+                continue
+
+            ultima = (
+                getattr(at, "ultima_interacao", None)
+                or getattr(at, "data", None)
+                or agora_dt
+            )
+
+            try:
+                tempo_sem_resposta = (agora_dt - ultima).total_seconds()
+            except Exception:
+                tempo_sem_resposta = 0
+
+            tempo_minimo = obter_tempos_followup_por_contexto(contexto)
+
+            if tempo_sem_resposta < tempo_minimo:
+                continue
+
+            mensagem = montar_mensagem_followup_inteligente(at)
+
+            if not mensagem:
+                continue
+
+            log_info(
+                "FOLLOWUP IA elegivel:",
+                {
+                    "telefone": telefone,
+                    "contexto": contexto,
+                    "etapa": getattr(at, "etapa", ""),
+                    "tempo_sem_resposta": int(tempo_sem_resposta),
+                },
+            )
+
+            retorno_zapi = enviar_mensagem(telefone, mensagem)
+
+            log_info(
+                "FOLLOWUP IA enviado:",
+                {
+                    "telefone": telefone,
+                    "contexto": contexto,
+                    "mensagem": mensagem,
+                    "retorno_zapi": retorno_zapi,
+                },
+            )
+
+            if retorno_zapi:
+                marcar_followup_enviado(at, contexto, mensagem, retorno_zapi)
+                houve_alteracao = True
+
+        if houve_alteracao:
+            db.commit()
+
+        return houve_alteracao
+
+    except Exception as e:
+        db.rollback()
+        log_erro("Erro processar_followups_banco:", repr(e))
+        return False
+
+    finally:
+        db.close()
 
 
 def botoes_followup_inteligente():

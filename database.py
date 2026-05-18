@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Float
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Float, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 from dotenv import load_dotenv
@@ -81,11 +81,13 @@ class Atendimento(Base):
     followup_1 = Column(Boolean, default=False)
     followup_2 = Column(Boolean, default=False)
     followup_3 = Column(Boolean, default=False)
+    followup_enviado = Column(Boolean, default=False)
     followup_respondido = Column(Boolean, default=False)
     followup_recuperado = Column(Boolean, default=False)
 
     ultima_interacao = Column(DateTime, default=datetime.now)
     ultima_mensagem_cliente = Column(Text, nullable=True)
+    data_followup = Column(DateTime, nullable=True)
 
     data = Column(DateTime, default=datetime.now, index=True)
 
@@ -287,5 +289,25 @@ class SugestaoVenda(Base):
 # ==========================================
 # CRIAR BANCO
 # ==========================================
+def migrar_colunas_followup():
+    colunas = {
+        coluna["name"]
+        for coluna in inspect(engine).get_columns("atendimentos")
+    }
+
+    novas_colunas = {
+        "followup_enviado": "BOOLEAN DEFAULT FALSE",
+        "data_followup": "TIMESTAMP",
+    }
+
+    with engine.begin() as conn:
+        for nome, definicao in novas_colunas.items():
+            if nome in colunas:
+                continue
+
+            conn.execute(text(f"ALTER TABLE atendimentos ADD COLUMN {nome} {definicao}"))
+
+
 def criar_banco():
     Base.metadata.create_all(bind=engine)
+    migrar_colunas_followup()
