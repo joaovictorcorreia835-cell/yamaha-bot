@@ -44,6 +44,8 @@ class Atendimento(Base):
 
     modelo = Column(String, index=True, nullable=True)
     ano = Column(String, nullable=True)
+    km_atual = Column(String, nullable=True)
+    tipo_atendimento = Column(String, nullable=True)
     revisao = Column(String, index=True, nullable=True)
     cpf = Column(String, index=True, nullable=True)
 
@@ -191,6 +193,8 @@ class AgendamentoRevisao(Base):
 
     modelo = Column(String, index=True, nullable=True)
     ano = Column(String, nullable=True)
+    km_atual = Column(String, nullable=True)
+    tipo_atendimento = Column(String, nullable=True)
     revisao = Column(String, index=True, nullable=True)
 
     dia_semana = Column(String, nullable=True)
@@ -304,6 +308,8 @@ def migrar_colunas_followup():
         "produto_interesse": "TEXT",
         "oportunidade_comercial": "BOOLEAN DEFAULT FALSE",
         "status_comercial": "VARCHAR",
+        "km_atual": "VARCHAR",
+        "tipo_atendimento": "VARCHAR",
     }
 
     with engine.begin() as conn:
@@ -314,6 +320,34 @@ def migrar_colunas_followup():
             conn.execute(text(f"ALTER TABLE atendimentos ADD COLUMN {nome} {definicao}"))
 
 
+def migrar_colunas_sances():
+    colunas = {
+        coluna["name"]
+        for coluna in inspect(engine).get_columns("agendamentos_revisao")
+    }
+
+    novas_colunas = {
+        "km_atual": "VARCHAR",
+        "tipo_atendimento": "VARCHAR",
+        "sances_status": "VARCHAR DEFAULT 'PENDENTE'",
+        "sances_enviado": "BOOLEAN DEFAULT FALSE",
+        "sances_protocolo": "VARCHAR DEFAULT ''",
+        "sances_erro": "TEXT DEFAULT ''",
+        "sances_data_envio": "TIMESTAMP",
+        "sances_tentativas": "INTEGER DEFAULT 0",
+        "sances_ultima_tentativa": "TIMESTAMP",
+        "sances_ultimo_retorno": "TEXT DEFAULT ''",
+    }
+
+    with engine.begin() as conn:
+        for nome, definicao in novas_colunas.items():
+            if nome in colunas:
+                continue
+
+            conn.execute(text(f"ALTER TABLE agendamentos_revisao ADD COLUMN {nome} {definicao}"))
+
+
 def criar_banco():
     Base.metadata.create_all(bind=engine)
     migrar_colunas_followup()
+    migrar_colunas_sances()
