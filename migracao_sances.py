@@ -78,7 +78,7 @@ def migrar():
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS followup_3 BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS followup_respondido BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS followup_recuperado BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS ultima_mensagem_cliente TIMESTAMP NULL;",
+                "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS ultima_mensagem_cliente TEXT;",
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS observacao TEXT;",
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS observacoes TEXT;",
 
@@ -96,6 +96,8 @@ def migrar():
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS modelo_ia VARCHAR(100);",
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS pergunta_ia TEXT;",
                 "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS resposta_ia TEXT;",
+                "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS confianca_ia VARCHAR(50);",
+                "ALTER TABLE atendimentos ADD COLUMN IF NOT EXISTS tipo_mensagem VARCHAR(50);",
             ]
 
             for sql in comandos_atendimentos:

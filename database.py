@@ -68,8 +68,15 @@ class Atendimento(Base):
 
     button_id = Column(String, nullable=True)
     intencao_ia = Column(String, nullable=True)
+    resposta_ia = Column(Text, nullable=True)
+    confianca_ia = Column(String, nullable=True)
+    assunto_ia = Column(String, nullable=True)
+    fonte_ia = Column(String, nullable=True)
+    modelo_ia = Column(String, nullable=True)
+    pergunta_ia = Column(Text, nullable=True)
     id_envio_zapi = Column(String, nullable=True)
     tipo_envio = Column(String, nullable=True)
+    tipo_mensagem = Column(String, nullable=True)
     status_retorno = Column(String, nullable=True)
     proxima_acao = Column(String, nullable=True)
 
@@ -335,6 +342,13 @@ def migrar_colunas_followup():
         "status_comercial": "VARCHAR",
         "km_atual": "VARCHAR",
         "tipo_atendimento": "VARCHAR",
+        "resposta_ia": "TEXT",
+        "confianca_ia": "VARCHAR",
+        "assunto_ia": "VARCHAR",
+        "fonte_ia": "VARCHAR",
+        "modelo_ia": "VARCHAR",
+        "pergunta_ia": "TEXT",
+        "tipo_mensagem": "VARCHAR",
     }
 
     with engine.begin() as conn:

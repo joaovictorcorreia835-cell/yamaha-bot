@@ -771,6 +771,10 @@ def responder_com_ia_comercial(telefone, texto, intencao="", modelo=""):
             resposta_ia=resposta_ia,
         )
 
+        clientes[telefone]["resposta_ia"] = limpar_texto(
+            resposta_ia.get("resposta", "")
+        )
+
         resposta = limpar_texto(resposta_ia.get("resposta", ""))
 
         if not resposta:
@@ -3260,6 +3264,36 @@ def salvar_evento_atendimento(
                 intencao_ia
                 or base.get("intencao_ia", "")
             )
+        )
+
+        setar(
+            "resposta_ia",
+            limpar_texto(base.get("resposta_ia", "") or base.get("resposta", ""))
+        )
+
+        setar(
+            "confianca_ia",
+            limpar_texto(base.get("confianca_ia", "") or base.get("confianca", ""))
+        )
+
+        setar(
+            "assunto_ia",
+            limpar_texto(base.get("assunto_ia", "") or base.get("assunto", ""))
+        )
+
+        setar(
+            "fonte_ia",
+            limpar_texto(base.get("fonte_ia", "") or base.get("fonte", ""))
+        )
+
+        setar(
+            "modelo_ia",
+            limpar_texto(base.get("modelo_ia", ""))
+        )
+
+        setar(
+            "pergunta_ia",
+            limpar_texto(base.get("pergunta_ia", "") or base.get("pergunta", ""))
         )
 
         setar(
@@ -6175,6 +6209,10 @@ def salvar_duvida_dashboard(telefone, categoria, pergunta, resposta):
             etapa="duvida_respondida",
             dados={
                 **clientes.get(telefone, {}),
+                "pergunta_ia": limpar_texto(pergunta),
+                "resposta_ia": limpar_texto(resposta),
+                "assunto_ia": limpar_texto(categoria),
+                "fonte_ia": "manual_ou_base",
                 "observacao": (
                     f"Pergunta: {limpar_texto(pergunta)} | "
                     f"Resposta: {limpar_texto(resposta)}"
