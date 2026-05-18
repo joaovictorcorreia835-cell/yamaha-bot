@@ -294,6 +294,31 @@ class SugestaoVenda(Base):
 
 
 # ==========================================
+# TABELA FILA RPA / AUTOMAÇÃO
+# ==========================================
+class TarefaRPA(Base):
+    __tablename__ = "tarefas_rpa"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    telefone = Column(String, index=True, nullable=True)
+    tipo_tarefa = Column(String, index=True, nullable=False)
+    dados_json = Column(Text, nullable=True)
+
+    status_rpa = Column(String, default="RPA_PENDENTE", index=True)
+    tentativas_rpa = Column(Integer, default=0)
+    erro_rpa = Column(Text, nullable=True)
+
+    origem = Column(String, default="BOT", index=True)
+    prioridade = Column(Integer, default=5, index=True)
+    resultado_json = Column(Text, nullable=True)
+
+    data_criacao = Column(DateTime, default=datetime.now, index=True)
+    data_processamento = Column(DateTime, nullable=True)
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+# ==========================================
 # CRIAR BANCO
 # ==========================================
 def migrar_colunas_followup():
@@ -347,7 +372,12 @@ def migrar_colunas_sances():
             conn.execute(text(f"ALTER TABLE agendamentos_revisao ADD COLUMN {nome} {definicao}"))
 
 
+def migrar_tabela_rpa():
+    Base.metadata.create_all(bind=engine, tables=[TarefaRPA.__table__])
+
+
 def criar_banco():
     Base.metadata.create_all(bind=engine)
     migrar_colunas_followup()
     migrar_colunas_sances()
+    migrar_tabela_rpa()

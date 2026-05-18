@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory, render_template, redirect
 
 import requests
 import os
@@ -8,6 +8,7 @@ import time
 import re
 import threading
 import uuid
+import json
 
 from datetime import datetime, timedelta
 from collections import Counter, deque
@@ -18,7 +19,7 @@ from sqlalchemy import or_
 
 load_dotenv()
 
-from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao
+from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao, TarefaRPA
 from ia_intencao import classificar_intencao, responder_duvida_por_tabela
 
 try:
@@ -206,6 +207,14 @@ SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
 
 
 # ==========================================
+# CONFIG FUTURA RPA / AUTOMAÇÃO SEGURA
+# ==========================================
+RPA_MODO = os.getenv("RPA_MODO", "mock").strip().lower()
+RPA_RETRY_MAX = env_int("RPA_RETRY_MAX", 3)
+RPA_LOTE_MAX = env_int("RPA_LOTE_MAX", 10)
+
+
+# ==========================================
 # STATUS OFICIAIS DO CRM POS-VENDA
 # ==========================================
 STATUS_NOVO_ATENDIMENTO = "NOVO_ATENDIMENTO"
@@ -228,6 +237,30 @@ SANCES_STATUS_PENDENTE = "PENDENTE"
 SANCES_STATUS_ENVIADO = "ENVIADO"
 SANCES_STATUS_ERRO = "ERRO"
 SANCES_STATUS_NAO_CONFIGURADO = "NAO_CONFIGURADO"
+
+
+# ==========================================
+# STATUS AUTOMAÇÃO RPA
+# ==========================================
+RPA_PENDENTE = "RPA_PENDENTE"
+RPA_EM_EXECUCAO = "RPA_EM_EXECUCAO"
+RPA_CONCLUIDO = "RPA_CONCLUIDO"
+RPA_ERRO = "RPA_ERRO"
+RPA_AGUARDANDO_HUMANO = "RPA_AGUARDANDO_HUMANO"
+
+RPA_TIPOS_PREPARADOS = {
+    "consultar_status_agendamento",
+    "consultar_os",
+    "consultar_garantia",
+    "consultar_disponibilidade_peca",
+    "registrar_solicitacao_orcamento",
+    "registrar_pos_venda",
+    "atualizar_status_crm",
+    "gerar_tarefa_consultor",
+    "cotacao_atacado",
+    "analise_garantia",
+    "confirmacao_revisao",
+}
 
 
 # ==========================================
@@ -3314,6 +3347,56 @@ def salvar_evento_atendimento(
         db.commit()
 
         log_info("Evento salvo:", telefone, setor, etapa)
+
+        try:
+            dados_rpa = dict(base)
+            dados_rpa.update({
+                "setor": limpar_texto(setor),
+                "status": normalizar_status(status),
+                "etapa": limpar_texto(etapa or base.get("etapa", "")),
+                "nome": nome,
+                "modelo": modelo,
+                "cpf": cpf,
+                "itens": itens,
+                "produto_interesse": limpar_texto(base.get("produto_interesse", "")),
+                "intencao_ia": limpar_texto(intencao_ia or base.get("intencao_ia", "")),
+                "temperatura_lead": limpar_texto(base.get("temperatura_lead", "")),
+                "oportunidade_comercial": bool(base.get("oportunidade_comercial", False)),
+                "status_comercial": limpar_texto(base.get("status_comercial", "")),
+                "ultima_mensagem_cliente": ultima_msg,
+            })
+
+            deve_criar_rpa = (
+                bool(dados_rpa.get("oportunidade_comercial", False))
+                or normalizar_texto(dados_rpa.get("temperatura_lead", "")) == "quente"
+                or normalizar_texto(dados_rpa.get("intencao_ia", "")) in [
+                    "orcamento",
+                    "pecas",
+                    "acessorios",
+                    "garantia",
+                    "acompanhar_garantia",
+                    "atacado",
+                ]
+                or any(
+                    termo in normalizar_texto(ultima_msg)
+                    for termo in [
+                        "orcamento",
+                        "orçamento",
+                        "cotacao",
+                        "cotação",
+                        "garantia",
+                        "status do agendamento",
+                        "os",
+                    ]
+                )
+            )
+
+            if deve_criar_rpa:
+                criar_tarefa_rpa_de_atendimento(telefone, dados_rpa, ultima_msg)
+
+        except Exception as e:
+            log_erro("[RPA] Erro ao avaliar tarefa do atendimento:", repr(e))
+
         return True
 
     except Exception as e:
@@ -6222,6 +6305,373 @@ def data_corresponde_ao_dia_escolhido(data_digitada, dia_escolhido):
 ultima_recuperacao_ia = ""
 
 
+def dados_json_rpa(dados):
+    try:
+        if isinstance(dados, str):
+            return dados
+
+        return json.dumps(dados or {}, ensure_ascii=False, default=str)
+
+    except Exception:
+        return "{}"
+
+
+def carregar_json_rpa(valor):
+    try:
+        if isinstance(valor, dict):
+            return valor
+
+        return json.loads(valor or "{}")
+
+    except Exception:
+        return {}
+
+
+def identificar_tarefa_operacional(texto, contexto=None):
+    contexto = contexto or {}
+    texto_norm = normalizar_texto(texto or "")
+
+    if not texto_norm:
+        return ""
+
+    if "os" in texto_norm or "ordem de servico" in texto_norm or "ordem de serviço" in texto_norm:
+        return "consultar_os"
+
+    if "garantia" in texto_norm and any(p in texto_norm for p in ["status", "acompanhar", "protocolo", "consulta"]):
+        return "consultar_garantia"
+
+    if "garantia" in texto_norm and any(p in texto_norm for p in ["problema", "analise", "análise", "defeito"]):
+        return "analise_garantia"
+
+    if "disponivel" in texto_norm or "disponível" in texto_norm or "tem peca" in texto_norm or "tem peça" in texto_norm:
+        return "consultar_disponibilidade_peca"
+
+    if "orcamento" in texto_norm or "orçamento" in texto_norm or "cotacao" in texto_norm or "cotação" in texto_norm:
+        if "atacado" in texto_norm or "lojista" in texto_norm:
+            return "cotacao_atacado"
+        return "registrar_solicitacao_orcamento"
+
+    if "status" in texto_norm and "agend" in texto_norm:
+        return "consultar_status_agendamento"
+
+    if "pos venda" in texto_norm or "pós venda" in texto_norm or "pos-venda" in texto_norm:
+        return "registrar_pos_venda"
+
+    if normalizar_texto(contexto.get("temperatura_lead", "")) == "quente":
+        return "gerar_tarefa_consultor"
+
+    if bool(contexto.get("oportunidade_comercial", False)):
+        return "gerar_tarefa_consultor"
+
+    return ""
+
+
+def dados_minimos_rpa(tipo_tarefa, dados):
+    dados = dados or {}
+    telefone = limpar_telefone(dados.get("telefone", ""))
+
+    if not telefone:
+        return False, "telefone obrigatório"
+
+    if tipo_tarefa in [
+        "registrar_solicitacao_orcamento",
+        "consultar_disponibilidade_peca",
+        "cotacao_atacado",
+    ]:
+        itens = limpar_texto(
+            dados.get("itens")
+            or dados.get("produto")
+            or dados.get("produto_interesse")
+            or dados.get("mensagem")
+            or ""
+        )
+
+        if not itens:
+            return False, "produto/itens obrigatórios"
+
+    if tipo_tarefa in ["consultar_status_agendamento", "confirmacao_revisao"]:
+        identificador = limpar_texto(
+            dados.get("protocolo")
+            or dados.get("cpf")
+            or dados.get("data_agendada")
+            or dados.get("mensagem")
+            or ""
+        )
+
+        if not identificador:
+            return False, "protocolo, cpf ou dados do agendamento obrigatórios"
+
+    if tipo_tarefa in ["consultar_garantia", "analise_garantia"]:
+        identificador = limpar_texto(
+            dados.get("protocolo")
+            or dados.get("cpf")
+            or dados.get("descricao")
+            or dados.get("mensagem")
+            or ""
+        )
+
+        if not identificador:
+            return False, "protocolo, cpf ou descrição obrigatórios"
+
+    if tipo_tarefa == "consultar_os":
+        identificador = limpar_texto(
+            dados.get("os")
+            or dados.get("protocolo")
+            or dados.get("cpf")
+            or dados.get("mensagem")
+            or ""
+        )
+
+        if not identificador:
+            return False, "OS, protocolo ou cpf obrigatórios"
+
+    return True, ""
+
+
+def criar_tarefa_rpa(telefone, tipo_tarefa, dados=None, origem="BOT", prioridade=5):
+    telefone = limpar_telefone(telefone)
+    tipo_tarefa = limpar_texto(tipo_tarefa)
+    dados = dados or {}
+
+    if telefone:
+        dados.setdefault("telefone", telefone)
+
+    db = SessionLocal()
+
+    try:
+        if not tipo_tarefa or tipo_tarefa not in RPA_TIPOS_PREPARADOS:
+            log_erro("[RPA] Tipo de tarefa não preparado:", tipo_tarefa)
+            return None
+
+        valido, erro = dados_minimos_rpa(tipo_tarefa, dados)
+        status = RPA_PENDENTE if valido else RPA_AGUARDANDO_HUMANO
+
+        existente = (
+            db.query(TarefaRPA)
+            .filter(TarefaRPA.telefone == telefone)
+            .filter(TarefaRPA.tipo_tarefa == tipo_tarefa)
+            .filter(TarefaRPA.status_rpa.in_([
+                RPA_PENDENTE,
+                RPA_EM_EXECUCAO,
+                RPA_AGUARDANDO_HUMANO,
+            ]))
+            .order_by(TarefaRPA.id.desc())
+            .first()
+        )
+
+        if existente:
+            log_info("[RPA] Tarefa já existe:", existente.id, tipo_tarefa, telefone)
+            return existente.id
+
+        tarefa = TarefaRPA(
+            telefone=telefone,
+            tipo_tarefa=tipo_tarefa,
+            dados_json=dados_json_rpa(dados),
+            status_rpa=status,
+            tentativas_rpa=0,
+            erro_rpa=erro,
+            origem=limpar_texto(origem or "BOT") or "BOT",
+            prioridade=int(prioridade or 5),
+        )
+
+        db.add(tarefa)
+        db.commit()
+        db.refresh(tarefa)
+
+        log_info(
+            "[RPA] Tarefa criada:",
+            tarefa.id,
+            tipo_tarefa,
+            status,
+            telefone,
+        )
+
+        if status == RPA_AGUARDANDO_HUMANO and telefone:
+            try:
+                enviar_mensagem(telefone, mensagem_fallback_rpa())
+            except Exception as e:
+                log_erro("[RPA] Falha ao enviar fallback humano:", repr(e))
+
+        return tarefa.id
+
+    except Exception as e:
+        db.rollback()
+        log_erro("[RPA] Erro ao criar tarefa:", repr(e))
+        return None
+
+    finally:
+        db.close()
+
+
+def criar_tarefa_rpa_de_atendimento(telefone, dados, texto=""):
+    dados = dados or {}
+
+    contexto = {
+        "temperatura_lead": dados.get("temperatura_lead", ""),
+        "oportunidade_comercial": bool(dados.get("oportunidade_comercial", False)),
+    }
+
+    tipo_tarefa = identificar_tarefa_operacional(
+        texto
+        or dados.get("ultima_mensagem_cliente", "")
+        or dados.get("observacao", "")
+        or dados.get("itens", "")
+        or dados.get("produto_interesse", ""),
+        contexto,
+    )
+
+    if not tipo_tarefa:
+        return None
+
+    payload = {
+        "telefone": telefone,
+        "nome": dados.get("nome", ""),
+        "modelo": dados.get("modelo", ""),
+        "cpf": dados.get("cpf", ""),
+        "protocolo": dados.get("protocolo", ""),
+        "produto_interesse": dados.get("produto_interesse", ""),
+        "itens": dados.get("itens", ""),
+        "mensagem": texto or dados.get("ultima_mensagem_cliente", ""),
+        "setor": dados.get("setor", ""),
+        "status_comercial": dados.get("status_comercial", ""),
+    }
+
+    return criar_tarefa_rpa(
+        telefone=telefone,
+        tipo_tarefa=tipo_tarefa,
+        dados=payload,
+        origem="IA_COMERCIAL",
+        prioridade=3 if contexto["oportunidade_comercial"] else 5,
+    )
+
+
+def executar_tarefa_rpa_mock(tipo_tarefa, dados):
+    valido, erro = dados_minimos_rpa(tipo_tarefa, dados)
+
+    if not valido:
+        return {
+            "ok": False,
+            "status": RPA_AGUARDANDO_HUMANO,
+            "erro": erro,
+            "resultado": {},
+        }
+
+    if tipo_tarefa in [
+        "consultar_status_agendamento",
+        "consultar_os",
+        "consultar_garantia",
+        "consultar_disponibilidade_peca",
+    ]:
+        return {
+            "ok": False,
+            "status": RPA_AGUARDANDO_HUMANO,
+            "erro": "Integração externa ainda não configurada. Necessário consultor.",
+            "resultado": {
+                "acao_segura": "encaminhar_consultor",
+                "mensagem": "Sem retorno real de sistema externo.",
+            },
+        }
+
+    return {
+        "ok": True,
+        "status": RPA_CONCLUIDO,
+        "erro": "",
+        "resultado": {
+            "acao_segura": "tarefa_registrada",
+            "observacao": "Tarefa registrada no CRM para continuidade operacional.",
+        },
+    }
+
+
+def processar_fila_rpa():
+    db = SessionLocal()
+
+    try:
+        tarefas = (
+            db.query(TarefaRPA)
+            .filter(TarefaRPA.status_rpa == RPA_PENDENTE)
+            .order_by(TarefaRPA.prioridade.asc(), TarefaRPA.id.asc())
+            .limit(max(1, RPA_LOTE_MAX))
+            .all()
+        )
+
+        for tarefa in tarefas:
+            try:
+                if int(getattr(tarefa, "tentativas_rpa", 0) or 0) >= RPA_RETRY_MAX:
+                    tarefa.status_rpa = RPA_AGUARDANDO_HUMANO
+                    tarefa.erro_rpa = "Limite de tentativas atingido."
+                    tarefa.data_processamento = agora_datetime()
+                    db.commit()
+                    continue
+
+                tarefa.status_rpa = RPA_EM_EXECUCAO
+                tarefa.tentativas_rpa = int(getattr(tarefa, "tentativas_rpa", 0) or 0) + 1
+                tarefa.data_processamento = agora_datetime()
+                db.commit()
+
+                tipo_tarefa = limpar_texto(getattr(tarefa, "tipo_tarefa", ""))
+                dados = carregar_json_rpa(getattr(tarefa, "dados_json", ""))
+
+                log_info("[RPA] Processando tarefa:", tarefa.id, tipo_tarefa)
+
+                if RPA_MODO != "mock":
+                    retorno = {
+                        "ok": False,
+                        "status": RPA_AGUARDANDO_HUMANO,
+                        "erro": "RPA real ainda não configurado.",
+                        "resultado": {},
+                    }
+                else:
+                    retorno = executar_tarefa_rpa_mock(tipo_tarefa, dados)
+
+                tarefa.status_rpa = limpar_texto(
+                    retorno.get("status", RPA_ERRO)
+                ) or RPA_ERRO
+                tarefa.erro_rpa = limpar_texto(retorno.get("erro", ""))
+                tarefa.resultado_json = dados_json_rpa(retorno.get("resultado", {}))
+                tarefa.data_processamento = agora_datetime()
+
+                db.commit()
+
+                if tarefa.status_rpa == RPA_AGUARDANDO_HUMANO:
+                    telefone = limpar_telefone(getattr(tarefa, "telefone", ""))
+
+                    if telefone:
+                        try:
+                            enviar_mensagem(telefone, mensagem_fallback_rpa())
+                        except Exception as e:
+                            log_erro("[RPA] Falha ao enviar fallback humano:", repr(e))
+
+                log_info(
+                    "[RPA] Tarefa processada:",
+                    tarefa.id,
+                    tarefa.status_rpa,
+                    tarefa.erro_rpa,
+                )
+
+            except Exception as e:
+                db.rollback()
+                log_erro("[RPA] Erro ao processar tarefa:", repr(e))
+
+                try:
+                    tarefa.status_rpa = RPA_ERRO
+                    tarefa.erro_rpa = limpar_texto(repr(e))
+                    tarefa.data_processamento = agora_datetime()
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
+    except Exception as e:
+        log_erro("[RPA] Erro geral fila:", repr(e))
+
+    finally:
+        db.close()
+
+
+def mensagem_fallback_rpa():
+    return "Vou encaminhar sua solicitação para um consultor continuar o atendimento com segurança. 🤝"
+
+
 def processar_fila_sances():
     db = SessionLocal()
 
@@ -6361,6 +6811,11 @@ def worker():
         except Exception as e:
             log_erro("Worker erro em processar_fila_sances:", repr(e))
 
+        try:
+            processar_fila_rpa()
+        except Exception as e:
+            log_erro("Worker erro em processar_fila_rpa:", repr(e))
+
         intervalo = env_int("INTERVALO_WORKER", 300)
         time.sleep(max(30, intervalo))
 
@@ -6425,6 +6880,8 @@ def aplicar_periodo_crm(query, modelo, inicio, fim):
         campo_data = modelo.data
     elif hasattr(modelo, "criado_em"):
         campo_data = modelo.criado_em
+    elif hasattr(modelo, "data_criacao"):
+        campo_data = modelo.data_criacao
 
     if campo_data is None:
         return query
@@ -6490,10 +6947,18 @@ def montar_metricas_crm(filtro="hoje"):
             fim,
         )
 
+        query_rpa = aplicar_periodo_crm(
+            db.query(TarefaRPA),
+            TarefaRPA,
+            inicio,
+            fim,
+        )
+
         atendimentos = query_atendimentos.all()
         agendamentos = query_agendamentos.order_by(
             AgendamentoRevisao.id.desc()
         ).all()
+        tarefas_rpa = query_rpa.order_by(TarefaRPA.id.desc()).all()
 
         def status_atendimento(obj):
             return normalizar_status(getattr(obj, "status", "") or "")
@@ -6687,6 +7152,27 @@ def montar_metricas_crm(filtro="hoje"):
             if status_sances_ag(ag) == SANCES_STATUS_NAO_CONFIGURADO
         )
 
+        rpa_pendentes = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_PENDENTE
+        )
+        rpa_em_execucao = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_EM_EXECUCAO
+        )
+        rpa_concluidas = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_CONCLUIDO
+        )
+        rpa_erros = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_ERRO
+        )
+        rpa_aguardando_humano = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_AGUARDANDO_HUMANO
+        )
+
         return {
             "filtro": filtro,
             "total": total_atendimentos,
@@ -6709,6 +7195,12 @@ def montar_metricas_crm(filtro="hoje"):
             "sances_enviados": sances_enviados,
             "sances_erros": sances_erros,
             "sances_nao_configurado": sances_nao_configurado,
+            "rpa_pendentes": rpa_pendentes,
+            "rpa_em_execucao": rpa_em_execucao,
+            "rpa_concluidas": rpa_concluidas,
+            "rpa_erros": rpa_erros,
+            "rpa_aguardando_humano": rpa_aguardando_humano,
+            "tarefas_rpa": tarefas_rpa[:20],
             "primeira": primeira,
             "segunda": segunda,
             "terceira": terceira,
@@ -6750,6 +7242,12 @@ def montar_metricas_crm(filtro="hoje"):
             "sances_enviados": 0,
             "sances_erros": 0,
             "sances_nao_configurado": 0,
+            "rpa_pendentes": 0,
+            "rpa_em_execucao": 0,
+            "rpa_concluidas": 0,
+            "rpa_erros": 0,
+            "rpa_aguardando_humano": 0,
+            "tarefas_rpa": [],
             "primeira": 0,
             "segunda": 0,
             "terceira": 0,
@@ -6910,6 +7408,17 @@ def responder_gestor_crm(pergunta, filtro_padrao="hoje"):
             log_info("[IA_GESTOR] resposta:", resposta)
             return resposta
 
+        if "rpa" in texto or "automacao" in texto or "automação" in texto or "tarefa" in texto:
+            resposta = (
+                f"Automações {periodo_label}: "
+                f"{metricas.get('rpa_pendentes', 0)} pendente(s), "
+                f"{metricas.get('rpa_concluidas', 0)} concluída(s), "
+                f"{metricas.get('rpa_erros', 0)} com erro e "
+                f"{metricas.get('rpa_aguardando_humano', 0)} aguardando humano."
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
         if "revis" in texto or "agenda" in texto:
             resposta = (
                 f"Revisões/agendamentos {periodo_label}: "
@@ -6980,16 +7489,82 @@ def api_gestor_crm():
         }), 500
 
 
-@app.route("/dashboard")
+@app.route("/reprocessar-rpa/<int:tarefa_id>", methods=["POST"])
+def reprocessar_rpa(tarefa_id):
+    db = SessionLocal()
+
+    try:
+        tarefa = (
+            db.query(TarefaRPA)
+            .filter(TarefaRPA.id == tarefa_id)
+            .first()
+        )
+
+        if not tarefa:
+            return jsonify({
+                "ok": False,
+                "mensagem": "Tarefa RPA não encontrada.",
+            }), 404
+
+        status_atual = limpar_texto(getattr(tarefa, "status_rpa", ""))
+
+        if status_atual == RPA_CONCLUIDO:
+            return jsonify({
+                "ok": False,
+                "mensagem": "Tarefa RPA já foi concluída.",
+            }), 400
+
+        tarefa.status_rpa = RPA_PENDENTE
+        tarefa.erro_rpa = ""
+        tarefa.data_processamento = None
+        db.commit()
+
+        log_info("[RPA] Reprocessamento solicitado:", tarefa_id)
+
+        return jsonify({
+            "ok": True,
+            "mensagem": "Tarefa RPA recolocada na fila com segurança.",
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        log_erro("[RPA] Erro no reprocessamento:", repr(e))
+
+        return jsonify({
+            "ok": False,
+            "mensagem": "Erro ao reprocessar tarefa RPA.",
+        }), 500
+
+    finally:
+        db.close()
+
+
+@app.route("/dashboard.html")
+def dashboard_html_redirect():
+    return redirect("/dashboard", code=302)
+
+
+@app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     db = SessionLocal()
 
     try:
-        filtro = limpar_texto(request.args.get("filtro", "hoje")).lower()
+        if request.method == "POST":
+            filtro = limpar_texto(request.form.get("filtro", "hoje")).lower()
+            pergunta_gestor_form = limpar_texto(
+                request.form.get("pergunta_gestor", "")
+            )
+        else:
+            filtro = limpar_texto(request.args.get("filtro", "hoje")).lower()
+            pergunta_gestor_form = limpar_texto(
+                request.args.get("pergunta_gestor", "")
+            )
+
         hoje = agora_datetime().date()
 
         query_atendimentos = db.query(Atendimento)
         query_agendamentos = db.query(AgendamentoRevisao)
+        query_rpa = db.query(TarefaRPA)
 
         if filtro == "hoje":
             inicio = datetime.combine(hoje, datetime.min.time())
@@ -7027,12 +7602,25 @@ def dashboard():
                     AgendamentoRevisao.criado_em <= fim,
                 )
 
+            if hasattr(TarefaRPA, "data_criacao"):
+                query_rpa = query_rpa.filter(
+                    TarefaRPA.data_criacao >= inicio,
+                    TarefaRPA.data_criacao <= fim,
+                )
+
         atendimentos = query_atendimentos.all()
 
         agendamentos_lista = (
             query_agendamentos
             .order_by(AgendamentoRevisao.id.desc())
             .limit(100)
+            .all()
+        )
+
+        tarefas_rpa = (
+            query_rpa
+            .order_by(TarefaRPA.id.desc())
+            .limit(50)
             .all()
         )
 
@@ -7160,6 +7748,27 @@ def dashboard():
             if status_sances_ag(ag) == SANCES_STATUS_NAO_CONFIGURADO
         )
 
+        rpa_pendentes = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_PENDENTE
+        )
+        rpa_em_execucao = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_EM_EXECUCAO
+        )
+        rpa_concluidas = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_CONCLUIDO
+        )
+        rpa_erros = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_ERRO
+        )
+        rpa_aguardando_humano = sum(
+            1 for tarefa in tarefas_rpa
+            if limpar_texto(getattr(tarefa, "status_rpa", "")) == RPA_AGUARDANDO_HUMANO
+        )
+
         primeira = segunda = terceira = quarta = quinta = 0
 
         for ag in agendamentos_lista:
@@ -7226,7 +7835,7 @@ def dashboard():
         total_itens_vendidos = sum(contador_itens.values())
         total_agendamentos_periodo = len(agendamentos_lista)
 
-        pergunta_gestor = limpar_texto(request.args.get("pergunta_gestor", ""))
+        pergunta_gestor = pergunta_gestor_form
         resposta_gestor = ""
 
         if pergunta_gestor:
@@ -7273,6 +7882,12 @@ def dashboard():
             sances_enviados=sances_enviados,
             sances_erros=sances_erros,
             sances_nao_configurado=sances_nao_configurado,
+            rpa_pendentes=rpa_pendentes,
+            rpa_em_execucao=rpa_em_execucao,
+            rpa_concluidas=rpa_concluidas,
+            rpa_erros=rpa_erros,
+            rpa_aguardando_humano=rpa_aguardando_humano,
+            tarefas_rpa=tarefas_rpa,
             agendados=agendados,
             confirmados=confirmados,
             concluidos=concluidos,

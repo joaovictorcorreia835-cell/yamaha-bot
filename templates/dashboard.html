@@ -397,17 +397,17 @@
     <div class="gestor-crm">
         <h2>IA Gestor CRM</h2>
 
-        <form class="gestor-form" method="get" action="/dashboard">
-            <input type="hidden" name="filtro" value="{{ filtro_ativo }}">
+        <form class="gestor-form" method="post" action="{{ url_for('dashboard') }}">
+            <input type="hidden" name="filtro" value="{{ filtro_ativo|default('hoje') }}">
             <input
                 type="text"
                 name="pergunta_gestor"
-                value="{{ pergunta_gestor if pergunta_gestor is defined else '' }}"
+                value="{{ pergunta_gestor|default('', true) }}"
                 placeholder="Ex.: quantas revisões foram agendadas essa semana?">
             <button type="submit">Consultar CRM</button>
         </form>
 
-        {% if resposta_gestor %}
+        {% if resposta_gestor|default('', true) %}
             <div class="gestor-resposta">
                 {{ resposta_gestor }}
             </div>
@@ -419,42 +419,42 @@
         <div class="card azul">
             <h3>Total Atendimentos</h3>
             <div class="numero">
-                {{ total if total is defined else 0 }}
+                {{ total|default(0, true) }}
             </div>
         </div>
 
         <div class="card azul">
             <h3>Revisões</h3>
             <div class="numero">
-                {{ total_revisoes if total_revisoes is defined else 0 }}
+                {{ total_revisoes|default(0, true) }}
             </div>
         </div>
 
         <div class="card verde">
             <h3>Agendados</h3>
             <div class="numero">
-                {{ agendados if agendados is defined else 0 }}
+                {{ agendados|default(0, true) }}
             </div>
         </div>
 
         <div class="card roxo">
             <h3>Finalizados</h3>
             <div class="numero">
-                {{ concluidos if concluidos is defined else 0 }}
+                {{ concluidos|default(0, true) }}
             </div>
         </div>
 
         <div class="card vermelho">
             <h3>Cancelados</h3>
             <div class="numero">
-                {{ cancelados if cancelados is defined else 0 }}
+                {{ cancelados|default(0, true) }}
             </div>
         </div>
 
         <div class="card ciano">
             <h3>Reagendados</h3>
             <div class="numero">
-                {{ reagendados if reagendados is defined else 0 }}
+                {{ reagendados|default(0, true) }}
             </div>
         </div>
 
@@ -525,6 +525,34 @@
             <h3>Follow-ups Pendentes</h3>
             <div class="numero">
                 {{ followups_pendentes if followups_pendentes is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card amarelo">
+            <h3>RPA Pendentes</h3>
+            <div class="numero">
+                {{ rpa_pendentes if rpa_pendentes is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card verde">
+            <h3>RPA Concluídas</h3>
+            <div class="numero">
+                {{ rpa_concluidas if rpa_concluidas is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card vermelho">
+            <h3>RPA Erros</h3>
+            <div class="numero">
+                {{ rpa_erros if rpa_erros is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card rosa">
+            <h3>RPA Humano</h3>
+            <div class="numero">
+                {{ rpa_aguardando_humano if rpa_aguardando_humano is defined else 0 }}
             </div>
         </div>
 
@@ -803,6 +831,77 @@
                 </div>
             {% endif %}
         </div>
+
+    </div>
+
+    <div class="table-section">
+
+        <h2>Automações RPA / IA</h2>
+
+        {% if tarefas_rpa %}
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Telefone</th>
+                            <th>Tipo</th>
+                            <th>Status</th>
+                            <th>Tentativas</th>
+                            <th>Erro</th>
+                            <th>Criada em</th>
+                            <th>Ação</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for tarefa in tarefas_rpa %}
+                        {% set rpa_status = (tarefa.status_rpa or '')|upper %}
+                        <tr>
+                            <td>{{ tarefa.id }}</td>
+                            <td>{{ tarefa.telefone or '-' }}</td>
+                            <td>{{ tarefa.tipo_tarefa or '-' }}</td>
+                            <td>
+                                <span class="status-badge
+                                    {% if rpa_status == 'RPA_CONCLUIDO' %}
+                                        status-agendado
+                                    {% elif rpa_status == 'RPA_ERRO' %}
+                                        status-cancelado
+                                    {% elif rpa_status == 'RPA_PENDENTE' %}
+                                        status-reagendado
+                                    {% elif rpa_status == 'RPA_AGUARDANDO_HUMANO' %}
+                                        status-confirmado
+                                    {% else %}
+                                        status-padrao
+                                    {% endif %}
+                                ">
+                                    {{ tarefa.status_rpa or 'RPA_PENDENTE' }}
+                                </span>
+                            </td>
+                            <td>{{ tarefa.tentativas_rpa or 0 }}</td>
+                            <td class="resposta-ia">{{ tarefa.erro_rpa or '-' }}</td>
+                            <td>{{ tarefa.data_criacao or '-' }}</td>
+                            <td>
+                                {% if rpa_status in ['RPA_ERRO', 'RPA_AGUARDANDO_HUMANO', 'RPA_PENDENTE'] %}
+                                    <button
+                                        class="btn-reenvio"
+                                        onclick="reprocessarRPA('{{ tarefa.id }}')">
+                                        Reprocessar
+                                    </button>
+                                {% else %}
+                                    <span class="small">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="vazio">
+                Nenhuma automação RPA registrada no período selecionado.
+            </div>
+        {% endif %}
 
     </div>
 
@@ -1207,6 +1306,48 @@
 
             console.error(error);
             alert("Erro ao tentar reenviar para o Sances.");
+
+        }
+
+    }
+
+    async function reprocessarRPA(tarefaId){
+
+        if(!tarefaId){
+            alert("Tarefa RPA inválida.");
+            return;
+        }
+
+        const confirmar = confirm(
+            `Deseja reprocessar a tarefa RPA ${tarefaId}?`
+        );
+
+        if(!confirmar){
+            return;
+        }
+
+        try{
+
+            const response = await fetch(
+                `/reprocessar-rpa/${encodeURIComponent(tarefaId)}`,
+                {
+                    method:"POST"
+                }
+            );
+
+            const data = await response.json();
+
+            if(data.ok){
+                alert(data.mensagem || "Tarefa recolocada na fila.");
+                window.location.reload();
+            }else{
+                alert(data.mensagem || "Falha ao reprocessar tarefa RPA.");
+            }
+
+        }catch(error){
+
+            console.error(error);
+            alert("Erro ao tentar reprocessar tarefa RPA.");
 
         }
 
