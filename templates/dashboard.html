@@ -556,6 +556,27 @@
             </div>
         </div>
 
+        <div class="card ciano">
+            <h3>Pré-orçamentos</h3>
+            <div class="numero">
+                {{ pre_orcamentos_criados if pre_orcamentos_criados is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card roxo">
+            <h3>Orçamento Quente</h3>
+            <div class="numero">
+                {{ leads_quentes_orcamento if leads_quentes_orcamento is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card vermelho">
+            <h3>Pendente Consultor</h3>
+            <div class="numero">
+                {{ orcamentos_pendentes_consultor if orcamentos_pendentes_consultor is defined else 0 }}
+            </div>
+        </div>
+
         <div class="card vermelho">
             <h3>Follow-ups Pendentes</h3>
             <div class="numero">

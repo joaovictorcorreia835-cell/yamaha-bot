@@ -1799,6 +1799,344 @@ def obter_pdf_acessorios_por_modelo(modelo):
 # ==========================================
 # REVISÃO / DATAS / OPÇÕES
 # ==========================================
+ITENS_PRE_ORCAMENTO = {
+    "relacao": "Relação",
+    "kit relacao": "Kit relação",
+    "corrente": "Corrente",
+    "coroa": "Coroa",
+    "pinhao": "Pinhão",
+    "oleo": "Óleo",
+    "yamalube": "Óleo Yamalube",
+    "filtro de oleo": "Filtro de óleo",
+    "filtro oleo": "Filtro de óleo",
+    "filtro de ar": "Filtro de ar",
+    "filtro": "Filtro",
+    "pastilha de freio": "Pastilha de freio",
+    "pastilha": "Pastilha de freio",
+    "pneu": "Pneu",
+    "vela": "Vela",
+    "bateria": "Bateria",
+    "cabo": "Cabo",
+    "lampada": "Lâmpada",
+    "slider": "Slider",
+    "protetor de motor": "Protetor de motor",
+    "protetor motor": "Protetor de motor",
+    "protetor de carenagem": "Protetor de carenagem",
+    "bau": "Baú",
+    "bagageiro": "Bagageiro",
+    "suporte de celular": "Suporte de celular",
+    "bolha": "Bolha",
+    "manopla": "Manopla",
+    "retrovisor": "Retrovisor",
+    "revisao complementar": "Revisão complementar",
+}
+
+
+TERMOS_ORCAMENTO = [
+    "orcamento",
+    "orçamento",
+    "cotacao",
+    "cotação",
+    "cotar",
+    "preco",
+    "preço",
+    "valor",
+    "quanto fica",
+    "quanto custa",
+    "tem ",
+    "preciso de",
+    "quero comprar",
+    "disponibilidade",
+]
+
+
+def identificar_modelo_pre_orcamento(texto, telefone=""):
+    texto_norm = normalizar_texto(texto)
+    aliases = {
+        "FAZER 250": ["fazer 250", "fz25", "fz 25", "fazer250"],
+        "FZ15": ["fz15", "fz 15", "fazer 150"],
+        "CROSSER": ["crosser", "xtz 150"],
+        "LANDER": ["lander", "lander 250", "xtz 250"],
+        "FACTOR": ["factor", "factor 150", "factor 125"],
+        "NMAX": ["nmax"],
+        "NEO": ["neo"],
+        "FLUO": ["fluo"],
+        "AEROX": ["aerox"],
+        "TENERE 700": ["tenere 700", "teneré 700", "tenere", "t7"],
+        "MT-03": ["mt03", "mt 03", "mt-03"],
+        "MT-07": ["mt07", "mt 07", "mt-07"],
+        "R15": ["r15", "r 15"],
+        "R3": ["r3", "r 3"],
+    }
+
+    for modelo, lista_alias in aliases.items():
+        if any(alias in texto_norm for alias in lista_alias):
+            return modelo
+
+    telefone = limpar_telefone(telefone)
+
+    if telefone and telefone in clientes:
+        memoria = clientes[telefone].get("memoria_cliente", {}) or {}
+        return limpar_texto(clientes[telefone].get("modelo", "") or memoria.get("modelo", "")).upper()
+
+    return ""
+
+
+def extrair_ano_pre_orcamento(texto, telefone=""):
+    texto_norm = normalizar_texto(texto)
+    match = re.search(r"\b(20[0-3][0-9]|19[8-9][0-9])\b", texto_norm)
+
+    if match:
+        return match.group(1)
+
+    telefone = limpar_telefone(telefone)
+
+    if telefone and telefone in clientes:
+        memoria = clientes[telefone].get("memoria_cliente", {}) or {}
+        return limpar_texto(clientes[telefone].get("ano", "") or memoria.get("ano", ""))
+
+    return ""
+
+
+def extrair_quantidade_pre_orcamento(texto):
+    texto_norm = normalizar_texto(texto)
+    padroes = [
+        r"\b(\d{1,3})\s*(?:x|un|unidade|unidades|peca|pecas|peça|peças|filtro|filtros|kit|kits)\b",
+        r"\b(?:quero|preciso|cotar|comprar)\s+(\d{1,3})\b",
+    ]
+
+    for padrao in padroes:
+        match = re.search(padrao, texto_norm)
+
+        if match:
+            return match.group(1)
+
+    return "1"
+
+
+def extrair_itens_pre_orcamento(texto):
+    texto_norm = normalizar_texto(texto)
+    encontrados = []
+
+    for chave, nome in sorted(ITENS_PRE_ORCAMENTO.items(), key=lambda item: len(item[0]), reverse=True):
+        if chave in texto_norm and nome not in encontrados:
+            if any(chave in normalizar_texto(item) or normalizar_texto(item) in chave for item in encontrados):
+                continue
+
+            encontrados.append(nome)
+
+    if encontrados:
+        return encontrados
+
+    padrao = re.search(
+        r"(?:preciso de|quero orcamento de|quero orçamento de|orcamento de|orçamento de|quanto fica o|quanto fica a|quanto custa o|quanto custa a|tem)\s+(.+?)(?:\s+da\s+|\s+do\s+|\s+para\s+|$)",
+        texto_norm,
+    )
+
+    if padrao:
+        item = limpar_texto(padrao.group(1))
+        item = re.sub(r"\b(minha|meu|uma|um|de|da|do)\b", "", item).strip()
+
+        if item and len(item) >= 3:
+            return [item.title()]
+
+    return []
+
+
+def identificar_setor_pre_orcamento(texto, itens):
+    texto_norm = normalizar_texto(texto)
+    itens_norm = normalizar_texto(" ".join(itens))
+
+    if any(t in texto_norm for t in ["atacado", "lojista", "logista", "revenda", "oficina", "cotar 10", "cotar dez"]):
+        return "atacado"
+
+    if any(t in texto_norm or t in itens_norm for t in [
+        "acessorio",
+        "acessório",
+        "slider",
+        "protetor",
+        "bau",
+        "bagageiro",
+        "suporte",
+        "bolha",
+    ]):
+        return "acessórios"
+
+    if "revisao complementar" in texto_norm or "revisão complementar" in texto_norm:
+        return "revisão"
+
+    return "peças"
+
+
+def identificar_urgencia_pre_orcamento(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if any(t in texto_norm for t in ["urgente", "hoje", "agora", "imediato", "o quanto antes"]):
+        return "urgente"
+
+    if any(t in texto_norm for t in ["amanha", "amanhã", "essa semana"]):
+        return "moderada"
+
+    return ""
+
+
+def texto_parece_valor_revisao_pre_orcamento(texto):
+    texto_norm = normalizar_texto(texto)
+
+    tem_revisao = any(t in texto_norm for t in ["revisao", "revisão", "revisar"])
+    tem_valor = any(t in texto_norm for t in ["valor", "preco", "preço", "quanto custa", "quanto fica"])
+    tem_item = bool(extrair_itens_pre_orcamento(texto_norm))
+
+    return tem_revisao and tem_valor and not tem_item
+
+
+def texto_parece_pre_orcamento(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if not texto_norm or texto_parece_menu_ou_saudacao(texto_norm):
+        return False
+
+    if texto_parece_valor_revisao_pre_orcamento(texto_norm):
+        return False
+
+    tem_termo_orcamento = any(termo in texto_norm for termo in TERMOS_ORCAMENTO)
+    tem_item = bool(extrair_itens_pre_orcamento(texto_norm))
+    tem_atacado = any(t in texto_norm for t in ["atacado", "lojista", "logista", "cotar"])
+
+    return (tem_termo_orcamento and (tem_item or tem_atacado)) or (tem_item and "preciso" in texto_norm)
+
+
+def montar_pre_orcamento(texto_cliente, telefone):
+    telefone = limpar_telefone(telefone)
+    texto_cliente = limpar_texto(texto_cliente)
+    iniciar_cliente(telefone)
+
+    pendente = clientes[telefone].get("pre_orcamento_pendente", {}) or {}
+    texto_completo = " ".join([
+        limpar_texto(pendente.get("texto_original", "")),
+        texto_cliente,
+    ]).strip()
+
+    modelo = limpar_texto(pendente.get("modelo", "") or identificar_modelo_pre_orcamento(texto_completo, telefone)).upper()
+    ano = limpar_texto(pendente.get("ano", "") or extrair_ano_pre_orcamento(texto_completo, telefone))
+    itens = pendente.get("itens", []) or extrair_itens_pre_orcamento(texto_completo)
+    quantidade = limpar_texto(pendente.get("quantidade", "") or extrair_quantidade_pre_orcamento(texto_completo))
+    setor = limpar_texto(pendente.get("setor", "") or identificar_setor_pre_orcamento(texto_completo, itens))
+    urgencia = limpar_texto(pendente.get("urgencia", "") or identificar_urgencia_pre_orcamento(texto_completo))
+
+    if not modelo:
+        clientes[telefone]["etapa"] = "pre_orcamento_modelo"
+        clientes[telefone]["pre_orcamento_pendente"] = {
+            "texto_original": texto_completo,
+            "itens": itens,
+            "quantidade": quantidade,
+            "setor": setor,
+            "urgencia": urgencia,
+        }
+        enviar_mensagem(
+            telefone,
+            "Qual o modelo e ano da sua moto para eu montar o pré-orçamento corretamente?"
+        )
+        return {"ok": False, "pendente": "modelo"}
+
+    if not itens:
+        clientes[telefone]["etapa"] = "pre_orcamento_item"
+        clientes[telefone]["pre_orcamento_pendente"] = {
+            "texto_original": texto_completo,
+            "modelo": modelo,
+            "ano": ano,
+            "quantidade": quantidade,
+            "setor": setor,
+            "urgencia": urgencia,
+        }
+        enviar_mensagem(
+            telefone,
+            "Qual peça ou acessório você deseja orçamento?"
+        )
+        return {"ok": False, "pendente": "item"}
+
+    pre_orcamento = {
+        "modelo": modelo,
+        "ano": ano,
+        "itens": itens,
+        "quantidade": quantidade or "1",
+        "setor": setor,
+        "urgencia": urgencia,
+        "observacao": texto_completo,
+        "status": "PRE_ORCAMENTO",
+    }
+
+    clientes[telefone]["pre_orcamento"] = pre_orcamento
+    clientes[telefone]["pre_orcamento_pendente"] = {}
+    clientes[telefone]["modelo"] = modelo
+    clientes[telefone]["ano"] = ano
+    clientes[telefone]["itens"] = ", ".join(itens)
+    clientes[telefone]["quantidade"] = quantidade or "1"
+    clientes[telefone]["observacao"] = texto_completo
+    clientes[telefone]["produto_interesse"] = ", ".join(itens)
+    clientes[telefone]["intencao_ia"] = "orcamento"
+    clientes[telefone]["proxima_acao"] = "consultor_finalizar_orcamento"
+    clientes[telefone]["nivel_interesse"] = "QUENTE"
+    clientes[telefone]["temperatura_lead"] = "QUENTE"
+    clientes[telefone]["oportunidade_comercial"] = True
+    clientes[telefone]["status_comercial"] = "PRE_ORCAMENTO"
+    clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+    clientes[telefone]["atendimento_humano"] = True
+    clientes[telefone]["etapa"] = "atendimento_humano"
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    setor_evento = {
+        "peças": "Peças",
+        "acessórios": "Acessórios",
+        "atacado": "Logista / Atacado",
+        "revisão": "Revisão",
+    }.get(setor, "Peças")
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor=setor_evento,
+        status="PRE_ORCAMENTO",
+        etapa="pre_orcamento",
+        dados=clientes[telefone],
+        atendimento_humano=True,
+        concluido=False,
+        origem=clientes[telefone].get("origem", "BOT"),
+        observacao=texto_completo,
+        intencao_ia="orcamento",
+    )
+
+    if setor == "atacado":
+        clientes[telefone]["itens_cotacao"] = ", ".join(itens)
+        clientes[telefone]["nivel_interesse_atacado"] = "PARCEIRO_QUENTE"
+        clientes[telefone]["proxima_acao_atacado"] = "PRIORIZAR_CONSULTOR_COMERCIAL"
+        salvar_lead_atacado(telefone, status="PRE_ORCAMENTO_ATACADO", mensagem=texto_completo)
+
+    linhas = [
+        "✅ Entendi! Separei sua solicitação de orçamento:",
+        "",
+        f"🏍️ Modelo: {modelo}",
+    ]
+
+    if ano:
+        linhas.append(f"📅 Ano: {ano}")
+
+    linhas.extend([
+        f"🧩 Item: {', '.join(itens)}",
+        f"📦 Quantidade: {quantidade or '1'}",
+    ])
+
+    if urgencia:
+        linhas.append(f"⏱️ Urgência: {urgencia}")
+
+    linhas.extend([
+        "",
+        "Vou encaminhar para um consultor verificar preço e disponibilidade no sistema. 🤝",
+    ])
+
+    enviar_mensagem(telefone, "\n".join(linhas))
+    return {"ok": True, "pre_orcamento": pre_orcamento}
+
+
 def normalizar_revisao_para_fluxo(valor):
     try:
         texto = limpar_opcao(valor)
@@ -2197,6 +2535,9 @@ def estado_padrao_cliente():
         "proxima_acao_atacado": "",
         "data_ultimo_contato_atacado": "",
         "recomendacoes_atacado": [],
+
+        "pre_orcamento": {},
+        "pre_orcamento_pendente": {},
     }
 
 
@@ -3811,6 +4152,18 @@ def salvar_evento_atendimento(
 
         setar("observacao", observacoes)
         setar("observacoes", observacoes)
+        setar("quantidade", limpar_texto(base.get("quantidade", "")))
+
+        pre_orcamento = base.get("pre_orcamento", {})
+
+        if pre_orcamento:
+            try:
+                setar(
+                    "pre_orcamento_json",
+                    json.dumps(pre_orcamento, ensure_ascii=False),
+                )
+            except Exception:
+                setar("pre_orcamento_json", limpar_texto(pre_orcamento))
 
         setar(
             "origem",
@@ -7765,6 +8118,31 @@ def montar_metricas_crm(filtro="hoje"):
             if bool(getattr(a, "oportunidade_comercial", False))
         )
 
+        pre_orcamentos_criados = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "status_comercial", "")) == "pre_orcamento"
+            or normalizar_status(getattr(a, "status", "")) == "PRE_ORCAMENTO"
+            or limpar_texto(getattr(a, "pre_orcamento_json", ""))
+        )
+
+        leads_quentes_orcamento = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "intencao_ia", "")) == "orcamento"
+            and (
+                normalizar_texto(getattr(a, "temperatura_lead", "")) == "quente"
+                or normalizar_texto(getattr(a, "nivel_interesse", "")) in ["alto", "quente"]
+            )
+        )
+
+        orcamentos_pendentes_consultor = sum(
+            1 for a in atendimentos
+            if (
+                normalizar_texto(getattr(a, "proxima_acao", "")) == "consultor_finalizar_orcamento"
+                or normalizar_texto(getattr(a, "status_comercial", "")) == "pre_orcamento"
+            )
+            and not bool(getattr(a, "concluido", False))
+        )
+
         followups_pendentes_lista = [
             a for a in atendimentos
             if not bool(getattr(a, "atendimento_humano", False))
@@ -7917,6 +8295,9 @@ def montar_metricas_crm(filtro="hoje"):
             "leads_comerciais": leads_comerciais,
             "leads_quentes": leads_quentes,
             "oportunidades_comerciais": oportunidades_comerciais,
+            "pre_orcamentos_criados": pre_orcamentos_criados,
+            "leads_quentes_orcamento": leads_quentes_orcamento,
+            "orcamentos_pendentes_consultor": orcamentos_pendentes_consultor,
             "followups_pendentes": len(followups_pendentes_lista),
             "followups_pendentes_lista": followups_pendentes_lista[:10],
             "sances_pendentes": sances_pendentes,
@@ -7972,6 +8353,9 @@ def montar_metricas_crm(filtro="hoje"):
             "leads_comerciais": 0,
             "leads_quentes": 0,
             "oportunidades_comerciais": 0,
+            "pre_orcamentos_criados": 0,
+            "leads_quentes_orcamento": 0,
+            "orcamentos_pendentes_consultor": 0,
             "followups_pendentes": 0,
             "followups_pendentes_lista": [],
             "sances_pendentes": 0,
@@ -8468,6 +8852,31 @@ def dashboard():
             if bool(getattr(a, "oportunidade_comercial", False))
         )
 
+        pre_orcamentos_criados = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "status_comercial", "")) == "pre_orcamento"
+            or normalizar_status(getattr(a, "status", "")) == "PRE_ORCAMENTO"
+            or limpar_texto(getattr(a, "pre_orcamento_json", ""))
+        )
+
+        leads_quentes_orcamento = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "intencao_ia", "")) == "orcamento"
+            and (
+                normalizar_texto(getattr(a, "temperatura_lead", "")) == "quente"
+                or normalizar_texto(getattr(a, "nivel_interesse", "")) in ["alto", "quente"]
+            )
+        )
+
+        orcamentos_pendentes_consultor = sum(
+            1 for a in atendimentos
+            if (
+                normalizar_texto(getattr(a, "proxima_acao", "")) == "consultor_finalizar_orcamento"
+                or normalizar_texto(getattr(a, "status_comercial", "")) == "pre_orcamento"
+            )
+            and not bool(getattr(a, "concluido", False))
+        )
+
         followups_pendentes_lista = [
             a for a in atendimentos
             if not bool(getattr(a, "atendimento_humano", False))
@@ -8676,6 +9085,9 @@ def dashboard():
             leads_comerciais=leads_comerciais,
             leads_quentes=leads_quentes,
             oportunidades_comerciais=oportunidades_comerciais,
+            pre_orcamentos_criados=pre_orcamentos_criados,
+            leads_quentes_orcamento=leads_quentes_orcamento,
+            orcamentos_pendentes_consultor=orcamentos_pendentes_consultor,
             followups_pendentes=followups_pendentes,
             followups_pendentes_lista=followups_pendentes_lista[:10],
             total_itens_vendidos=total_itens_vendidos,
@@ -9747,7 +10159,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
     if intencao == "orcamento":
         log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "orcamento_pecas", "etapa_atual": etapa_atual})
-        iniciar_fluxo_pecas(telefone, texto)
+        montar_pre_orcamento(texto, telefone)
         return True
 
     if intencao == "acessorios":
@@ -10475,6 +10887,16 @@ def webhook():
             enviar_menu(telefone)
             return jsonify({"status": "ok", "motivo": "menu_global"}), 200
 
+        etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
+
+        if etapa in ["pre_orcamento_modelo", "pre_orcamento_item"]:
+            montar_pre_orcamento(texto, telefone)
+            return jsonify({"status": "ok", "motivo": "pre_orcamento_continuado"}), 200
+
+        if etapa == "menu" and texto_parece_pre_orcamento(texto):
+            montar_pre_orcamento(texto, telefone)
+            return jsonify({"status": "ok", "motivo": "pre_orcamento"}), 200
+
         # ==========================================
         # DÚVIDAS POR MANUAL - PRIORIDADE ABSOLUTA
         # Antes de IA de intenção, menu rápido e revisão
@@ -10671,6 +11093,9 @@ def webhook():
         # PEÇAS
         # ==========================================
         if etapa == "pecas":
+            montar_pre_orcamento(texto, telefone)
+            return jsonify({"status": "ok", "motivo": "pre_orcamento_pecas"}), 200
+
             clientes[telefone]["observacao"] = texto
             clientes[telefone]["produto_interesse"] = texto
             clientes[telefone]["oportunidade_comercial"] = True
@@ -10757,6 +11182,9 @@ def webhook():
                     return jsonify({"status": "ok", "motivo": "acessorios_nome_vazio"}), 200
 
                 clientes[telefone]["acessorio_desejado"] = acessorio_nome
+                montar_pre_orcamento(acessorio_nome, telefone)
+                return jsonify({"status": "ok", "motivo": "pre_orcamento_acessorios"}), 200
+
                 clientes[telefone]["produto_interesse"] = acessorio_nome
                 clientes[telefone]["oportunidade_comercial"] = True
                 clientes[telefone]["nivel_interesse"] = "ALTO"

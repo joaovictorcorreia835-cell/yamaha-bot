@@ -54,6 +54,8 @@ class Atendimento(Base):
     horario = Column(String, index=True, nullable=True)
 
     itens = Column(Text, nullable=True)
+    quantidade = Column(String, nullable=True)
+    pre_orcamento_json = Column(Text, nullable=True)
     venda_adicional = Column(Text, nullable=True)
     observacao = Column(Text, nullable=True)
     observacoes = Column(Text, nullable=True)
@@ -356,6 +358,8 @@ def migrar_colunas_followup():
         "modelo_ia": "VARCHAR",
         "pergunta_ia": "TEXT",
         "tipo_mensagem": "VARCHAR",
+        "quantidade": "VARCHAR",
+        "pre_orcamento_json": "TEXT",
     }
 
     with engine.begin() as conn:
