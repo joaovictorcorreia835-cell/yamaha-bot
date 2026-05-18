@@ -59,6 +59,7 @@ class Atendimento(Base):
     origem = Column(String, nullable=True)
     status = Column(String, index=True, nullable=True)
     etapa = Column(String, index=True, nullable=True)
+    status_comercial = Column(String, index=True, nullable=True)
 
     atendimento_humano = Column(Boolean, default=False)
     concluido = Column(Boolean, default=False)
@@ -72,6 +73,8 @@ class Atendimento(Base):
 
     nivel_interesse = Column(String, nullable=True)
     temperatura_lead = Column(String, nullable=True)
+    produto_interesse = Column(Text, nullable=True)
+    oportunidade_comercial = Column(Boolean, default=False)
     cliente_recuperado = Column(Boolean, default=False)
     followup_nivel = Column(Integer, default=0)
     ultima_acao_ia = Column(String, nullable=True)
@@ -298,6 +301,9 @@ def migrar_colunas_followup():
     novas_colunas = {
         "followup_enviado": "BOOLEAN DEFAULT FALSE",
         "data_followup": "TIMESTAMP",
+        "produto_interesse": "TEXT",
+        "oportunidade_comercial": "BOOLEAN DEFAULT FALSE",
+        "status_comercial": "VARCHAR",
     }
 
     with engine.begin() as conn:

@@ -687,6 +687,9 @@ def atualizar_dados_ia_cliente(telefone, texto="", intencao="", resposta_ia=None
         clientes[telefone]["temperatura_lead"] = temperatura
         clientes[telefone]["nivel_interesse"] = resposta_ia.get("nivel_interesse") or "MEDIO"
         clientes[telefone]["proxima_acao"] = resposta_ia.get("proxima_acao") or ""
+        clientes[telefone]["produto_interesse"] = resposta_ia.get("produto_interesse") or ""
+        clientes[telefone]["oportunidade_comercial"] = bool(resposta_ia.get("oportunidade_comercial", False))
+        clientes[telefone]["status_comercial"] = resposta_ia.get("status_comercial") or ""
         clientes[telefone]["ultima_acao_ia"] = "IA_COMERCIAL"
 
     except Exception as e:
@@ -740,18 +743,26 @@ def responder_com_ia_comercial(telefone, texto, intencao="", modelo=""):
 
         enviar_mensagem(telefone, resposta)
 
+        if resposta_ia.get("encaminhar_humano"):
+            clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+            clientes[telefone]["atendimento_humano"] = True
+            clientes[telefone]["etapa"] = "atendimento_humano"
+
         salvar_evento_atendimento(
             telefone=telefone,
             setor="IA_COMERCIAL",
-            status="IA_COMERCIAL_RESPONDEU",
+            status=clientes[telefone].get("status_comercial") or "IA_COMERCIAL_RESPONDEU",
             etapa=dados.get("etapa", "menu"),
             dados=dados,
-            atendimento_humano=False,
+            atendimento_humano=bool(resposta_ia.get("encaminhar_humano")),
             concluido=False,
             origem=dados.get("origem", "BOT"),
             observacao=f"Interesse: {resposta_ia.get('interesse', '')}",
             intencao_ia=intencao,
         )
+
+        if resposta_ia.get("encaminhar_humano"):
+            ativar_atendimento_humano(telefone)
 
         return True
 
@@ -1035,6 +1046,12 @@ def processar_fluxo_atacado(telefone, texto, texto_opcao=""):
         clientes[telefone]["itens_cotacao"] = texto
         clientes[telefone]["itens"] = texto
         clientes[telefone]["observacao"] = texto
+        clientes[telefone]["produto_interesse"] = texto
+        clientes[telefone]["oportunidade_comercial"] = True
+        clientes[telefone]["nivel_interesse"] = "ALTO"
+        clientes[telefone]["temperatura_lead"] = "QUENTE"
+        clientes[telefone]["proxima_acao"] = "ENCAMINHAR_CONSULTOR"
+        clientes[telefone]["status_comercial"] = "COTACAO_ATACADO"
 
         finalizar_atacado_com_humano(
             telefone=telefone,
@@ -1853,6 +1870,9 @@ def estado_padrao_cliente():
         "proxima_acao": "",
         "nivel_interesse": "",
         "temperatura_lead": "",
+        "produto_interesse": "",
+        "oportunidade_comercial": False,
+        "status_comercial": "",
         "ultima_acao_ia": "",
         "followup_nivel": 0,
         "cliente_recuperado": False,
@@ -2027,6 +2047,8 @@ def limpar_dados_fluxo_revisao(telefone):
         "proxima_acao",
         "nivel_interesse",
         "temperatura_lead",
+        "produto_interesse",
+        "status_comercial",
         "ultima_acao_ia",
         "origem_ia",
         "ultima_mensagem_cliente",
@@ -2038,6 +2060,7 @@ def limpar_dados_fluxo_revisao(telefone):
     clientes[telefone]["horarios_disponiveis"] = []
     clientes[telefone]["concluido"] = False
     clientes[telefone]["followup_nivel"] = 0
+    clientes[telefone]["oportunidade_comercial"] = False
     clientes[telefone]["cliente_recuperado"] = False
     clientes[telefone]["valor_estimado"] = 0
 
@@ -3172,6 +3195,7 @@ def salvar_evento_atendimento(
         )
 
         setar("status", normalizar_status(status))
+        setar("status_comercial", limpar_texto(base.get("status_comercial", "")))
 
         setar(
             "etapa",
@@ -3226,6 +3250,16 @@ def salvar_evento_atendimento(
         setar(
             "temperatura_lead",
             limpar_texto(base.get("temperatura_lead", ""))
+        )
+
+        setar(
+            "produto_interesse",
+            limpar_texto(base.get("produto_interesse", ""))
+        )
+
+        setar(
+            "oportunidade_comercial",
+            bool(base.get("oportunidade_comercial", False))
         )
 
         setar(
@@ -4348,6 +4382,18 @@ def aplicar_ia_comercial(telefone, texto):
             resposta.get("temperatura_lead", "")
         )
 
+        clientes[telefone]["produto_interesse"] = limpar_texto(
+            resposta.get("produto_interesse", "")
+        )
+
+        clientes[telefone]["oportunidade_comercial"] = bool(
+            resposta.get("oportunidade_comercial", False)
+        )
+
+        clientes[telefone]["status_comercial"] = limpar_texto(
+            resposta.get("status_comercial", "")
+        )
+
         clientes[telefone]["intencao_ia"] = limpar_texto(
             resposta.get("interesse", "")
         )
@@ -4358,14 +4404,14 @@ def aplicar_ia_comercial(telefone, texto):
             resposta.get("nivel_interesse", "")
         ).upper()
 
-        if nivel == "ALTO":
+        if nivel == "ALTO" or resposta.get("encaminhar_humano"):
             salvar_evento_atendimento(
                 telefone=telefone,
                 setor="IA_COMERCIAL",
-                status=STATUS_AGENDAMENTO_INICIADO,
+                status=clientes[telefone].get("status_comercial") or STATUS_AGENDAMENTO_INICIADO,
                 etapa="lead_quente_detectado",
                 dados=clientes[telefone],
-                atendimento_humano=False,
+                atendimento_humano=bool(resposta.get("encaminhar_humano", False)),
                 concluido=False,
             )
 
@@ -7944,6 +7990,12 @@ def webhook():
             clientes[telefone]["itens_cotacao"] = texto
             clientes[telefone]["itens"] = texto
             clientes[telefone]["observacao"] = texto
+            clientes[telefone]["produto_interesse"] = texto
+            clientes[telefone]["oportunidade_comercial"] = True
+            clientes[telefone]["nivel_interesse"] = "ALTO"
+            clientes[telefone]["temperatura_lead"] = "QUENTE"
+            clientes[telefone]["proxima_acao"] = "ENCAMINHAR_CONSULTOR"
+            clientes[telefone]["status_comercial"] = "COTACAO_ATACADO"
 
             enviar_mensagem(
                 telefone,
@@ -7955,6 +8007,17 @@ def webhook():
             clientes[telefone]["etapa"] = "atendimento_humano"
             clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
             clientes[telefone]["ultima_interacao"] = agora()
+
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Atacado",
+                status=STATUS_ATENDIMENTO_HUMANO,
+                etapa="atacado_cotacao_itens",
+                dados=clientes[telefone],
+                atendimento_humano=True,
+                concluido=False,
+                origem=clientes[telefone].get("origem", "BOT"),
+            )
 
             return jsonify({"status": "ok", "fluxo": "atacado_cotacao"}), 200
 
@@ -8235,6 +8298,12 @@ def webhook():
         # ==========================================
         if etapa == "pecas":
             clientes[telefone]["observacao"] = texto
+            clientes[telefone]["produto_interesse"] = texto
+            clientes[telefone]["oportunidade_comercial"] = True
+            clientes[telefone]["nivel_interesse"] = "ALTO"
+            clientes[telefone]["temperatura_lead"] = "QUENTE"
+            clientes[telefone]["proxima_acao"] = "ENCAMINHAR_CONSULTOR"
+            clientes[telefone]["status_comercial"] = "ORCAMENTO_PECAS"
             clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
 
             salvar_evento_atendimento(
@@ -8314,6 +8383,12 @@ def webhook():
                     return jsonify({"status": "ok", "motivo": "acessorios_nome_vazio"}), 200
 
                 clientes[telefone]["acessorio_desejado"] = acessorio_nome
+                clientes[telefone]["produto_interesse"] = acessorio_nome
+                clientes[telefone]["oportunidade_comercial"] = True
+                clientes[telefone]["nivel_interesse"] = "ALTO"
+                clientes[telefone]["temperatura_lead"] = "QUENTE"
+                clientes[telefone]["proxima_acao"] = "ENCAMINHAR_CONSULTOR"
+                clientes[telefone]["status_comercial"] = "ORCAMENTO_ACESSORIOS"
                 clientes[telefone]["observacao"] = acessorio_nome
                 clientes[telefone]["itens"] = acessorio_nome
                 clientes[telefone]["etapa"] = "atendimento_humano"

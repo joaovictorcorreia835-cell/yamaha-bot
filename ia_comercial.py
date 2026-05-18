@@ -5,6 +5,7 @@
 
 import os
 import re
+import unicodedata
 
 from dotenv import load_dotenv
 
@@ -35,6 +36,10 @@ def obter_cliente_openai():
 # ==========================================
 def normalizar_texto(texto):
     texto = str(texto or "").lower().strip()
+    texto = "".join(
+        c for c in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(c) != "Mn"
+    )
 
     substituicoes = {
         "á": "a", "à": "a", "ã": "a", "â": "a",
@@ -155,6 +160,127 @@ def detectar_interesse_comercial(texto, intencao=""):
     return "geral"
 
 
+def detectar_produto_interesse(texto):
+    texto_norm = normalizar_texto(texto)
+    produtos = [
+        "oleo", "filtro", "filtro de oleo", "filtro de ar", "pastilha", "pneu",
+        "relacao", "kit relacao", "corrente", "coroa", "pinhao",
+        "vela", "bateria", "slider", "bau", "suporte de celular",
+        "protetor de motor", "protetor de carenagem", "bagageiro",
+        "catalogo", "catalogo de atacado", "catalogo de acessorios",
+    ]
+
+    encontrados = [produto for produto in produtos if produto in texto_norm]
+
+    if encontrados:
+        return ", ".join(dict.fromkeys(encontrados))
+
+    palavras = [
+        p for p in re.split(r"\s+", texto_norm)
+        if len(p) >= 4 and p not in {
+            "quero", "preciso", "valor", "preco", "quanto", "custa",
+            "orcamento", "catalogo", "minha", "moto", "yamaha",
+        }
+    ]
+
+    return " ".join(palavras[:5]).strip()
+
+
+def texto_pede_orcamento_ou_preco(texto):
+    texto_norm = normalizar_texto(texto)
+    termos = [
+        "orcamento", "cotacao", "cotar", "preco", "valor",
+        "quanto custa", "quanto fica", "tem disponivel", "disponibilidade",
+        "pode separar", "quero comprar",
+    ]
+    return any(termo in texto_norm for termo in termos)
+
+
+def texto_parece_lista_itens(texto):
+    texto_original = str(texto or "")
+    texto_norm = normalizar_texto(texto_original)
+
+    if "," in texto_original or "\n" in texto_original:
+        return True
+
+    termos_itens = [
+        "oleo", "filtro", "pastilha", "pneu", "relacao", "corrente",
+        "coroa", "pinhao", "vela", "bateria", "slider", "bau",
+    ]
+
+    return sum(1 for termo in termos_itens if termo in texto_norm) >= 2
+
+
+def sugestao_venda_adicional(interesse, produto_interesse="", modelo=""):
+    interesse = normalizar_texto(interesse)
+    produto = normalizar_texto(produto_interesse)
+
+    if "oleo" in produto:
+        return "Também vale verificar o filtro de óleo e a mão de obra da troca."
+
+    if "filtro" in produto:
+        return "Podemos verificar junto óleo adequado e instalação na oficina."
+
+    if interesse == "revisao":
+        return "Na revisão, também podemos avaliar lubrificante, filtro e lubrificação da corrente."
+
+    if interesse == "acessorios":
+        return "Para acessórios, um consultor pode confirmar instalação e compatibilidade com sua moto."
+
+    if interesse == "pecas":
+        return "Além da peça, nossa equipe pode cotar a mão de obra de instalação, se você quiser."
+
+    if interesse == "atacado":
+        return "Para atacado, envie uma lista com peças, óleo Yamalube e itens de giro para montarmos uma cotação."
+
+    return ""
+
+
+def humanizar_resposta_comercial_com_ia(resposta_base, texto="", modelo="", interesse="", produto_interesse=""):
+    cliente = obter_cliente_openai()
+
+    if cliente is None:
+        return ""
+
+    try:
+        resposta = cliente.chat.completions.create(
+            model=OPENAI_MODELO_COMERCIAL,
+            temperature=0.25,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Você é um assistente comercial da Motoshow Yamaha. Reescreva a resposta "
+                        "em português do Brasil, com tom humano, curto e profissional. Não invente "
+                        "preço, estoque, prazo, desconto ou disponibilidade. Sempre que houver pedido "
+                        "de orçamento, preço ou compra, diga que um consultor confirmará os detalhes."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Mensagem do cliente: {texto}\n"
+                        f"Modelo: {modelo}\n"
+                        f"Interesse: {interesse}\n"
+                        f"Produto de interesse: {produto_interesse}\n\n"
+                        f"Resposta base segura:\n{resposta_base}\n\n"
+                        "Reescreva em no máximo 3 parágrafos curtos."
+                    ),
+                },
+            ],
+        )
+
+        conteudo = limpar_texto(resposta.choices[0].message.content)
+
+        if conteudo:
+            return conteudo[:900]
+
+    except Exception:
+        return ""
+
+    return ""
+
+
 # ==========================================
 # LEAD SCORING
 # ==========================================
@@ -208,7 +334,13 @@ def classificar_nivel_interesse(texto, intencao=""):
     if any(item in texto for item in baixa):
         return "BAIXO"
 
+    if texto_pede_orcamento_ou_preco(texto) or texto_parece_lista_itens(texto):
+        return "ALTO"
+
     if any(item in texto for item in alta):
+        return "ALTO"
+
+    if intencao == "atacado" and any(p in texto for p in ["catalogo", "tabela"]):
         return "ALTO"
 
     if any(item in texto for item in media):
@@ -242,7 +374,16 @@ def proxima_acao_comercial(texto, intencao=""):
     if intencao == "atacado_catalogo":
         return "ENVIAR_CATALOGO_ATACADO"
 
+    if intencao == "atacado" and any(p in texto for p in ["catalogo", "tabela"]):
+        return "ENVIAR_CATALOGO_ATACADO"
+
+    if texto_pede_orcamento_ou_preco(texto) or texto_parece_lista_itens(texto):
+        return "ENCAMINHAR_CONSULTOR"
+
     if nivel == "ALTO":
+        if intencao in ["pecas", "orcamento", "acessorios", "atacado"]:
+            return "ENCAMINHAR_CONSULTOR"
+
         return "OFERECER_AGENDAMENTO"
 
     if nivel == "MEDIO":
@@ -374,9 +515,11 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
         modelo = "sua Yamaha"
 
     interesse = detectar_interesse_comercial(texto, intencao)
+    produto_interesse = detectar_produto_interesse(texto)
     nivel = classificar_nivel_interesse(texto, intencao)
     temperatura = classificar_temperatura_lead(texto, intencao)
     proxima_acao = proxima_acao_comercial(texto, intencao)
+    oportunidade = temperatura == "QUENTE" or proxima_acao == "ENCAMINHAR_CONSULTOR"
 
     saudacao = f"{nome}, " if nome else ""
 
@@ -384,6 +527,15 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
         modelo=modelo,
         interesse=interesse,
     )
+
+    sugestao_extra = sugestao_venda_adicional(
+        interesse=interesse,
+        produto_interesse=produto_interesse,
+        modelo=modelo,
+    )
+
+    if sugestao_extra:
+        resposta += f"\n\n{sugestao_extra}"
 
     if proxima_acao == "ENVIAR_CATALOGO_ATACADO":
         resposta += (
@@ -393,6 +545,11 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
 
     elif proxima_acao == "OFERECER_AGENDAMENTO":
         resposta += "\n\nTenho horários disponíveis. Deseja que eu siga com o agendamento?"
+
+    elif proxima_acao == "ENCAMINHAR_CONSULTOR":
+        resposta += (
+            "\n\nPara valores, disponibilidade e orçamento final, vou encaminhar para um consultor confirmar tudo com segurança."
+        )
 
     elif proxima_acao == "COLETAR_DADOS_OU_ORCAMENTO":
         resposta += (
@@ -405,13 +562,28 @@ def gerar_resposta_comercial(texto="", modelo="", intencao="", revisao="", km_at
     else:
         resposta += "\n\nQuando quiser, posso te ajudar a consultar opções ou iniciar o atendimento."
 
+    resposta_humanizada = humanizar_resposta_comercial_com_ia(
+        resposta_base=resposta,
+        texto=texto,
+        modelo=modelo,
+        interesse=interesse,
+        produto_interesse=produto_interesse,
+    )
+
+    if resposta_humanizada:
+        resposta = resposta_humanizada
+
     return {
         "resposta": resposta,
         "modelo": modelo,
         "interesse": interesse,
+        "produto_interesse": produto_interesse,
+        "oportunidade_comercial": oportunidade,
         "nivel_interesse": nivel,
         "temperatura_lead": temperatura,
         "proxima_acao": proxima_acao,
+        "encaminhar_humano": oportunidade,
+        "status_comercial": "OPORTUNIDADE_QUENTE" if oportunidade else "EM_NUTRICAO",
     }
 
 
