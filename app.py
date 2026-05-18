@@ -6393,6 +6393,593 @@ def iniciar_worker():
 # ==========================================
 # DASHBOARD
 # ==========================================
+def intervalo_periodo_crm(filtro="hoje"):
+    filtro = limpar_texto(filtro or "hoje").lower()
+    hoje = agora_datetime().date()
+
+    if filtro == "hoje":
+        inicio = datetime.combine(hoje, datetime.min.time())
+        fim = datetime.combine(hoje, datetime.max.time())
+        return filtro, inicio, fim
+
+    if filtro == "semana":
+        inicio = datetime.combine(hoje - timedelta(days=7), datetime.min.time())
+        fim = datetime.combine(hoje, datetime.max.time())
+        return filtro, inicio, fim
+
+    if filtro == "mes":
+        inicio = datetime.combine(hoje.replace(day=1), datetime.min.time())
+        fim = datetime.combine(hoje, datetime.max.time())
+        return filtro, inicio, fim
+
+    return "total", None, None
+
+
+def aplicar_periodo_crm(query, modelo, inicio, fim):
+    if not inicio or not fim:
+        return query
+
+    campo_data = None
+
+    if hasattr(modelo, "data"):
+        campo_data = modelo.data
+    elif hasattr(modelo, "criado_em"):
+        campo_data = modelo.criado_em
+
+    if campo_data is None:
+        return query
+
+    return query.filter(campo_data >= inicio, campo_data <= fim)
+
+
+def normalizar_periodo_gestor(pergunta, filtro_padrao="hoje"):
+    texto = normalizar_texto(pergunta or "")
+
+    if "semana" in texto or "ultimos 7" in texto or "ultimos sete" in texto:
+        return "semana"
+
+    if "mes" in texto or "mensal" in texto or "este mes" in texto:
+        return "mes"
+
+    if "total" in texto or "geral" in texto or "todos" in texto or "historico" in texto:
+        return "total"
+
+    if "hoje" in texto or "dia" in texto:
+        return "hoje"
+
+    return filtro_padrao or "hoje"
+
+
+def texto_ranking_valido(valor):
+    valor = limpar_texto(valor)
+    normalizado = normalizar_texto(valor)
+
+    if not valor:
+        return False
+
+    if normalizado in ["nao informado", "nenhum", "none", "null", "-"]:
+        return False
+
+    return True
+
+
+def adicionar_ranking(contador, valor, peso=1):
+    valor = limpar_texto(valor)
+
+    if texto_ranking_valido(valor):
+        contador[valor] += peso
+
+
+def montar_metricas_crm(filtro="hoje"):
+    db = SessionLocal()
+
+    try:
+        filtro, inicio, fim = intervalo_periodo_crm(filtro)
+
+        query_atendimentos = aplicar_periodo_crm(
+            db.query(Atendimento),
+            Atendimento,
+            inicio,
+            fim,
+        )
+
+        query_agendamentos = aplicar_periodo_crm(
+            db.query(AgendamentoRevisao),
+            AgendamentoRevisao,
+            inicio,
+            fim,
+        )
+
+        atendimentos = query_atendimentos.all()
+        agendamentos = query_agendamentos.order_by(
+            AgendamentoRevisao.id.desc()
+        ).all()
+
+        def status_atendimento(obj):
+            return normalizar_status(getattr(obj, "status", "") or "")
+
+        def status_sances_ag(obj):
+            status = limpar_texto(getattr(obj, "sances_status", "")).upper()
+            return status or SANCES_STATUS_NAO_CONFIGURADO
+
+        total_atendimentos = len(atendimentos)
+        total_agendamentos = len(agendamentos)
+
+        total_revisoes = sum(
+            1 for a in atendimentos
+            if "revis" in normalizar_texto(getattr(a, "setor", ""))
+            or normalizar_texto(getattr(a, "intencao_ia", "")) in [
+                "agendar_revisao",
+                "valor_revisao",
+                "revisao",
+            ]
+        )
+
+        agendados = sum(
+            1 for ag in agendamentos
+            if status_atendimento(ag) == normalizar_status(STATUS_AGENDADO)
+        )
+        confirmados = sum(
+            1 for ag in agendamentos
+            if status_atendimento(ag) == normalizar_status(STATUS_CONFIRMADO)
+        )
+        concluidos = sum(
+            1 for ag in agendamentos
+            if status_atendimento(ag) in [
+                normalizar_status("CONCLUIDO"),
+                normalizar_status("CONCLUÍDO"),
+                normalizar_status(STATUS_FINALIZADO),
+            ]
+        )
+        cancelados = sum(
+            1 for ag in agendamentos
+            if status_atendimento(ag) == normalizar_status(STATUS_CANCELADO)
+        )
+        reagendados = sum(
+            1 for ag in agendamentos
+            if status_atendimento(ag) == normalizar_status(STATUS_REAGENDADO)
+        )
+
+        atendimento_humano = sum(
+            1 for a in atendimentos
+            if bool(getattr(a, "atendimento_humano", False))
+        )
+
+        duvidas_ia = sum(
+            1 for a in atendimentos
+            if (
+                "duvida" in normalizar_texto(getattr(a, "setor", ""))
+                or normalizar_texto(getattr(a, "intencao_ia", "")) in [
+                    "duvidas",
+                    "duvida",
+                    "duvida_manual",
+                ]
+            )
+        )
+
+        ia_conversando = sum(
+            1 for a in atendimentos
+            if texto_ranking_valido(getattr(a, "intencao_ia", ""))
+            or texto_ranking_valido(getattr(a, "origem_ia", ""))
+            or texto_ranking_valido(getattr(a, "ultima_acao_ia", ""))
+        )
+
+        leads_atacado = sum(
+            1 for a in atendimentos
+            if "atacado" in normalizar_texto(getattr(a, "setor", ""))
+            or normalizar_texto(getattr(a, "intencao_ia", "")) == "atacado"
+        )
+
+        leads_comerciais = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "intencao_ia", "")) in [
+                "pecas",
+                "acessorios",
+                "atacado",
+                "orcamento",
+                "valor_revisao",
+            ]
+            or bool(getattr(a, "oportunidade_comercial", False))
+            or texto_ranking_valido(getattr(a, "status_comercial", ""))
+        )
+
+        leads_quentes = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "temperatura_lead", "")) == "quente"
+            or normalizar_texto(getattr(a, "nivel_interesse", "")) in ["alto", "quente"]
+            or bool(getattr(a, "oportunidade_comercial", False))
+        )
+
+        oportunidades_comerciais = sum(
+            1 for a in atendimentos
+            if bool(getattr(a, "oportunidade_comercial", False))
+        )
+
+        followups_pendentes_lista = [
+            a for a in atendimentos
+            if not bool(getattr(a, "atendimento_humano", False))
+            and not bool(getattr(a, "concluido", False))
+            and not bool(getattr(a, "followup_respondido", False))
+        ]
+
+        contador_setores = Counter()
+        contador_modelos = Counter()
+        contador_produtos = Counter()
+
+        for at in atendimentos:
+            adicionar_ranking(contador_setores, getattr(at, "setor", ""))
+            adicionar_ranking(contador_modelos, getattr(at, "modelo", ""))
+            adicionar_ranking(contador_produtos, getattr(at, "produto_interesse", ""))
+
+            itens = " ".join([
+                limpar_texto(getattr(at, "itens", "")),
+                limpar_texto(getattr(at, "venda_adicional", "")),
+            ])
+
+            for item in re.split(r",|;|\n|\+", itens):
+                item_limpo = limpar_item_adicional(item)
+
+                if item_adicional_valido(item_limpo):
+                    contador_produtos[item_limpo] += 1
+
+        primeira = segunda = terceira = quarta = quinta = 0
+        contador_itens = Counter()
+
+        for ag in agendamentos:
+            rev = limpar_texto(getattr(ag, "revisao", ""))
+            rev = rev.replace("ª", "").replace("º", "").replace("°", "")
+
+            if rev == "1":
+                primeira += 1
+            elif rev == "2":
+                segunda += 1
+            elif rev == "3":
+                terceira += 1
+            elif rev == "4":
+                quarta += 1
+            elif rev:
+                quinta += 1
+
+            adicionar_ranking(contador_modelos, getattr(ag, "modelo", ""))
+
+            itens = (
+                getattr(ag, "itens", "")
+                or getattr(ag, "venda_adicional", "")
+                or ""
+            )
+
+            for item in re.split(r",|;|\n|\+", str(itens)):
+                item_limpo = limpar_item_adicional(item)
+
+                if item_adicional_valido(item_limpo):
+                    contador_itens[item_limpo] += 1
+                    contador_produtos[item_limpo] += 1
+
+        taxa_conversao = 0
+        taxa_agenda_ativa = 0
+
+        if total_revisoes > 0:
+            taxa_conversao = round(
+                ((agendados + confirmados + concluidos) / total_revisoes) * 100,
+                1,
+            )
+
+        if total_agendamentos > 0:
+            taxa_agenda_ativa = round(
+                ((agendados + confirmados + concluidos) / total_agendamentos) * 100,
+                1,
+            )
+
+        sances_pendentes = sum(
+            1 for ag in agendamentos
+            if status_sances_ag(ag) == SANCES_STATUS_PENDENTE
+        )
+        sances_enviados = sum(
+            1 for ag in agendamentos
+            if status_sances_ag(ag) == SANCES_STATUS_ENVIADO
+        )
+        sances_erros = sum(
+            1 for ag in agendamentos
+            if status_sances_ag(ag) == SANCES_STATUS_ERRO
+        )
+        sances_nao_configurado = sum(
+            1 for ag in agendamentos
+            if status_sances_ag(ag) == SANCES_STATUS_NAO_CONFIGURADO
+        )
+
+        return {
+            "filtro": filtro,
+            "total": total_atendimentos,
+            "total_revisoes": total_revisoes,
+            "agendados": agendados,
+            "confirmados": confirmados,
+            "concluidos": concluidos,
+            "cancelados": cancelados,
+            "reagendados": reagendados,
+            "atendimento_humano": atendimento_humano,
+            "duvidas_ia": duvidas_ia,
+            "ia_conversando": ia_conversando,
+            "leads_atacado": leads_atacado,
+            "leads_comerciais": leads_comerciais,
+            "leads_quentes": leads_quentes,
+            "oportunidades_comerciais": oportunidades_comerciais,
+            "followups_pendentes": len(followups_pendentes_lista),
+            "followups_pendentes_lista": followups_pendentes_lista[:10],
+            "sances_pendentes": sances_pendentes,
+            "sances_enviados": sances_enviados,
+            "sances_erros": sances_erros,
+            "sances_nao_configurado": sances_nao_configurado,
+            "primeira": primeira,
+            "segunda": segunda,
+            "terceira": terceira,
+            "quarta": quarta,
+            "quinta": quinta,
+            "ranking_itens": contador_itens.most_common(10),
+            "ranking_modelos": contador_modelos.most_common(10),
+            "ranking_setores": contador_setores.most_common(10),
+            "ranking_produtos": contador_produtos.most_common(10),
+            "total_itens_vendidos": sum(contador_itens.values()),
+            "total_agendamentos_periodo": total_agendamentos,
+            "taxa_conversao": taxa_conversao,
+            "taxa_agenda_ativa": taxa_agenda_ativa,
+            "atendimentos": atendimentos,
+            "agendamentos": agendamentos,
+        }
+
+    except Exception as e:
+        log_erro("Erro ao montar metricas CRM:", repr(e))
+        return {
+            "filtro": filtro,
+            "total": 0,
+            "total_revisoes": 0,
+            "agendados": 0,
+            "confirmados": 0,
+            "concluidos": 0,
+            "cancelados": 0,
+            "reagendados": 0,
+            "atendimento_humano": 0,
+            "duvidas_ia": 0,
+            "ia_conversando": 0,
+            "leads_atacado": 0,
+            "leads_comerciais": 0,
+            "leads_quentes": 0,
+            "oportunidades_comerciais": 0,
+            "followups_pendentes": 0,
+            "followups_pendentes_lista": [],
+            "sances_pendentes": 0,
+            "sances_enviados": 0,
+            "sances_erros": 0,
+            "sances_nao_configurado": 0,
+            "primeira": 0,
+            "segunda": 0,
+            "terceira": 0,
+            "quarta": 0,
+            "quinta": 0,
+            "ranking_itens": [],
+            "ranking_modelos": [],
+            "ranking_setores": [],
+            "ranking_produtos": [],
+            "total_itens_vendidos": 0,
+            "total_agendamentos_periodo": 0,
+            "taxa_conversao": 0,
+            "taxa_agenda_ativa": 0,
+            "atendimentos": [],
+            "agendamentos": [],
+        }
+
+    finally:
+        db.close()
+
+
+def responder_gestor_crm(pergunta, filtro_padrao="hoje"):
+    pergunta_original = limpar_texto(pergunta)
+
+    if not pergunta_original:
+        return ""
+
+    try:
+        filtro = normalizar_periodo_gestor(pergunta_original, filtro_padrao)
+        log_info("[IA_GESTOR] pergunta:", pergunta_original)
+        log_info("[IA_GESTOR] consulta:", f"metricas_crm periodo={filtro}")
+
+        metricas = montar_metricas_crm(filtro)
+        texto = normalizar_texto(pergunta_original)
+
+        periodo_label = {
+            "hoje": "hoje",
+            "semana": "nos últimos 7 dias",
+            "mes": "neste mês",
+            "total": "no histórico",
+        }.get(filtro, "no período")
+
+        def resposta_numero(label, valor):
+            return f"{label} {periodo_label}: {valor}."
+
+        if "follow" in texto:
+            pendentes = metricas.get("followups_pendentes", 0)
+            lista = metricas.get("followups_pendentes_lista", [])
+
+            if not pendentes:
+                resposta = f"Não há clientes pendentes de follow-up {periodo_label}."
+            else:
+                linhas = [
+                    f"Encontrei {pendentes} cliente(s) com follow-up pendente {periodo_label}."
+                ]
+
+                for at in lista[:5]:
+                    nome = limpar_texto(getattr(at, "nome", "")) or "Cliente sem nome"
+                    telefone = limpar_texto(getattr(at, "telefone", "")) or "-"
+                    setor = limpar_texto(getattr(at, "setor", "")) or "Sem setor"
+                    linhas.append(f"- {nome} ({telefone}) - {setor}")
+
+                resposta = "\n".join(linhas)
+
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "modelo" in texto and ("mais" in texto or "ranking" in texto or "pediu" in texto):
+            ranking = metricas.get("ranking_modelos", [])
+
+            if not ranking:
+                resposta = "Não encontrei modelos suficientes no CRM para responder com segurança."
+            else:
+                modelo, qtd = ranking[0]
+                resposta = f"O modelo mais citado {periodo_label} foi {modelo}, com {qtd} ocorrência(s)."
+
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "setor" in texto or "procura" in texto:
+            ranking = metricas.get("ranking_setores", [])
+
+            if not ranking:
+                resposta = "Não encontrei setores suficientes no CRM para responder com segurança."
+            else:
+                setor, qtd = ranking[0]
+                resposta = f"O setor com mais procura {periodo_label} foi {setor}, com {qtd} atendimento(s)."
+
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "produto" in texto or "acessorio" in texto or "acessório" in texto or "peca" in texto or "peça" in texto:
+            ranking = metricas.get("ranking_produtos", [])
+
+            if not ranking:
+                resposta = "Não encontrei produtos suficientes no CRM para responder com segurança."
+            else:
+                produto, qtd = ranking[0]
+                resposta = f"O produto/acessório mais citado {periodo_label} foi {produto}, com {qtd} ocorrência(s)."
+
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "humano" in texto or "atendente" in texto or "consultor" in texto:
+            resposta = resposta_numero(
+                "Clientes encaminhados para atendimento humano",
+                metricas.get("atendimento_humano", 0),
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "atacado" in texto or "lojista" in texto:
+            resposta = resposta_numero(
+                "Leads de atacado registrados",
+                metricas.get("leads_atacado", 0),
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "quente" in texto or "lead" in texto or "comercial" in texto:
+            resposta = (
+                f"Leads comerciais {periodo_label}: {metricas.get('leads_comerciais', 0)}. "
+                f"Leads quentes: {metricas.get('leads_quentes', 0)}. "
+                f"Oportunidades comerciais: {metricas.get('oportunidades_comerciais', 0)}."
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "conversao" in texto or "conversão" in texto or "taxa" in texto:
+            resposta = f"A taxa de conversão em agendamento {periodo_label} está em {metricas.get('taxa_conversao', 0)}%."
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "cancel" in texto:
+            resposta = resposta_numero(
+                "Revisões canceladas",
+                metricas.get("cancelados", 0),
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "reagend" in texto:
+            resposta = resposta_numero(
+                "Revisões reagendadas",
+                metricas.get("reagendados", 0),
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "sances" in texto:
+            resposta = (
+                f"Status Sances {periodo_label}: "
+                f"{metricas.get('sances_enviados', 0)} enviado(s), "
+                f"{metricas.get('sances_pendentes', 0)} pendente(s), "
+                f"{metricas.get('sances_erros', 0)} com erro e "
+                f"{metricas.get('sances_nao_configurado', 0)} não configurado(s)."
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "revis" in texto or "agenda" in texto:
+            resposta = (
+                f"Revisões/agendamentos {periodo_label}: "
+                f"{metricas.get('total_agendamentos_periodo', 0)} registro(s), "
+                f"{metricas.get('agendados', 0)} agendado(s), "
+                f"{metricas.get('confirmados', 0)} confirmado(s), "
+                f"{metricas.get('concluidos', 0)} finalizado(s)."
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "duvida" in texto or "dúvida" in texto:
+            resposta = resposta_numero(
+                "Dúvidas respondidas pela IA",
+                metricas.get("duvidas_ia", 0),
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        if "atendimento" in texto or "cliente" in texto:
+            resposta = resposta_numero(
+                "Total de atendimentos",
+                metricas.get("total", 0),
+            )
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
+
+        resposta = (
+            f"Resumo CRM {periodo_label}: {metricas.get('total', 0)} atendimento(s), "
+            f"{metricas.get('total_agendamentos_periodo', 0)} agendamento(s), "
+            f"{metricas.get('atendimento_humano', 0)} atendimento(s) humano(s), "
+            f"{metricas.get('leads_quentes', 0)} lead(s) quente(s) e "
+            f"{metricas.get('followups_pendentes', 0)} follow-up(s) pendente(s)."
+        )
+        log_info("[IA_GESTOR] resposta:", resposta)
+        return resposta
+
+    except Exception as e:
+        log_erro("[IA_GESTOR] erro de consulta:", repr(e))
+        return "Não encontrei dados suficientes no CRM para responder com segurança."
+
+
+@app.route("/api/gestor-crm", methods=["GET", "POST"])
+def api_gestor_crm():
+    try:
+        dados = request.get_json(silent=True) or {}
+        pergunta = (
+            dados.get("pergunta")
+            or request.form.get("pergunta")
+            or request.args.get("pergunta")
+            or ""
+        )
+        filtro = request.args.get("filtro") or dados.get("filtro") or "hoje"
+        resposta = responder_gestor_crm(pergunta, filtro)
+
+        return jsonify({
+            "ok": True,
+            "pergunta": pergunta,
+            "resposta": resposta,
+        }), 200
+
+    except Exception as e:
+        log_erro("[IA_GESTOR] erro rota:", repr(e))
+
+        return jsonify({
+            "ok": False,
+            "resposta": "Não encontrei dados suficientes no CRM para responder com segurança.",
+        }), 500
+
+
 @app.route("/dashboard")
 def dashboard():
     db = SessionLocal()
@@ -6502,6 +7089,53 @@ def dashboard():
             )
         )
 
+        ia_conversando = sum(
+            1 for a in atendimentos
+            if texto_ranking_valido(getattr(a, "intencao_ia", ""))
+            or texto_ranking_valido(getattr(a, "origem_ia", ""))
+            or texto_ranking_valido(getattr(a, "ultima_acao_ia", ""))
+        )
+
+        leads_atacado = sum(
+            1 for a in atendimentos
+            if "atacado" in normalizar_texto(getattr(a, "setor", ""))
+            or normalizar_texto(getattr(a, "intencao_ia", "")) == "atacado"
+        )
+
+        leads_comerciais = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "intencao_ia", "")) in [
+                "pecas",
+                "acessorios",
+                "atacado",
+                "orcamento",
+                "valor_revisao",
+            ]
+            or bool(getattr(a, "oportunidade_comercial", False))
+            or texto_ranking_valido(getattr(a, "status_comercial", ""))
+        )
+
+        leads_quentes = sum(
+            1 for a in atendimentos
+            if normalizar_texto(getattr(a, "temperatura_lead", "")) == "quente"
+            or normalizar_texto(getattr(a, "nivel_interesse", "")) in ["alto", "quente"]
+            or bool(getattr(a, "oportunidade_comercial", False))
+        )
+
+        oportunidades_comerciais = sum(
+            1 for a in atendimentos
+            if bool(getattr(a, "oportunidade_comercial", False))
+        )
+
+        followups_pendentes_lista = [
+            a for a in atendimentos
+            if not bool(getattr(a, "atendimento_humano", False))
+            and not bool(getattr(a, "concluido", False))
+            and not bool(getattr(a, "followup_respondido", False))
+        ]
+
+        followups_pendentes = len(followups_pendentes_lista)
+
         def status_sances_ag(ag):
             status = limpar_texto(getattr(ag, "sances_status", "")).upper()
             return status or SANCES_STATUS_NAO_CONFIGURADO
@@ -6544,8 +7178,29 @@ def dashboard():
                 quinta += 1
 
         contador_itens = Counter()
+        contador_setores = Counter()
+        contador_modelos = Counter()
+        contador_produtos = Counter()
+
+        for at in atendimentos:
+            adicionar_ranking(contador_setores, getattr(at, "setor", ""))
+            adicionar_ranking(contador_modelos, getattr(at, "modelo", ""))
+            adicionar_ranking(contador_produtos, getattr(at, "produto_interesse", ""))
+
+            itens_atendimento = " ".join([
+                limpar_texto(getattr(at, "itens", "")),
+                limpar_texto(getattr(at, "venda_adicional", "")),
+            ])
+
+            for item in re.split(r",|;|\n|\+", itens_atendimento):
+                item_limpo = limpar_item_adicional(item)
+
+                if item_adicional_valido(item_limpo):
+                    contador_produtos[item_limpo] += 1
 
         for ag in agendamentos_lista:
+            adicionar_ranking(contador_modelos, getattr(ag, "modelo", ""))
+
             itens = (
                 getattr(ag, "itens", "")
                 or getattr(ag, "venda_adicional", "")
@@ -6562,10 +7217,30 @@ def dashboard():
 
                 if item_adicional_valido(item_limpo):
                     contador_itens[item_limpo] += 1
+                    contador_produtos[item_limpo] += 1
 
         ranking_itens = contador_itens.most_common(10)
+        ranking_modelos = contador_modelos.most_common(10)
+        ranking_setores = contador_setores.most_common(10)
+        ranking_produtos = contador_produtos.most_common(10)
         total_itens_vendidos = sum(contador_itens.values())
         total_agendamentos_periodo = len(agendamentos_lista)
+
+        pergunta_gestor = limpar_texto(request.args.get("pergunta_gestor", ""))
+        resposta_gestor = ""
+
+        if pergunta_gestor:
+            resposta_gestor = responder_gestor_crm(pergunta_gestor, filtro)
+
+        atendimentos_ia = [
+            a for a in sorted(
+                atendimentos,
+                key=lambda item: getattr(item, "id", 0) or 0,
+                reverse=True,
+            )
+            if texto_ranking_valido(getattr(a, "intencao_ia", ""))
+            or texto_ranking_valido(getattr(a, "ultima_mensagem_cliente", ""))
+        ][:80]
 
         taxa_conversao = 0
         taxa_agenda_ativa = 0
@@ -6605,6 +7280,13 @@ def dashboard():
             reagendados=reagendados,
             atendimento_humano=atendimento_humano,
             duvidas_ia=duvidas_ia,
+            ia_conversando=ia_conversando,
+            leads_atacado=leads_atacado,
+            leads_comerciais=leads_comerciais,
+            leads_quentes=leads_quentes,
+            oportunidades_comerciais=oportunidades_comerciais,
+            followups_pendentes=followups_pendentes,
+            followups_pendentes_lista=followups_pendentes_lista[:10],
             total_itens_vendidos=total_itens_vendidos,
             total_agendamentos_periodo=total_agendamentos_periodo,
             taxa_conversao=taxa_conversao,
@@ -6615,7 +7297,13 @@ def dashboard():
             quarta=quarta,
             quinta=quinta,
             ranking_itens=ranking_itens,
+            ranking_modelos=ranking_modelos,
+            ranking_setores=ranking_setores,
+            ranking_produtos=ranking_produtos,
             agendamentos=agendamentos_lista,
+            atendimentos_ia=atendimentos_ia,
+            pergunta_gestor=pergunta_gestor,
+            resposta_gestor=resposta_gestor,
         )
 
     except Exception as e:

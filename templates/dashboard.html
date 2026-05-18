@@ -274,6 +274,56 @@
             color:#64748b;
         }
 
+        .gestor-crm{
+            background:white;
+            border-radius:18px;
+            padding:22px;
+            box-shadow:0 8px 24px rgba(15,23,42,0.08);
+            margin-bottom:24px;
+            border-left:6px solid #0f766e;
+        }
+
+        .gestor-crm h2{
+            font-size:18px;
+            margin-bottom:14px;
+            color:#0f172a;
+        }
+
+        .gestor-form{
+            display:flex;
+            gap:12px;
+            flex-wrap:wrap;
+        }
+
+        .gestor-form input{
+            flex:1;
+            min-width:260px;
+            border:1px solid #cbd5e1;
+            border-radius:10px;
+            padding:12px 14px;
+            font-size:14px;
+        }
+
+        .gestor-form button{
+            background:#0f766e;
+            color:white;
+            border:none;
+            border-radius:10px;
+            padding:12px 18px;
+            font-weight:700;
+            cursor:pointer;
+        }
+
+        .gestor-resposta{
+            margin-top:14px;
+            background:#f8fafc;
+            border:1px solid #e2e8f0;
+            border-radius:12px;
+            padding:14px;
+            line-height:1.5;
+            white-space:pre-line;
+        }
+
         @media (max-width:980px){
 
             .grid,
@@ -342,6 +392,26 @@
             Clientes CRM
         </a>
 
+    </div>
+
+    <div class="gestor-crm">
+        <h2>IA Gestor CRM</h2>
+
+        <form class="gestor-form" method="get" action="/dashboard">
+            <input type="hidden" name="filtro" value="{{ filtro_ativo }}">
+            <input
+                type="text"
+                name="pergunta_gestor"
+                value="{{ pergunta_gestor if pergunta_gestor is defined else '' }}"
+                placeholder="Ex.: quantas revisões foram agendadas essa semana?">
+            <button type="submit">Consultar CRM</button>
+        </form>
+
+        {% if resposta_gestor %}
+            <div class="gestor-resposta">
+                {{ resposta_gestor }}
+            </div>
+        {% endif %}
     </div>
 
     <div class="cards">
@@ -427,6 +497,34 @@
             <h3>Itens Vendidos</h3>
             <div class="numero">
                 {{ total_itens_vendidos if total_itens_vendidos is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card ciano">
+            <h3>Leads Atacado</h3>
+            <div class="numero">
+                {{ leads_atacado if leads_atacado is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card roxo">
+            <h3>Leads Quentes</h3>
+            <div class="numero">
+                {{ leads_quentes if leads_quentes is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card verde">
+            <h3>Oportunidades</h3>
+            <div class="numero">
+                {{ oportunidades_comerciais if oportunidades_comerciais is defined else 0 }}
+            </div>
+        </div>
+
+        <div class="card vermelho">
+            <h3>Follow-ups Pendentes</h3>
+            <div class="numero">
+                {{ followups_pendentes if followups_pendentes is defined else 0 }}
             </div>
         </div>
 
@@ -567,6 +665,144 @@
                 Nenhum item vendido no período selecionado.
             </div>
         {% endif %}
+
+    </div>
+
+    <div class="grid-2">
+
+        <div class="table-section">
+            <h2>Ranking de Modelos</h2>
+
+            {% if ranking_modelos %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Modelo</th>
+                                <th>Ocorrências</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for modelo, qtd in ranking_modelos %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ modelo }}</td>
+                                <td>{{ qtd }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="vazio">
+                    Nenhum modelo identificado no período selecionado.
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="table-section">
+            <h2>Ranking de Setores</h2>
+
+            {% if ranking_setores %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Setor</th>
+                                <th>Atendimentos</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for setor, qtd in ranking_setores %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ setor }}</td>
+                                <td>{{ qtd }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="vazio">
+                    Nenhum setor identificado no período selecionado.
+                </div>
+            {% endif %}
+        </div>
+
+    </div>
+
+    <div class="grid-2">
+
+        <div class="table-section">
+            <h2>Produtos e Acessórios Mais Pedidos</h2>
+
+            {% if ranking_produtos %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Produto</th>
+                                <th>Ocorrências</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for produto, qtd in ranking_produtos %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ produto }}</td>
+                                <td>{{ qtd }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="vazio">
+                    Nenhum produto identificado no período selecionado.
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="table-section">
+            <h2>Follow-ups Pendentes</h2>
+
+            {% if followups_pendentes_lista %}
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Cliente</th>
+                                <th>Telefone</th>
+                                <th>Setor</th>
+                                <th>Próxima Ação</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for at in followups_pendentes_lista %}
+                            <tr>
+                                <td>{{ at.nome or '-' }}</td>
+                                <td>{{ at.telefone or '-' }}</td>
+                                <td>{{ at.setor or '-' }}</td>
+                                <td>{{ at.proxima_acao or at.etapa or '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="vazio">
+                    Nenhum follow-up pendente no período selecionado.
+                </div>
+            {% endif %}
+        </div>
 
     </div>
 
