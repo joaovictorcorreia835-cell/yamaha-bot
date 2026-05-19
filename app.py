@@ -12371,6 +12371,41 @@ def webhook():
 
         etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
 
+        # ==========================================
+        # FLUXO DE REVISÃO - PRIORIDADE ABSOLUTA
+        # Evita que respostas numéricas como 1,2,3,4,5,6
+        # sejam interpretadas como opções do menu principal.
+        # Exceções permitidas: menu, humano/atendente e cancelar.
+        # ==========================================
+        if etapa.startswith("revisao_"):
+            texto_fluxo_norm = normalizar_texto(texto)
+
+            if texto_pede_humano(texto):
+                ativar_atendimento_humano(telefone)
+                return jsonify({"status": "ok", "motivo": "revisao_humano"}), 200
+
+            if texto_fluxo_norm in ["cancelar", "cancela", "cancelamento"]:
+                resetar_cliente(telefone)
+                enviar_mensagem(
+                    telefone,
+                    "Agendamento cancelado. Voltando ao menu principal."
+                )
+                enviar_menu(telefone)
+                return jsonify({"status": "ok", "motivo": "revisao_cancelada"}), 200
+
+            resultado = processar_fluxo_revisao(
+                telefone=telefone,
+                texto=texto,
+                texto_opcao=texto_opcao,
+                message_id=message_id
+            )
+
+            if resultado:
+                return jsonify({"status": "ok", "motivo": "fluxo_revisao"}), 200
+
+            enviar_proxima_etapa_revisao(telefone)
+            return jsonify({"status": "ok", "motivo": "proxima_etapa_revisao"}), 200
+
         if etapa in ["pre_orcamento_modelo", "pre_orcamento_item"]:
             montar_pre_orcamento(texto, telefone)
             return jsonify({"status": "ok", "motivo": "pre_orcamento_continuado"}), 200
@@ -12538,23 +12573,6 @@ def webhook():
         if etapa == "menu":
             enviar_menu(telefone)
             return jsonify({"status": "ok", "motivo": "menu_reenviado"}), 200
-
-        # ==========================================
-        # FLUXO DE REVISÃO
-        # ==========================================
-        if etapa.startswith("revisao_"):
-            resultado = processar_fluxo_revisao(
-                telefone=telefone,
-                texto=texto,
-                texto_opcao=texto_opcao,
-                message_id=message_id
-            )
-
-            if resultado:
-                return jsonify({"status": "ok", "motivo": "fluxo_revisao"}), 200
-
-            enviar_proxima_etapa_revisao(telefone)
-            return jsonify({"status": "ok", "motivo": "proxima_etapa_revisao"}), 200
 
         # ==========================================
         # CONSULTA / CANCELAMENTO / REAGENDAMENTO
