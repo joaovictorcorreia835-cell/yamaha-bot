@@ -253,6 +253,7 @@ SANCES_STATUS_PENDENTE = "PENDENTE"
 SANCES_STATUS_ENVIADO = "ENVIADO"
 SANCES_STATUS_ERRO = "ERRO"
 SANCES_STATUS_NAO_CONFIGURADO = "NAO_CONFIGURADO"
+SANCES_STATUS_PENDENTE_DADOS = "PENDENTE_DADOS"
 
 
 # ==========================================
@@ -6289,6 +6290,49 @@ def montar_payload_agendamento_sances(dados):
     }
 
 
+def validar_payload_agendamento_sances(payload):
+    try:
+        payload = payload or {}
+
+        obrigatorios = [
+            "data_hora_agendamento",
+            "codigo_empresa",
+            "codigo_consultor",
+            "codigo_midia",
+            "codigo_assunto",
+            "nome_cliente",
+            "telefone_contato",
+            "quilometragem",
+            "descricao_modelo",
+            "solicitacao_cliente",
+        ]
+
+        ausentes = []
+
+        for campo in obrigatorios:
+            valor = payload.get(campo)
+
+            if campo == "quilometragem":
+                if valor is None:
+                    ausentes.append(campo)
+                continue
+
+            if valor in [None, ""]:
+                ausentes.append(campo)
+
+        if ausentes:
+            return False, SANCES_STATUS_ERRO, f"Campos obrigatórios ausentes: {', '.join(ausentes)}"
+
+        if not payload.get("placa_veiculo") and not payload.get("chassi_serie"):
+            return False, SANCES_STATUS_PENDENTE_DADOS, "Sem placa ou chassi para envio ao Sances"
+
+        return True, "", ""
+
+    except Exception as e:
+        log_erro("[SANCES] Erro validar payload:", repr(e))
+        return False, SANCES_STATUS_ERRO, repr(e)
+
+
 def enviar_agendamento_para_sances(dados):
     """
     Cria agendamento na integração Sances.
@@ -6307,6 +6351,7 @@ def enviar_agendamento_para_sances(dados):
             }
 
         log_info("[SANCES] Envio iniciado:", dados.get("protocolo", ""))
+        log_info("[SANCES] Dados completos do fluxo:", dados)
 
         if not SANCES_API_URL:
             retorno = {
@@ -6337,15 +6382,18 @@ def enviar_agendamento_para_sances(dados):
             "Content-Type": "application/json",
         }
         payload = montar_payload_agendamento_sances(dados)
+        log_info("[SANCES] Payload montado:", payload)
 
-        if not payload.get("data_hora_agendamento"):
+        payload_valido, status_payload, erro_payload = validar_payload_agendamento_sances(payload)
+
+        if not payload_valido:
             retorno = {
                 "sucesso": False,
-                "status": SANCES_STATUS_ERRO,
-                "mensagem": "Data ou horário inválido para envio Sances.",
+                "status": status_payload or SANCES_STATUS_ERRO,
+                "mensagem": erro_payload,
                 "dados": {},
                 "protocolo_sances": "",
-                "erro": "data_hora_agendamento inválida",
+                "erro": erro_payload,
             }
             log_erro("[SANCES] Payload inválido:", retorno)
             return retorno
@@ -6360,6 +6408,7 @@ def enviar_agendamento_para_sances(dados):
         )
 
         log_info("[SANCES] Status code:", response.status_code)
+        log_info("[SANCES] Resposta texto:", response.text)
 
         try:
             retorno_json = response.json()
@@ -6412,6 +6461,10 @@ def enviar_agendamento_para_sances(dados):
         return retorno
 
     except Exception as e:
+        import traceback
+
+        log_erro("[SANCES] Exception completa:", traceback.format_exc())
+
         retorno = {
             "sucesso": False,
             "status": SANCES_STATUS_ERRO,
@@ -12155,6 +12208,19 @@ def processar_fluxo_revisao(
                     retorno_sances.get("erro", "")
                 )
                 clientes[telefone]["sances_data_envio"] = formatar_data_hora()
+
+                if not retorno_sances.get("sucesso"):
+                    enviar_mensagem(
+                        telefone,
+                        "✅ *Agendamento registrado!*\n\n"
+                        f"📋 Protocolo: {protocolo}\n\n"
+                        "Seu agendamento foi registrado em nossa agenda interna. "
+                        "Nossa equipe irá validar no sistema.\n\n"
+                        "Obrigado por escolher a Motoshow Yamaha."
+                    )
+
+                    resetar_cliente(telefone)
+                    return True
 
                 mensagem_sances = mensagem_confirmacao_sances(retorno_sances)
                 enviar_mensagem(
