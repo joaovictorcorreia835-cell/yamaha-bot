@@ -207,6 +207,18 @@ SANCES_SIMULAR_RESULTADO = os.getenv(
 SANCES_TIMEOUT = env_int("SANCES_TIMEOUT", 15)
 SANCES_RETRY_MAX = env_int("SANCES_RETRY_MAX", 3)
 SANCES_URL = os.getenv("SANCES_URL", "").strip()
+SANCES_API_URL = os.getenv(
+    "SANCES_API_URL",
+    "https://api.sancesturbo.com.br/integracao/oficina/agendamentos"
+).strip()
+SANCES_ESTOQUE_URL = os.getenv(
+    "SANCES_ESTOQUE_URL",
+    "https://api.sancesturbo.com.br/integracao/estoque/produtos"
+).strip()
+SANCES_POS_VENDA_URL = os.getenv(
+    "SANCES_POS_VENDA_URL",
+    "https://api.sancesturbo.com.br/integracao/oficina/pos-venda"
+).strip()
 SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
 
 
@@ -284,6 +296,179 @@ def log_info(*args):
 
 def log_erro(*args):
     print("[ERRO]", *args, flush=True)
+
+
+# ==========================================
+# SANCES - CONSULTA DE AGENDAMENTOS
+# ==========================================
+def consultar_agendamentos_sances(
+    data_inicial,
+    data_final,
+    codigo_situacao=None,
+    placa=None,
+    cpf_cliente=None,
+):
+    try:
+        data_inicial = limpar_texto(data_inicial)
+        data_final = limpar_texto(data_final)
+
+        if not data_inicial or not data_final:
+            return {
+                "sucesso": False,
+                "mensagem": "Informe data inicial e data final.",
+                "dados": [],
+                "erro": "Parâmetros obrigatórios ausentes",
+            }
+
+        if not SANCES_API_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "API Sances não configurada.",
+                "dados": [],
+                "erro": "SANCES_API_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances não configurado.",
+                "dados": [],
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        params = {
+            "data_agendamento_inicial": data_inicial,
+            "data_agendamento_final": data_final,
+            "limit": 100,
+            "offset": 0,
+        }
+
+        if codigo_situacao:
+            params["codigo_situacao"] = limpar_texto(codigo_situacao)
+
+        if placa:
+            params["placa_veiculo"] = limpar_texto(placa).upper()
+
+        if cpf_cliente:
+            params["cpf_cnpj_cliente"] = limpar_texto(cpf_cliente)
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta de agendamentos iniciada:", params)
+
+        response = requests.get(
+            SANCES_API_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        sucesso = 200 <= response.status_code < 300
+
+        if isinstance(retorno_json, list):
+            dados = retorno_json
+            mensagem = ""
+            erro = ""
+        elif isinstance(retorno_json, dict):
+            dados = (
+                retorno_json.get("dados")
+                or retorno_json.get("agendamentos")
+                or retorno_json.get("data")
+                or []
+            )
+            mensagem = limpar_texto(
+                retorno_json.get("mensagem")
+                or retorno_json.get("message")
+                or ""
+            )
+            erro = limpar_texto(
+                retorno_json.get("erro")
+                or retorno_json.get("error")
+                or ""
+            )
+        else:
+            dados = []
+            mensagem = ""
+            erro = ""
+
+        if not isinstance(dados, list):
+            dados = [dados]
+
+        if not sucesso and not erro:
+            erro = f"HTTP {response.status_code}"
+
+        resultado = {
+            "sucesso": sucesso,
+            "mensagem": mensagem,
+            "dados": dados if sucesso else [],
+            "erro": "" if sucesso else erro,
+        }
+
+        log_info("[SANCES] Consulta de agendamentos concluída:", resultado)
+        return resultado
+
+    except requests.Timeout:
+        resultado = {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar agendamentos Sances.",
+            "dados": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+        log_erro("[SANCES] Timeout consulta agendamentos:", resultado)
+        return resultado
+
+    except Exception as e:
+        resultado = {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar agendamentos Sances.",
+            "dados": [],
+            "erro": repr(e),
+        }
+        log_erro("[SANCES] Erro consulta agendamentos:", repr(e))
+        return resultado
+
+
+@app.route("/sances/agendamentos", methods=["GET"])
+def rota_consultar_agendamentos_sances():
+    resultado = consultar_agendamentos_sances(
+        data_inicial=request.args.get("inicio", ""),
+        data_final=request.args.get("fim", ""),
+        codigo_situacao=request.args.get("codigo_situacao"),
+        placa=request.args.get("placa"),
+        cpf_cliente=request.args.get("cpf_cliente"),
+    )
+
+    return jsonify(resultado)
+
+
+@app.route("/sances/teste-agendamento", methods=["POST"])
+def rota_teste_agendamento_sances():
+    dados = request.get_json(silent=True) or {}
+
+    if not dados:
+        dados = {
+            "data": request.form.get("data", ""),
+            "horario": request.form.get("horario", ""),
+            "nome": request.form.get("nome", ""),
+            "telefone": request.form.get("telefone", ""),
+            "modelo": request.form.get("modelo", ""),
+            "km_atual": request.form.get("km_atual", ""),
+            "observacao": request.form.get("observacao", ""),
+            "revisao": request.form.get("revisao", ""),
+            "placa": request.form.get("placa", ""),
+            "chassi": request.form.get("chassi", ""),
+        }
+
+    resultado = enviar_agendamento_para_sances(dados)
+    return jsonify(resultado)
 
 
 # ==========================================
@@ -2467,6 +2652,8 @@ def estado_padrao_cliente():
         "modelo": "",
         "nome": "",
         "cpf": "",
+        "placa": "",
+        "chassi": "",
         "ano": "",
         "revisao": "",
         "km_atual": "",
@@ -5911,7 +6098,7 @@ def extrair_tipo_atendimento(texto):
         return ""
 
 
-def enviar_agendamento_para_sances(dados):
+def enviar_agendamento_para_sances_legado(dados):
     """
     Envia dados de agendamento para integração Sances.
     Retorna dict com: sucesso, status, protocolo_sances, erro
@@ -6029,6 +6216,1274 @@ def enviar_agendamento_para_sances(dados):
             "status": SANCES_STATUS_ERRO,
             "protocolo_sances": "",
             "erro": f"Erro na integração Sances: {repr(e)}",
+        }
+
+
+def montar_data_hora_agendamento_sances(dados):
+    try:
+        dados = dados or {}
+        data = limpar_texto(
+            dados.get("data", "")
+            or dados.get("data_agendada", "")
+        )
+        horario = limpar_texto(dados.get("horario", ""))
+
+        if not data or not horario:
+            return ""
+
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", data):
+            data_obj = datetime.strptime(data, "%Y-%m-%d")
+        else:
+            data_obj = datetime.strptime(data, "%d/%m/%Y")
+
+        if re.match(r"^\d{1,2}:\d{2}$", horario):
+            hora, minuto = horario.split(":")
+            horario = f"{int(hora):02d}:{minuto}:00"
+        elif re.match(r"^\d{1,2}:\d{2}:\d{2}$", horario):
+            partes = horario.split(":")
+            horario = f"{int(partes[0]):02d}:{partes[1]}:{partes[2]}"
+        else:
+            return ""
+
+        return f"{data_obj.strftime('%Y-%m-%d')} {horario}"
+
+    except Exception as e:
+        log_erro("[SANCES] Erro ao montar data/hora:", repr(e))
+        return ""
+
+
+def km_sances(valor):
+    try:
+        numeros = re.sub(r"\D", "", str(valor or ""))
+        return int(numeros) if numeros else 0
+    except Exception:
+        return 0
+
+
+def montar_payload_agendamento_sances(dados):
+    dados = dados or {}
+    revisao = limpar_texto(dados.get("revisao", ""))
+    solicitacao = f"Revisão da {revisao}" if revisao else "Revisão"
+    observacao = limpar_texto(
+        dados.get("observacao", "")
+        or dados.get("observacoes", "")
+    )
+
+    return {
+        "data_hora_agendamento": montar_data_hora_agendamento_sances(dados),
+        "codigo_empresa": 1,
+        "codigo_consultor": 15810,
+        "codigo_midia": 1,
+        "codigo_assunto": 2,
+        "codigo_cliente": None,
+        "nome_cliente": limpar_texto(dados.get("nome", "")),
+        "telefone_contato": limpar_telefone(dados.get("telefone", "")),
+        "codigo_veiculo": None,
+        "placa_veiculo": limpar_texto(dados.get("placa", "")).upper(),
+        "chassi_serie": limpar_texto(dados.get("chassi", "")),
+        "quilometragem": km_sances(dados.get("km_atual", "")),
+        "codigo_modelo": None,
+        "descricao_modelo": limpar_texto(dados.get("modelo", "")),
+        "solicitacao_cliente": solicitacao,
+        "observacao": observacao,
+    }
+
+
+def enviar_agendamento_para_sances(dados):
+    """
+    Cria agendamento na integração Sances.
+    Retorna dict com: sucesso, status, mensagem, dados, erro.
+    Mantém protocolo_sances para compatibilidade com o dashboard/retry.
+    """
+    try:
+        if not isinstance(dados, dict):
+            return {
+                "sucesso": False,
+                "status": SANCES_STATUS_ERRO,
+                "mensagem": "Dados inválidos para envio Sances.",
+                "dados": {},
+                "protocolo_sances": "",
+                "erro": "Dados inválidos para envio Sances",
+            }
+
+        log_info("[SANCES] Envio iniciado:", dados.get("protocolo", ""))
+
+        if not SANCES_API_URL:
+            retorno = {
+                "sucesso": False,
+                "status": SANCES_STATUS_NAO_CONFIGURADO,
+                "mensagem": "API Sances não configurada.",
+                "dados": {},
+                "protocolo_sances": "",
+                "erro": "SANCES_API_URL não configurada",
+            }
+            log_info("[SANCES] Retorno recebido:", retorno)
+            return retorno
+
+        if not SANCES_TOKEN:
+            retorno = {
+                "sucesso": False,
+                "status": SANCES_STATUS_NAO_CONFIGURADO,
+                "mensagem": "Token Sances não configurado.",
+                "dados": {},
+                "protocolo_sances": "",
+                "erro": "SANCES_TOKEN não configurado",
+            }
+            log_info("[SANCES] Retorno recebido:", retorno)
+            return retorno
+
+        headers = {
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        payload = montar_payload_agendamento_sances(dados)
+
+        if not payload.get("data_hora_agendamento"):
+            retorno = {
+                "sucesso": False,
+                "status": SANCES_STATUS_ERRO,
+                "mensagem": "Data ou horário inválido para envio Sances.",
+                "dados": {},
+                "protocolo_sances": "",
+                "erro": "data_hora_agendamento inválida",
+            }
+            log_erro("[SANCES] Payload inválido:", retorno)
+            return retorno
+
+        log_info("[SANCES] Payload enviado:", payload)
+
+        response = requests.post(
+            SANCES_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        log_info("[SANCES] Status code:", response.status_code)
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Resposta do Sances:", retorno_json)
+
+        sucesso = 200 <= response.status_code < 300
+        protocolo_sances = limpar_texto(
+            retorno_json.get("protocolo")
+            or retorno_json.get("protocolo_sances")
+            or retorno_json.get("id")
+            or retorno_json.get("codigo_agendamento")
+            or ""
+        )
+        mensagem = limpar_texto(
+            retorno_json.get("mensagem")
+            or retorno_json.get("message")
+            or ""
+        )
+        erro = "" if sucesso else limpar_texto(
+            retorno_json.get("erro")
+            or retorno_json.get("error")
+            or retorno_json.get("message")
+            or f"HTTP {response.status_code}"
+        )
+
+        retorno = {
+            "sucesso": sucesso,
+            "status": SANCES_STATUS_ENVIADO if sucesso else SANCES_STATUS_ERRO,
+            "mensagem": mensagem,
+            "dados": retorno_json,
+            "protocolo_sances": protocolo_sances,
+            "erro": erro,
+        }
+        log_info("[SANCES] Retorno recebido:", retorno)
+        return retorno
+
+    except requests.Timeout:
+        retorno = {
+            "sucesso": False,
+            "status": SANCES_STATUS_ERRO,
+            "mensagem": "Timeout ao enviar agendamento para Sances.",
+            "dados": {},
+            "protocolo_sances": "",
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+        log_erro("[SANCES] Timeout:", retorno)
+        return retorno
+
+    except Exception as e:
+        retorno = {
+            "sucesso": False,
+            "status": SANCES_STATUS_ERRO,
+            "mensagem": "Erro ao enviar agendamento para Sances.",
+            "dados": {},
+            "protocolo_sances": "",
+            "erro": repr(e),
+        }
+        log_erro("Erro ao enviar agendamento para Sances:", repr(e))
+        return retorno
+
+
+def consultar_pos_venda_sances(
+    cpf_cliente=None,
+    placa=None,
+    protocolo=None,
+    ordem_servico=None,
+    codigo_empresa=None,
+):
+    try:
+        params = {}
+
+        if cpf_cliente:
+            params["cpf_cnpj_cliente"] = limpar_cpf(cpf_cliente)
+
+        if placa:
+            params["placa_veiculo"] = limpar_texto(placa).upper()
+
+        if protocolo:
+            params["protocolo"] = limpar_texto(protocolo)
+
+        if ordem_servico:
+            params["ordem_servico"] = limpar_texto(ordem_servico)
+            params["numero_os"] = limpar_texto(ordem_servico)
+
+        if codigo_empresa:
+            params["codigo_empresa"] = codigo_empresa
+            params["codigoEmpresa"] = codigo_empresa
+
+        if not params:
+            return {
+                "sucesso": False,
+                "mensagem": "Informe CPF/CNPJ, placa, protocolo ou O.S. para consulta.",
+                "dados": [],
+                "erro": "Parâmetros de consulta ausentes",
+            }
+
+        if not SANCES_POS_VENDA_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "Endpoint de pós-venda Sances não configurado.",
+                "dados": [],
+                "erro": "SANCES_POS_VENDA_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances não configurado.",
+                "dados": [],
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta pós-venda/O.S. iniciada:", params)
+
+        response = requests.get(
+            SANCES_POS_VENDA_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status pós-venda/O.S.:", response.status_code)
+        log_info("[SANCES] Resposta pós-venda/O.S.:", retorno_json)
+
+        sucesso = 200 <= response.status_code < 300
+        dados = obter_lista_estoque_sances(retorno_json)
+
+        if sucesso and not dados and isinstance(retorno_json, dict):
+            dados = [retorno_json]
+
+        mensagem = ""
+        erro = ""
+
+        if isinstance(retorno_json, dict):
+            mensagem = limpar_texto(retorno_json.get("mensagem") or retorno_json.get("message") or "")
+            erro = limpar_texto(retorno_json.get("erro") or retorno_json.get("error") or "")
+
+        if not sucesso and not erro:
+            erro = f"HTTP {response.status_code}"
+
+        return {
+            "sucesso": sucesso,
+            "mensagem": mensagem,
+            "dados": dados if sucesso else [],
+            "erro": "" if sucesso else erro,
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar pós-venda/O.S. Sances.",
+            "dados": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta pós-venda/O.S.:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar pós-venda/O.S. Sances.",
+            "dados": [],
+            "erro": repr(e),
+        }
+
+
+def valor_numero_pos_venda(valor):
+    try:
+        if isinstance(valor, (int, float)):
+            return float(valor)
+
+        texto = limpar_texto(valor)
+        if not texto:
+            return 0.0
+
+        texto = texto.replace("R$", "").replace(".", "").replace(",", ".")
+        return float(re.sub(r"[^0-9.-]", "", texto) or 0)
+
+    except Exception:
+        return 0.0
+
+
+def formatar_moeda_pos_venda(valor):
+    try:
+        valor = float(valor or 0)
+        texto = f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"R$ {texto}"
+    except Exception:
+        return "R$ 0,00"
+
+
+def item_pos_venda_cancelado(item):
+    try:
+        if not isinstance(item, dict):
+            return False
+
+        if bool(item.get("cancelado", False)):
+            return True
+
+        status = normalizar_texto(
+            item.get("situacao", "")
+            or item.get("status", "")
+            or item.get("descricao_situacao", "")
+        )
+
+        return any(termo in status for termo in ["cancelado", "cancelada", "excluido", "excluida"])
+
+    except Exception:
+        return False
+
+
+def obter_lista_pos_venda(registro, chaves):
+    try:
+        for chave in chaves:
+            valor = registro.get(chave)
+            if isinstance(valor, list):
+                return valor
+
+        for grupo in ["orcamento", "os", "ordem_servico", "ordemServico", "dados"]:
+            dados = registro.get(grupo)
+            if isinstance(dados, dict):
+                for chave in chaves:
+                    valor = dados.get(chave)
+                    if isinstance(valor, list):
+                        return valor
+
+        return []
+
+    except Exception:
+        return []
+
+
+def resumir_item_pos_venda(item):
+    try:
+        if not isinstance(item, dict):
+            return {}
+
+        descricao = limpar_texto(
+            item.get("descricao")
+            or item.get("nome")
+            or item.get("descricao_item")
+            or item.get("descricao_peca")
+            or item.get("descricao_servico")
+            or item.get("produto")
+            or item.get("servico")
+            or ""
+        )
+
+        quantidade = item.get("quantidade", item.get("qtde", item.get("qtd", 1)))
+        valor_total = valor_numero_pos_venda(
+            item.get("valor_total")
+            or item.get("total")
+            or item.get("valor_liquido")
+            or item.get("valor")
+            or 0
+        )
+
+        return {
+            "descricao": descricao,
+            "quantidade": quantidade,
+            "valor_total": valor_total,
+        }
+
+    except Exception as e:
+        log_erro("Erro resumir_item_pos_venda:", repr(e))
+        return {}
+
+
+def resumo_pos_venda_finalizado(situacao, data_saida=""):
+    situacao_norm = normalizar_texto(situacao)
+
+    if data_saida:
+        return True
+
+    termos_finalizado = [
+        "finalizado",
+        "concluido",
+        "encerrado",
+        "faturado",
+        "entregue",
+        "retirado",
+    ]
+
+    return any(termo in situacao_norm for termo in termos_finalizado)
+
+
+def resumir_pos_venda_para_ia(registro):
+    """
+    Resume retorno de pós-venda Sances para uso em resposta de IA.
+    Recebe JSON com orçamento/O.S., peças, serviços e notas.
+    """
+    try:
+        if not isinstance(registro, dict):
+            registro = {}
+
+        pecas_raw = obter_lista_pos_venda(
+            registro,
+            ["pecas", "peças", "itens_pecas", "itensPecas", "produtos", "itens_produtos"],
+        )
+        servicos_raw = obter_lista_pos_venda(
+            registro,
+            ["servicos", "serviços", "itens_servicos", "itensServicos", "mao_obra", "servicos_os"],
+        )
+
+        pecas = [
+            item
+            for item in (resumir_item_pos_venda(p) for p in pecas_raw if not item_pos_venda_cancelado(p))
+            if item.get("descricao")
+        ]
+        servicos = [
+            item
+            for item in (resumir_item_pos_venda(s) for s in servicos_raw if not item_pos_venda_cancelado(s))
+            if item.get("descricao")
+        ]
+
+        total_geral = valor_numero_pos_venda(
+            registro.get("total_geral")
+            or registro.get("valor_total")
+            or registro.get("total")
+            or registro.get("valor_liquido")
+            or 0
+        )
+
+        if not total_geral:
+            total_geral = sum(p.get("valor_total", 0) for p in pecas)
+            total_geral += sum(s.get("valor_total", 0) for s in servicos)
+
+        situacao = limpar_texto(
+            registro.get("situacao")
+            or registro.get("descricao_situacao")
+            or registro.get("status")
+            or ""
+        )
+        data_saida = limpar_texto(registro.get("data_saida") or registro.get("data_fechamento") or "")
+
+        return {
+            "descricao_tipo": limpar_texto(
+                registro.get("descricao_tipo")
+                or registro.get("tipo")
+                or registro.get("tipo_atendimento")
+                or ""
+            ),
+            "situacao": situacao,
+            "nome_cliente": limpar_texto(registro.get("nome_cliente") or registro.get("cliente") or ""),
+            "placa_veiculo": limpar_texto(registro.get("placa_veiculo") or registro.get("placa") or "").upper(),
+            "descricao_modelo_veiculo": limpar_texto(
+                registro.get("descricao_modelo_veiculo")
+                or registro.get("modelo_veiculo")
+                or registro.get("modelo")
+                or ""
+            ),
+            "solicitacao_cliente": limpar_texto(
+                registro.get("solicitacao_cliente")
+                or registro.get("solicitacao")
+                or registro.get("observacao_cliente")
+                or ""
+            ),
+            "pecas": pecas,
+            "servicos": servicos,
+            "total_geral": total_geral,
+            "total_geral_formatado": formatar_moeda_pos_venda(total_geral),
+            "nome_consultor": limpar_texto(registro.get("nome_consultor") or registro.get("consultor") or ""),
+            "data_entrada": limpar_texto(registro.get("data_entrada") or registro.get("data_abertura") or ""),
+            "data_saida": data_saida,
+            "finalizado": resumo_pos_venda_finalizado(situacao, data_saida),
+        }
+
+    except Exception as e:
+        log_erro("Erro resumir_pos_venda_para_ia:", repr(e))
+        return {
+            "descricao_tipo": "",
+            "situacao": "",
+            "nome_cliente": "",
+            "placa_veiculo": "",
+            "descricao_modelo_veiculo": "",
+            "solicitacao_cliente": "",
+            "pecas": [],
+            "servicos": [],
+            "total_geral": 0,
+            "total_geral_formatado": "R$ 0,00",
+            "nome_consultor": "",
+            "data_entrada": "",
+            "data_saida": "",
+            "finalizado": False,
+        }
+
+
+def montar_resposta_pos_venda_ia(resumo):
+    try:
+        resumo = resumo or {}
+        linhas = []
+
+        nome = limpar_texto(resumo.get("nome_cliente", ""))
+        if nome:
+            linhas.append(f"Olá, {nome}! Consultei seu atendimento por aqui.")
+        else:
+            linhas.append("Consultei seu atendimento por aqui.")
+
+        tipo = limpar_texto(resumo.get("descricao_tipo", ""))
+        situacao = limpar_texto(resumo.get("situacao", ""))
+
+        if tipo:
+            linhas.append(f"Tipo do atendimento: {tipo}.")
+
+        if situacao:
+            linhas.append(f"Situação atual: {situacao}.")
+
+        placa = limpar_texto(resumo.get("placa_veiculo", ""))
+        modelo = limpar_texto(resumo.get("descricao_modelo_veiculo", ""))
+        if placa or modelo:
+            veiculo = " / ".join([v for v in [placa, modelo] if v])
+            linhas.append(f"Veículo: {veiculo}.")
+
+        pecas = resumo.get("pecas", []) or []
+        if pecas:
+            linhas.append("Peças não canceladas:")
+            for item in pecas[:8]:
+                valor = formatar_moeda_pos_venda(item.get("valor_total", 0))
+                linhas.append(f"- {item.get('descricao')} ({item.get('quantidade', 1)}): {valor}")
+
+        servicos = resumo.get("servicos", []) or []
+        if servicos:
+            linhas.append("Serviços não cancelados:")
+            for item in servicos[:8]:
+                valor = formatar_moeda_pos_venda(item.get("valor_total", 0))
+                linhas.append(f"- {item.get('descricao')} ({item.get('quantidade', 1)}): {valor}")
+
+        linhas.append(
+            "Valor total: "
+            f"{resumo.get('total_geral_formatado') or formatar_moeda_pos_venda(resumo.get('total_geral', 0))}."
+        )
+
+        consultor = limpar_texto(resumo.get("nome_consultor", ""))
+        if consultor:
+            linhas.append(f"Consultor responsável: {consultor}.")
+
+        if resumo.get("finalizado"):
+            linhas.append("O atendimento consta como finalizado.")
+        else:
+            linhas.append("O atendimento ainda está em andamento.")
+
+        return "\n".join(linhas)
+
+    except Exception as e:
+        log_erro("Erro montar_resposta_pos_venda_ia:", repr(e))
+        return "Consultei seu atendimento, mas não consegui montar o resumo completo agora."
+
+
+def numero_sances(valor, padrao=0):
+    try:
+        if isinstance(valor, (int, float)):
+            return valor
+
+        texto = limpar_texto(valor)
+        if not texto:
+            return padrao
+
+        texto = texto.replace("R$", "").replace(".", "").replace(",", ".")
+        numero = float(re.sub(r"[^0-9.-]", "", texto) or padrao)
+
+        if numero.is_integer():
+            return int(numero)
+
+        return numero
+
+    except Exception:
+        return padrao
+
+
+def obter_lista_estoque_sances(retorno_json):
+    if isinstance(retorno_json, list):
+        return retorno_json
+
+    if not isinstance(retorno_json, dict):
+        return []
+
+    for chave in ["dados", "produtos", "itens", "data", "resultado", "estoque"]:
+        valor = retorno_json.get(chave)
+        if isinstance(valor, list):
+            return valor
+
+    return []
+
+
+def consultar_estoque_sances(termo, codigo_empresa=None):
+    try:
+        termo = limpar_texto(termo)
+
+        if not termo:
+            return {
+                "sucesso": False,
+                "mensagem": "Informe um termo para consulta de estoque.",
+                "dados": [],
+                "erro": "Termo de busca vazio",
+            }
+
+        if not SANCES_ESTOQUE_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "Endpoint de estoque Sances não configurado.",
+                "dados": [],
+                "erro": "SANCES_ESTOQUE_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances não configurado.",
+                "dados": [],
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        params = {
+            "termo": termo,
+            "descricao": termo,
+            "referencia": termo,
+            "codigoBarras": termo,
+            "limit": 100,
+            "offset": 0,
+        }
+
+        if codigo_empresa:
+            params["codigoEmpresa"] = codigo_empresa
+            params["codigo_empresa"] = codigo_empresa
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta de estoque iniciada:", params)
+
+        response = requests.get(
+            SANCES_ESTOQUE_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status estoque:", response.status_code)
+        log_info("[SANCES] Resposta estoque:", retorno_json)
+
+        sucesso = 200 <= response.status_code < 300
+        dados = obter_lista_estoque_sances(retorno_json)
+
+        mensagem = ""
+        erro = ""
+
+        if isinstance(retorno_json, dict):
+            mensagem = limpar_texto(retorno_json.get("mensagem") or retorno_json.get("message") or "")
+            erro = limpar_texto(retorno_json.get("erro") or retorno_json.get("error") or "")
+
+        if not sucesso and not erro:
+            erro = f"HTTP {response.status_code}"
+
+        return {
+            "sucesso": sucesso,
+            "mensagem": mensagem,
+            "dados": dados if sucesso else [],
+            "erro": "" if sucesso else erro,
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar estoque Sances.",
+            "dados": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta estoque:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar estoque Sances.",
+            "dados": [],
+            "erro": repr(e),
+        }
+
+
+def lista_dict_sances(item, chaves):
+    if not isinstance(item, dict):
+        return []
+
+    for chave in chaves:
+        valor = item.get(chave)
+        if isinstance(valor, list):
+            return [v for v in valor if isinstance(v, dict)]
+
+    return []
+
+
+def escolher_registro_empresa_sances(lista, codigo_empresa=None):
+    if not lista:
+        return {}
+
+    if codigo_empresa:
+        codigo = str(codigo_empresa)
+        for registro in lista:
+            codigo_registro = str(
+                registro.get("codigoEmpresa")
+                or registro.get("codigo_empresa")
+                or registro.get("empresa")
+                or ""
+            )
+            if codigo_registro == codigo:
+                return registro
+
+    return lista[0]
+
+
+def resumir_item_estoque_para_ia(item, codigo_empresa=None):
+    try:
+        if not isinstance(item, dict):
+            item = {}
+
+        precos = lista_dict_sances(item, ["precos", "preços", "tabelasPreco", "tabelas_preco"])
+        estoques = lista_dict_sances(item, ["estoques", "saldos", "empresas", "estoqueEmpresas"])
+
+        preco_empresa = escolher_registro_empresa_sances(precos, codigo_empresa)
+        estoque_empresa = escolher_registro_empresa_sances(estoques, codigo_empresa)
+
+        codigo_empresa_item = (
+            codigo_empresa
+            or estoque_empresa.get("codigoEmpresa")
+            or estoque_empresa.get("codigo_empresa")
+            or preco_empresa.get("codigoEmpresa")
+            or preco_empresa.get("codigo_empresa")
+            or item.get("codigoEmpresa")
+            or item.get("codigo_empresa")
+            or ""
+        )
+
+        return {
+            "codigo": limpar_texto(item.get("codigo") or item.get("codigoProduto") or item.get("id") or ""),
+            "descricao": limpar_texto(item.get("descricao") or item.get("nome") or item.get("descricaoProduto") or ""),
+            "referencia": limpar_texto(item.get("referencia") or item.get("referência") or item.get("codigoReferencia") or ""),
+            "codigoBarras": limpar_texto(item.get("codigoBarras") or item.get("codigo_barras") or item.get("ean") or ""),
+            "descricaoCategoria": limpar_texto(item.get("descricaoCategoria") or item.get("categoria") or ""),
+            "preco_varejo": numero_sances(
+                preco_empresa.get("precoVarejo")
+                or preco_empresa.get("preco_varejo")
+                or item.get("precoVarejo")
+                or item.get("preco_varejo")
+                or item.get("valor_varejo")
+                or 0
+            ),
+            "preco_atacado": numero_sances(
+                preco_empresa.get("precoAtacado")
+                or preco_empresa.get("preco_atacado")
+                or item.get("precoAtacado")
+                or item.get("preco_atacado")
+                or 0
+            ),
+            "preco_promocao": numero_sances(
+                preco_empresa.get("precoPromocao")
+                or preco_empresa.get("preco_promocao")
+                or item.get("precoPromocao")
+                or item.get("preco_promocao")
+                or 0
+            ),
+            "estoque_disponivel": numero_sances(
+                estoque_empresa.get("disponivel")
+                or estoque_empresa.get("estoqueDisponivel")
+                or estoque_empresa.get("estoque_disponivel")
+                or item.get("estoqueDisponivel")
+                or item.get("estoque_disponivel")
+                or item.get("disponivel")
+                or 0
+            ),
+            "reservado": numero_sances(estoque_empresa.get("reservado") or item.get("reservado") or 0),
+            "transito": numero_sances(
+                estoque_empresa.get("transito")
+                or estoque_empresa.get("trânsito")
+                or estoque_empresa.get("emTransito")
+                or item.get("transito")
+                or 0
+            ),
+            "pedido": numero_sances(estoque_empresa.get("pedido") or estoque_empresa.get("emPedido") or item.get("pedido") or 0),
+            "bo": numero_sances(estoque_empresa.get("BO") or estoque_empresa.get("bo") or item.get("BO") or item.get("bo") or 0),
+            "codigoEmpresa": limpar_texto(codigo_empresa_item),
+            "empresa": limpar_texto(
+                estoque_empresa.get("apelido")
+                or estoque_empresa.get("empresa")
+                or estoque_empresa.get("nomeEmpresa")
+                or item.get("apelido")
+                or item.get("empresa")
+                or ""
+            ),
+        }
+
+    except Exception as e:
+        log_erro("Erro resumir_item_estoque_para_ia:", repr(e))
+        return {}
+
+
+def montar_resposta_estoque_ia(resumos):
+    try:
+        if isinstance(resumos, dict):
+            resumos = [resumos]
+
+        resumos = [r for r in (resumos or []) if isinstance(r, dict)]
+
+        if not resumos:
+            return (
+                "Não encontrei estoque para esse item agora. "
+                "Posso pedir para um consultor verificar a previsão e uma alternativa compatível."
+            )
+
+        linhas = []
+
+        if len(resumos) == 1:
+            item = resumos[0]
+            linhas.append(f"Encontrei: {item.get('descricao') or 'peça consultada'}.")
+
+            if item.get("referencia"):
+                linhas.append(f"Referência: {item.get('referencia')}.")
+
+            disponivel = numero_sances(item.get("estoque_disponivel", 0))
+            linhas.append(f"Estoque disponível: {disponivel}.")
+
+            if item.get("preco_varejo"):
+                linhas.append(f"Preço varejo: {formatar_moeda_pos_venda(item.get('preco_varejo'))}.")
+
+            if item.get("preco_atacado"):
+                linhas.append(f"Preço atacado: {formatar_moeda_pos_venda(item.get('preco_atacado'))}.")
+
+            if disponivel <= 0:
+                linhas.append("No momento não consta estoque disponível. Posso verificar a previsão com um consultor.")
+
+            return "\n".join(linhas)
+
+        linhas.append("Encontrei algumas opções:")
+
+        for item in resumos[:5]:
+            disponivel = numero_sances(item.get("estoque_disponivel", 0))
+            referencia = f" | Ref.: {item.get('referencia')}" if item.get("referencia") else ""
+            varejo = (
+                f" | Varejo: {formatar_moeda_pos_venda(item.get('preco_varejo'))}"
+                if item.get("preco_varejo")
+                else ""
+            )
+            atacado = (
+                f" | Atacado: {formatar_moeda_pos_venda(item.get('preco_atacado'))}"
+                if item.get("preco_atacado")
+                else ""
+            )
+
+            linhas.append(
+                f"- {item.get('descricao') or 'Item'}{referencia} | Estoque: {disponivel}{varejo}{atacado}"
+            )
+
+        if any(numero_sances(item.get("estoque_disponivel", 0)) <= 0 for item in resumos[:5]):
+            linhas.append("Para os itens sem estoque, posso verificar previsão com um consultor.")
+
+        return "\n".join(linhas)
+
+    except Exception as e:
+        log_erro("Erro montar_resposta_estoque_ia:", repr(e))
+        return "Consultei o estoque, mas não consegui montar a resposta completa agora."
+
+
+CATALOGO_ATACADO_TEXTO_CACHE = {
+    "arquivo": "",
+    "mtime": 0,
+    "texto": "",
+    "linhas": [],
+}
+
+
+def extrair_peca_modelo_do_texto(texto):
+    try:
+        texto_original = limpar_texto(texto)
+        texto_norm = normalizar_texto(texto_original)
+
+        modelos = {
+            "lander": "LANDER",
+            "xtz 250": "LANDER",
+            "fazer 250": "FAZER 250",
+            "fz25": "FAZER 250",
+            "fz 25": "FAZER 250",
+            "fazer 150": "FZ15",
+            "fz15": "FZ15",
+            "fz 15": "FZ15",
+            "crosser": "CROSSER",
+            "xtz 150": "CROSSER",
+            "factor": "FACTOR",
+            "nmax": "NMAX",
+            "neo": "NEO",
+            "fluo": "FLUO",
+            "aerox": "AEROX",
+            "tenere": "TENERE 700",
+            "teneré": "TENERE 700",
+            "tenere 700": "TENERE 700",
+            "t7": "TENERE 700",
+            "mt03": "MT-03",
+            "mt 03": "MT-03",
+            "mt-03": "MT-03",
+            "r15": "R15",
+            "r3": "R3",
+        }
+
+        modelo = ""
+        for chave, valor in modelos.items():
+            if chave in texto_norm:
+                modelo = valor
+                break
+
+        termo = texto_norm
+        termo = re.sub(
+            r"\b(tem|voce tem|vocês tem|preciso|quero|valor|preco|preço|quanto|custa|da|do|de|para|pra)\b",
+            " ",
+            termo,
+        )
+
+        for chave in modelos:
+            termo = termo.replace(chave, " ")
+
+        termo = re.sub(r"[^a-z0-9\s./-]", " ", termo)
+        termo = re.sub(r"\s+", " ", termo).strip()
+
+        return {
+            "termo_peca": termo,
+            "modelo": modelo,
+            "texto_original": texto_original,
+        }
+
+    except Exception as e:
+        log_erro("Erro extrair_peca_modelo_do_texto:", repr(e))
+        return {
+            "termo_peca": "",
+            "modelo": "",
+            "texto_original": limpar_texto(texto),
+        }
+
+
+def carregar_texto_catalogo_atacado():
+    try:
+        caminho_pdf = os.path.join(app.root_path, "static", "pdfs", "catalogo_atacado.pdf")
+
+        if not os.path.exists(caminho_pdf):
+            log_erro("Catálogo atacado não encontrado:", caminho_pdf)
+            return []
+
+        mtime = os.path.getmtime(caminho_pdf)
+
+        if (
+            CATALOGO_ATACADO_TEXTO_CACHE.get("arquivo") == caminho_pdf
+            and CATALOGO_ATACADO_TEXTO_CACHE.get("mtime") == mtime
+            and CATALOGO_ATACADO_TEXTO_CACHE.get("linhas")
+        ):
+            return CATALOGO_ATACADO_TEXTO_CACHE.get("linhas", [])
+
+        import pdfplumber
+
+        linhas = []
+        with pdfplumber.open(caminho_pdf) as pdf:
+            for pagina in pdf.pages:
+                texto = pagina.extract_text() or ""
+                for linha in texto.splitlines():
+                    linha = limpar_texto(linha)
+                    if linha:
+                        linhas.append(linha)
+
+        CATALOGO_ATACADO_TEXTO_CACHE.update({
+            "arquivo": caminho_pdf,
+            "mtime": mtime,
+            "texto": "\n".join(linhas),
+            "linhas": linhas,
+        })
+
+        return linhas
+
+    except Exception as e:
+        log_erro("Erro carregar_texto_catalogo_atacado:", repr(e))
+        return []
+
+
+def pontuar_linha_catalogo(linha_norm, termo_norm, modelo_norm):
+    score = 0
+
+    termos = [t for t in termo_norm.split() if len(t) >= 2]
+    for termo in termos:
+        if termo in linha_norm:
+            score += 3
+
+    if modelo_norm and modelo_norm in linha_norm:
+        score += 8
+
+    if termo_norm and termo_norm in linha_norm:
+        score += 5
+
+    return score
+
+
+def extrair_referencia_catalogo(linha):
+    try:
+        candidatos = re.findall(r"\b[A-Z0-9][A-Z0-9./-]{4,}\b", linha.upper())
+        ignorar = {
+            "YAMAHA", "LANDER", "FAZER", "CROSSER", "FACTOR", "TENERE",
+            "AEROX", "NMAX", "NEO", "FLUO", "MODELO", "CODIGO", "PRECO",
+        }
+
+        for candidato in candidatos:
+            if candidato in ignorar:
+                continue
+            if re.search(r"\d", candidato):
+                return candidato
+
+        return candidatos[0] if candidatos else ""
+
+    except Exception:
+        return ""
+
+
+def buscar_referencia_no_catalogo(termo_peca, modelo):
+    try:
+        termo_peca = limpar_texto(termo_peca)
+        modelo = limpar_texto(modelo)
+
+        if not termo_peca:
+            return {
+                "encontrado": False,
+                "referencia": "",
+                "descricao": "",
+                "modelo": modelo,
+                "linha_catalogo": "",
+                "erro": "Termo da peça vazio",
+            }
+
+        linhas = carregar_texto_catalogo_atacado()
+        termo_norm = normalizar_texto(termo_peca)
+        modelo_norm = normalizar_texto(modelo)
+
+        melhor = {
+            "score": 0,
+            "linha": "",
+            "referencia": "",
+        }
+
+        for linha in linhas:
+            linha_norm = normalizar_texto(linha)
+            score = pontuar_linha_catalogo(linha_norm, termo_norm, modelo_norm)
+
+            if score <= melhor["score"]:
+                continue
+
+            referencia = extrair_referencia_catalogo(linha)
+            if not referencia:
+                continue
+
+            melhor = {
+                "score": score,
+                "linha": linha,
+                "referencia": referencia,
+            }
+
+        if not melhor.get("referencia"):
+            return {
+                "encontrado": False,
+                "referencia": "",
+                "descricao": termo_peca,
+                "modelo": modelo,
+                "linha_catalogo": "",
+                "erro": "Referência não encontrada no catálogo",
+            }
+
+        return {
+            "encontrado": True,
+            "referencia": melhor["referencia"],
+            "descricao": termo_peca,
+            "modelo": modelo,
+            "linha_catalogo": melhor["linha"],
+            "erro": "",
+        }
+
+    except Exception as e:
+        log_erro("Erro buscar_referencia_no_catalogo:", repr(e))
+        return {
+            "encontrado": False,
+            "referencia": "",
+            "descricao": limpar_texto(termo_peca),
+            "modelo": limpar_texto(modelo),
+            "linha_catalogo": "",
+            "erro": repr(e),
+        }
+
+
+def consultar_estoque_sances_por_referencia(referencia):
+    try:
+        referencia = limpar_texto(referencia)
+
+        if not referencia:
+            return {
+                "sucesso": False,
+                "mensagem": "Referência não informada.",
+                "dados": [],
+                "erro": "Referência vazia",
+            }
+
+        return consultar_estoque_sances(referencia)
+
+    except Exception as e:
+        log_erro("Erro consultar_estoque_sances_por_referencia:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar estoque por referência.",
+            "dados": [],
+            "erro": repr(e),
+        }
+
+
+def responder_estoque_peca_por_ia(texto_cliente):
+    try:
+        extraido = extrair_peca_modelo_do_texto(texto_cliente)
+        termo_peca = extraido.get("termo_peca", "")
+        modelo = extraido.get("modelo", "")
+
+        if not termo_peca:
+            return {
+                "sucesso": False,
+                "encaminhar_humano": True,
+                "mensagem": "Não consegui identificar a peça. Vou encaminhar para um consultor te ajudar.",
+                "dados": {
+                    "extraido": extraido,
+                },
+                "erro": "Peça não identificada",
+            }
+
+        referencia = buscar_referencia_no_catalogo(termo_peca, modelo)
+
+        if not referencia.get("encontrado"):
+            return {
+                "sucesso": False,
+                "encaminhar_humano": True,
+                "mensagem": "Não encontrei essa referência no catálogo agora. Vou encaminhar para um consultor verificar para você.",
+                "dados": {
+                    "extraido": extraido,
+                    "catalogo": referencia,
+                },
+                "erro": referencia.get("erro", ""),
+            }
+
+        estoque = consultar_estoque_sances_por_referencia(referencia.get("referencia", ""))
+
+        if not estoque.get("sucesso"):
+            return {
+                "sucesso": False,
+                "encaminhar_humano": True,
+                "mensagem": "Encontrei a referência no catálogo, mas não consegui consultar o estoque agora. Vou encaminhar para um consultor confirmar.",
+                "dados": {
+                    "extraido": extraido,
+                    "catalogo": referencia,
+                    "estoque": estoque,
+                },
+                "erro": estoque.get("erro", ""),
+            }
+
+        resumos = [
+            resumir_item_estoque_para_ia(item)
+            for item in estoque.get("dados", [])
+        ]
+        resumos = [r for r in resumos if r]
+
+        resposta_estoque = montar_resposta_estoque_ia(resumos)
+        primeiro = resumos[0] if resumos else {}
+
+        linhas = [
+            f"Peça: {primeiro.get('descricao') or termo_peca}",
+        ]
+
+        if modelo:
+            linhas.append(f"Modelo: {modelo}.")
+
+        linhas.append(f"Referência encontrada: {referencia.get('referencia')}.")
+
+        if primeiro.get("empresa"):
+            linhas.append(f"Unidade: {primeiro.get('empresa')}.")
+
+        linhas.append(resposta_estoque)
+
+        sem_estoque = not resumos or all(numero_sances(r.get("estoque_disponivel", 0)) <= 0 for r in resumos)
+
+        if sem_estoque:
+            linhas.append("Como não consta estoque disponível, vou encaminhar para um consultor verificar previsão ou alternativa.")
+
+        return {
+            "sucesso": bool(resumos) and not sem_estoque,
+            "encaminhar_humano": sem_estoque,
+            "mensagem": "\n".join(linhas),
+            "dados": {
+                "extraido": extraido,
+                "catalogo": referencia,
+                "estoque": estoque,
+                "resumos": resumos,
+            },
+            "erro": "",
+        }
+
+    except Exception as e:
+        log_erro("Erro responder_estoque_peca_por_ia:", repr(e))
+        return {
+            "sucesso": False,
+            "encaminhar_humano": True,
+            "mensagem": "Não consegui consultar essa peça agora. Vou encaminhar para um consultor te ajudar.",
+            "dados": {},
+            "erro": repr(e),
         }
 
 
@@ -6971,6 +8426,8 @@ def montar_dados_agendamento_para_reenvio(ag):
                 "nome": limpar_texto(ag.get("nome", "")),
                 "cpf": limpar_cpf(ag.get("cpf", "")),
                 "modelo": limpar_texto(ag.get("modelo", "")),
+                "placa": limpar_texto(ag.get("placa", "")),
+                "chassi": limpar_texto(ag.get("chassi", "")),
                 "ano": limpar_texto(ag.get("ano", "")),
                 "revisao": limpar_texto(ag.get("revisao", "")),
                 "dia": limpar_texto(ag.get("dia", "")),
@@ -6989,6 +8446,8 @@ def montar_dados_agendamento_para_reenvio(ag):
             "nome": limpar_texto(getattr(ag, "nome", "")),
             "cpf": limpar_cpf(getattr(ag, "cpf", "")),
             "modelo": limpar_texto(getattr(ag, "modelo", "")),
+            "placa": limpar_texto(getattr(ag, "placa", "")),
+            "chassi": limpar_texto(getattr(ag, "chassi", "")),
             "ano": limpar_texto(getattr(ag, "ano", "")),
             "revisao": limpar_texto(getattr(ag, "revisao", "")),
             "dia": "",
@@ -7070,8 +8529,15 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
             ag.sances_enviado = sucesso
 
         if hasattr(ag, "sances_protocolo"):
+            dados_retorno = retorno_sances.get("dados", {}) or {}
+            if not isinstance(dados_retorno, dict):
+                dados_retorno = {}
+
             ag.sances_protocolo = limpar_texto(
                 retorno_sances.get("protocolo_sances", "")
+                or dados_retorno.get("protocolo", "")
+                or dados_retorno.get("id", "")
+                or dados_retorno.get("codigo_agendamento", "")
             )
 
         if hasattr(ag, "sances_erro"):
@@ -10657,10 +12123,26 @@ def processar_fluxo_revisao(
                     return True
 
                 log_info("[SANCES] Agendamento salvo, enviando para integração:", protocolo)
-                retorno_sances = enviar_agendamento_salvo_para_sances(protocolo)
+                dados_sances = dict(clientes[telefone])
+                dados_sances["telefone"] = telefone
+                dados_sances["protocolo"] = protocolo
+
+                retorno_sances = enviar_agendamento_para_sances(dados_sances)
+                if not isinstance(retorno_sances, dict):
+                    retorno_sances = {
+                        "sucesso": False,
+                        "status": SANCES_STATUS_ERRO,
+                        "mensagem": "Retorno inválido da integração Sances.",
+                        "dados": {},
+                        "protocolo_sances": "",
+                        "erro": "Retorno inválido da integração Sances",
+                    }
+
                 status_sances = limpar_texto(
                     retorno_sances.get("status", SANCES_STATUS_ERRO)
                 ).upper()
+                retorno_sances["status"] = status_sances or SANCES_STATUS_ERRO
+                atualizar_status_sances_agendamento(protocolo, retorno_sances)
 
                 clientes[telefone]["protocolo"] = protocolo
                 clientes[telefone]["status"] = STATUS_AGENDADO
