@@ -606,7 +606,7 @@
         </div>
 
         <div class="card rosa">
-            <h3>RPA Humano</h3>
+            <h3>RPA Cancelados</h3>
             <div class="numero">
                 {{ rpa_aguardando_humano if rpa_aguardando_humano is defined else 0 }}
             </div>
@@ -1033,26 +1033,26 @@
                             <td>{{ tarefa.tipo_tarefa or '-' }}</td>
                             <td>
                                 <span class="status-badge
-                                    {% if rpa_status == 'RPA_CONCLUIDO' %}
+                                    {% if rpa_status in ['CONCLUIDO', 'RPA_CONCLUIDO'] %}
                                         status-agendado
-                                    {% elif rpa_status == 'RPA_ERRO' %}
+                                    {% elif rpa_status in ['ERRO', 'RPA_ERRO'] %}
                                         status-cancelado
-                                    {% elif rpa_status == 'RPA_PENDENTE' %}
+                                    {% elif rpa_status in ['PENDENTE', 'RPA_PENDENTE'] %}
                                         status-reagendado
-                                    {% elif rpa_status == 'RPA_AGUARDANDO_HUMANO' %}
+                                    {% elif rpa_status in ['PROCESSANDO', 'CANCELADO', 'RPA_AGUARDANDO_HUMANO'] %}
                                         status-confirmado
                                     {% else %}
                                         status-padrao
                                     {% endif %}
                                 ">
-                                    {{ tarefa.status_rpa or 'RPA_PENDENTE' }}
+                                    {{ tarefa.status_rpa or 'PENDENTE' }}
                                 </span>
                             </td>
                             <td>{{ tarefa.tentativas_rpa or 0 }}</td>
                             <td class="resposta-ia">{{ tarefa.erro_rpa or '-' }}</td>
                             <td>{{ tarefa.data_criacao or '-' }}</td>
                             <td>
-                                {% if rpa_status in ['RPA_ERRO', 'RPA_AGUARDANDO_HUMANO', 'RPA_PENDENTE'] %}
+                                {% if rpa_status in ['ERRO', 'CANCELADO', 'PENDENTE', 'RPA_ERRO', 'RPA_AGUARDANDO_HUMANO', 'RPA_PENDENTE'] %}
                                     <button
                                         class="btn-reenvio"
                                         onclick="reprocessarRPA('{{ tarefa.id }}')">

@@ -338,6 +338,89 @@ class TarefaRPA(Base):
     atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class RPAFila(Base):
+    __tablename__ = "rpa_fila"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo_rpa = Column(String, index=True, nullable=False)
+    telefone = Column(String, index=True, nullable=True)
+    cliente = Column(String, index=True, nullable=True)
+    origem = Column(String, default="IA", index=True)
+    status = Column(String, default="PENDENTE", index=True)
+    prioridade = Column(Integer, default=5, index=True)
+    tentativa = Column(Integer, default=0)
+    payload_json = Column(Text, nullable=True)
+    resposta = Column(Text, nullable=True)
+    erro = Column(Text, nullable=True)
+    criado_em = Column(DateTime, default=datetime.now, index=True)
+    atualizado_em = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    executado_em = Column(DateTime, nullable=True)
+
+    @property
+    def tipo_tarefa(self):
+        return self.tipo_rpa
+
+    @tipo_tarefa.setter
+    def tipo_tarefa(self, valor):
+        self.tipo_rpa = valor
+
+    @property
+    def status_rpa(self):
+        return self.status
+
+    @status_rpa.setter
+    def status_rpa(self, valor):
+        self.status = valor
+
+    @property
+    def tentativas_rpa(self):
+        return self.tentativa
+
+    @tentativas_rpa.setter
+    def tentativas_rpa(self, valor):
+        self.tentativa = valor
+
+    @property
+    def erro_rpa(self):
+        return self.erro
+
+    @erro_rpa.setter
+    def erro_rpa(self, valor):
+        self.erro = valor
+
+    @property
+    def dados_json(self):
+        return self.payload_json
+
+    @dados_json.setter
+    def dados_json(self, valor):
+        self.payload_json = valor
+
+    @property
+    def resultado_json(self):
+        return self.resposta
+
+    @resultado_json.setter
+    def resultado_json(self, valor):
+        self.resposta = valor
+
+    @property
+    def data_criacao(self):
+        return self.criado_em
+
+    @data_criacao.setter
+    def data_criacao(self, valor):
+        self.criado_em = valor
+
+    @property
+    def data_processamento(self):
+        return self.executado_em
+
+    @data_processamento.setter
+    def data_processamento(self, valor):
+        self.executado_em = valor
+
+
 # ==========================================
 # CRIAR BANCO
 # ==========================================
@@ -407,6 +490,7 @@ def migrar_colunas_sances():
 
 def migrar_tabela_rpa():
     Base.metadata.create_all(bind=engine, tables=[TarefaRPA.__table__])
+    Base.metadata.create_all(bind=engine, tables=[RPAFila.__table__])
 
 
 def migrar_colunas_leads_atacado():

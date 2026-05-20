@@ -19,7 +19,7 @@ from sqlalchemy import or_
 
 load_dotenv()
 
-from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao, LeadAtacado, TarefaRPA
+from database import criar_banco, SessionLocal, Atendimento, AgendamentoRevisao, LeadAtacado, TarefaRPA, RPAFila
 from ia_intencao import classificar_intencao, responder_duvida_por_tabela
 
 try:
@@ -274,16 +274,22 @@ SANCES_STATUS_PENDENTE_DADOS = "PENDENTE_DADOS"
 # ==========================================
 # STATUS AUTOMAÇÃO RPA
 # ==========================================
-RPA_PENDENTE = "RPA_PENDENTE"
-RPA_EM_EXECUCAO = "RPA_EM_EXECUCAO"
-RPA_CONCLUIDO = "RPA_CONCLUIDO"
-RPA_ERRO = "RPA_ERRO"
-RPA_AGUARDANDO_HUMANO = "RPA_AGUARDANDO_HUMANO"
+RPA_PENDENTE = "PENDENTE"
+RPA_EM_EXECUCAO = "PROCESSANDO"
+RPA_CONCLUIDO = "CONCLUIDO"
+RPA_ERRO = "ERRO"
+RPA_CANCELADO = "CANCELADO"
+RPA_AGUARDANDO_HUMANO = RPA_CANCELADO
 
 RPA_TIPOS_PREPARADOS = {
-    "consultar_status_agendamento",
-    "consultar_os",
-    "consultar_garantia",
+    "followup_revisao",
+    "cobranca_orcamento",
+    "envio_catalogo",
+    "recuperacao_cliente",
+    "lembrete_agendamento",
+    "consulta_sances",
+    "envio_pecas",
+    "disparo_atacado",
     "consultar_disponibilidade_peca",
     "registrar_solicitacao_orcamento",
     "registrar_pos_venda",
@@ -9497,34 +9503,43 @@ def identificar_tarefa_operacional(texto, contexto=None):
     if not texto_norm:
         return ""
 
-    if "os" in texto_norm or "ordem de servico" in texto_norm or "ordem de serviço" in texto_norm:
-        return "consultar_os"
+    if "sumiu" in texto_norm or "parado" in texto_norm or "sem resposta" in texto_norm:
+        return "followup_revisao"
+
+    if "catalogo" in texto_norm or "catálogo" in texto_norm:
+        return "envio_catalogo"
+
+    if "atacado" in texto_norm or "lojista" in texto_norm:
+        return "disparo_atacado"
+
+    if "os" in texto_norm or "ordem de servico" in texto_norm or "ordem de serviço" in texto_norm or "sances" in texto_norm:
+        return "consulta_sances"
 
     if "garantia" in texto_norm and any(p in texto_norm for p in ["status", "acompanhar", "protocolo", "consulta"]):
-        return "consultar_garantia"
+        return "consulta_sances"
 
     if "garantia" in texto_norm and any(p in texto_norm for p in ["problema", "analise", "análise", "defeito"]):
-        return "analise_garantia"
+        return "consulta_sances"
 
     if "disponivel" in texto_norm or "disponível" in texto_norm or "tem peca" in texto_norm or "tem peça" in texto_norm:
-        return "consultar_disponibilidade_peca"
+        return "envio_pecas"
 
     if "orcamento" in texto_norm or "orçamento" in texto_norm or "cotacao" in texto_norm or "cotação" in texto_norm:
         if "atacado" in texto_norm or "lojista" in texto_norm:
-            return "cotacao_atacado"
-        return "registrar_solicitacao_orcamento"
+            return "disparo_atacado"
+        return "cobranca_orcamento"
 
     if "status" in texto_norm and "agend" in texto_norm:
-        return "consultar_status_agendamento"
+        return "consulta_sances"
 
     if "pos venda" in texto_norm or "pós venda" in texto_norm or "pos-venda" in texto_norm:
-        return "registrar_pos_venda"
+        return "recuperacao_cliente"
 
     if normalizar_texto(contexto.get("temperatura_lead", "")) == "quente":
-        return "gerar_tarefa_consultor"
+        return "recuperacao_cliente"
 
     if bool(contexto.get("oportunidade_comercial", False)):
-        return "gerar_tarefa_consultor"
+        return "recuperacao_cliente"
 
     return ""
 
@@ -9540,6 +9555,10 @@ def dados_minimos_rpa(tipo_tarefa, dados):
         "registrar_solicitacao_orcamento",
         "consultar_disponibilidade_peca",
         "cotacao_atacado",
+        "cobranca_orcamento",
+        "envio_pecas",
+        "envio_catalogo",
+        "disparo_atacado",
     ]:
         itens = limpar_texto(
             dados.get("itens")
@@ -9552,7 +9571,7 @@ def dados_minimos_rpa(tipo_tarefa, dados):
         if not itens:
             return False, "produto/itens obrigatórios"
 
-    if tipo_tarefa in ["consultar_status_agendamento", "confirmacao_revisao"]:
+    if tipo_tarefa in ["consultar_status_agendamento", "confirmacao_revisao", "followup_revisao", "lembrete_agendamento"]:
         identificador = limpar_texto(
             dados.get("protocolo")
             or dados.get("cpf")
@@ -9576,7 +9595,7 @@ def dados_minimos_rpa(tipo_tarefa, dados):
         if not identificador:
             return False, "protocolo, cpf ou descrição obrigatórios"
 
-    if tipo_tarefa == "consultar_os":
+    if tipo_tarefa in ["consultar_os", "consulta_sances"]:
         identificador = limpar_texto(
             dados.get("os")
             or dados.get("protocolo")
@@ -9610,15 +9629,15 @@ def criar_tarefa_rpa(telefone, tipo_tarefa, dados=None, origem="BOT", prioridade
         status = RPA_PENDENTE if valido else RPA_AGUARDANDO_HUMANO
 
         existente = (
-            db.query(TarefaRPA)
-            .filter(TarefaRPA.telefone == telefone)
-            .filter(TarefaRPA.tipo_tarefa == tipo_tarefa)
-            .filter(TarefaRPA.status_rpa.in_([
+            db.query(RPAFila)
+            .filter(RPAFila.telefone == telefone)
+            .filter(RPAFila.tipo_rpa == tipo_tarefa)
+            .filter(RPAFila.status.in_([
                 RPA_PENDENTE,
                 RPA_EM_EXECUCAO,
                 RPA_AGUARDANDO_HUMANO,
             ]))
-            .order_by(TarefaRPA.id.desc())
+            .order_by(RPAFila.id.desc())
             .first()
         )
 
@@ -9626,13 +9645,14 @@ def criar_tarefa_rpa(telefone, tipo_tarefa, dados=None, origem="BOT", prioridade
             log_info("[RPA] Tarefa já existe:", existente.id, tipo_tarefa, telefone)
             return existente.id
 
-        tarefa = TarefaRPA(
+        tarefa = RPAFila(
             telefone=telefone,
-            tipo_tarefa=tipo_tarefa,
-            dados_json=dados_json_rpa(dados),
-            status_rpa=status,
-            tentativas_rpa=0,
-            erro_rpa=erro,
+            cliente=limpar_texto(dados.get("nome") or dados.get("cliente") or ""),
+            tipo_rpa=tipo_tarefa,
+            payload_json=dados_json_rpa(dados),
+            status=status,
+            tentativa=0,
+            erro=erro,
             origem=limpar_texto(origem or "BOT") or "BOT",
             prioridade=int(prioridade or 5),
         )
@@ -9708,6 +9728,19 @@ def criar_tarefa_rpa_de_atendimento(telefone, dados, texto=""):
     )
 
 
+def criar_rpa_ia(telefone, tipo_rpa, payload=None, origem="IA", prioridade=5):
+    payload = payload or {}
+    payload.setdefault("origem_ia", origem)
+
+    return criar_tarefa_rpa(
+        telefone=telefone,
+        tipo_tarefa=tipo_rpa,
+        dados=payload,
+        origem=origem,
+        prioridade=prioridade,
+    )
+
+
 def executar_tarefa_rpa_mock(tipo_tarefa, dados):
     valido, erro = dados_minimos_rpa(tipo_tarefa, dados)
 
@@ -9746,57 +9779,116 @@ def executar_tarefa_rpa_mock(tipo_tarefa, dados):
     }
 
 
+def executar_tarefa_rpa_inteligente(tipo_rpa, dados):
+    valido, erro = dados_minimos_rpa(tipo_rpa, dados)
+
+    if not valido:
+        return {
+            "ok": False,
+            "status": RPA_CANCELADO,
+            "erro": erro,
+            "resultado": {"acao": "aguardar_dados"},
+        }
+
+    telefone = limpar_telefone(dados.get("telefone", ""))
+    mensagem = ""
+    resultado = {"tipo_rpa": tipo_rpa}
+
+    if tipo_rpa == "followup_revisao":
+        mensagem = "Olá! Passando para saber se você ainda deseja ajuda para concluir o agendamento da revisão."
+
+    elif tipo_rpa == "cobranca_orcamento":
+        mensagem = "Olá! Conseguiu avaliar o orçamento? Posso te ajudar com alguma dúvida ou encaminhar para um consultor."
+
+    elif tipo_rpa == "envio_catalogo":
+        mensagem = "Olá! Separei o atendimento para envio de catálogo. Um consultor pode te mandar as opções mais adequadas."
+
+    elif tipo_rpa == "recuperacao_cliente":
+        mensagem = "Olá! Vi que seu atendimento ficou parado e estou por aqui para continuar te ajudando."
+
+    elif tipo_rpa == "lembrete_agendamento":
+        mensagem = "Olá! Passando para lembrar do seu agendamento e confirmar se está tudo certo."
+
+    elif tipo_rpa == "envio_pecas":
+        termo = limpar_texto(dados.get("itens") or dados.get("produto_interesse") or dados.get("mensagem") or "")
+        estoque = consultar_estoque_sances(termo)
+        resultado["estoque"] = estoque
+        mensagem = "Recebi sua solicitação de peça e registrei a consulta para conferência."
+
+    elif tipo_rpa == "consulta_sances":
+        resultado["consulta"] = "consulta_sances_registrada"
+        mensagem = "Sua consulta ao sistema foi registrada para continuidade operacional."
+
+    elif tipo_rpa == "disparo_atacado":
+        mensagem = "Olá! Registrei seu interesse para atendimento de atacado e vamos dar sequência."
+
+    else:
+        resultado["acao"] = "registrada"
+
+    if telefone and mensagem:
+        retorno_zapi = enviar_mensagem(telefone, mensagem)
+        resultado["mensagem_enviada"] = bool(retorno_zapi)
+        resultado["retorno_zapi"] = retorno_zapi
+
+        if not retorno_zapi:
+            return {
+                "ok": False,
+                "status": RPA_ERRO,
+                "erro": "Falha ao enviar mensagem automática.",
+                "resultado": resultado,
+            }
+
+    return {
+        "ok": True,
+        "status": RPA_CONCLUIDO,
+        "erro": "",
+        "resultado": resultado,
+    }
+
+
 def processar_fila_rpa():
     db = SessionLocal()
 
     try:
         tarefas = (
-            db.query(TarefaRPA)
-            .filter(TarefaRPA.status_rpa == RPA_PENDENTE)
-            .order_by(TarefaRPA.prioridade.asc(), TarefaRPA.id.asc())
+            db.query(RPAFila)
+            .filter(RPAFila.status == RPA_PENDENTE)
+            .order_by(RPAFila.prioridade.asc(), RPAFila.id.asc())
             .limit(max(1, RPA_LOTE_MAX))
             .all()
         )
 
         for tarefa in tarefas:
             try:
-                if int(getattr(tarefa, "tentativas_rpa", 0) or 0) >= RPA_RETRY_MAX:
-                    tarefa.status_rpa = RPA_AGUARDANDO_HUMANO
-                    tarefa.erro_rpa = "Limite de tentativas atingido."
-                    tarefa.data_processamento = agora_datetime()
+                if int(getattr(tarefa, "tentativa", 0) or 0) >= RPA_RETRY_MAX:
+                    tarefa.status = RPA_CANCELADO
+                    tarefa.erro = "Limite de tentativas atingido."
+                    tarefa.executado_em = agora_datetime()
                     db.commit()
                     continue
 
-                tarefa.status_rpa = RPA_EM_EXECUCAO
-                tarefa.tentativas_rpa = int(getattr(tarefa, "tentativas_rpa", 0) or 0) + 1
-                tarefa.data_processamento = agora_datetime()
+                tarefa.status = RPA_EM_EXECUCAO
+                tarefa.tentativa = int(getattr(tarefa, "tentativa", 0) or 0) + 1
+                tarefa.executado_em = agora_datetime()
                 db.commit()
 
-                tipo_tarefa = limpar_texto(getattr(tarefa, "tipo_tarefa", ""))
-                dados = carregar_json_rpa(getattr(tarefa, "dados_json", ""))
+                tipo_tarefa = limpar_texto(getattr(tarefa, "tipo_rpa", ""))
+                dados = carregar_json_rpa(getattr(tarefa, "payload_json", ""))
 
                 log_info("[RPA] Processando tarefa:", tarefa.id, tipo_tarefa)
 
-                if RPA_MODO != "mock":
-                    retorno = {
-                        "ok": False,
-                        "status": RPA_AGUARDANDO_HUMANO,
-                        "erro": "RPA real ainda não configurado.",
-                        "resultado": {},
-                    }
-                else:
-                    retorno = executar_tarefa_rpa_mock(tipo_tarefa, dados)
+                retorno = executar_tarefa_rpa_inteligente(tipo_tarefa, dados)
 
-                tarefa.status_rpa = limpar_texto(
+                tarefa.status = limpar_texto(
                     retorno.get("status", RPA_ERRO)
                 ) or RPA_ERRO
-                tarefa.erro_rpa = limpar_texto(retorno.get("erro", ""))
-                tarefa.resultado_json = dados_json_rpa(retorno.get("resultado", {}))
-                tarefa.data_processamento = agora_datetime()
+                tarefa.erro = limpar_texto(retorno.get("erro", ""))
+                tarefa.resposta = dados_json_rpa(retorno.get("resultado", {}))
+                tarefa.executado_em = agora_datetime()
 
                 db.commit()
 
-                if tarefa.status_rpa == RPA_AGUARDANDO_HUMANO:
+                if tarefa.status == RPA_CANCELADO:
                     telefone = limpar_telefone(getattr(tarefa, "telefone", ""))
 
                     if telefone:
@@ -9808,8 +9900,8 @@ def processar_fila_rpa():
                 log_info(
                     "[RPA] Tarefa processada:",
                     tarefa.id,
-                    tarefa.status_rpa,
-                    tarefa.erro_rpa,
+                    tarefa.status,
+                    tarefa.erro,
                 )
 
             except Exception as e:
@@ -9817,9 +9909,9 @@ def processar_fila_rpa():
                 log_erro("[RPA] Erro ao processar tarefa:", repr(e))
 
                 try:
-                    tarefa.status_rpa = RPA_ERRO
-                    tarefa.erro_rpa = limpar_texto(repr(e))
-                    tarefa.data_processamento = agora_datetime()
+                    tarefa.status = RPA_ERRO
+                    tarefa.erro = limpar_texto(repr(e))
+                    tarefa.executado_em = agora_datetime()
                     db.commit()
                 except Exception:
                     db.rollback()
@@ -10111,8 +10203,8 @@ def montar_metricas_crm(filtro="hoje"):
         )
 
         query_rpa = aplicar_periodo_crm(
-            db.query(TarefaRPA),
-            TarefaRPA,
+            db.query(RPAFila),
+            RPAFila,
             inicio,
             fim,
         )
@@ -10128,7 +10220,7 @@ def montar_metricas_crm(filtro="hoje"):
         agendamentos = query_agendamentos.order_by(
             AgendamentoRevisao.id.desc()
         ).all()
-        tarefas_rpa = query_rpa.order_by(TarefaRPA.id.desc()).all()
+        tarefas_rpa = query_rpa.order_by(RPAFila.id.desc()).all()
         leads_atacado_lista = query_leads_atacado.order_by(LeadAtacado.id.desc()).all()
 
         def status_atendimento(obj):
@@ -10850,8 +10942,8 @@ def reprocessar_rpa(tarefa_id):
 
     try:
         tarefa = (
-            db.query(TarefaRPA)
-            .filter(TarefaRPA.id == tarefa_id)
+            db.query(RPAFila)
+            .filter(RPAFila.id == tarefa_id)
             .first()
         )
 
@@ -10869,9 +10961,9 @@ def reprocessar_rpa(tarefa_id):
                 "mensagem": "Tarefa RPA já foi concluída.",
             }), 400
 
-        tarefa.status_rpa = RPA_PENDENTE
-        tarefa.erro_rpa = ""
-        tarefa.data_processamento = None
+        tarefa.status = RPA_PENDENTE
+        tarefa.erro = ""
+        tarefa.executado_em = None
         db.commit()
 
         log_info("[RPA] Reprocessamento solicitado:", tarefa_id)
@@ -10919,7 +11011,7 @@ def dashboard():
 
         query_atendimentos = db.query(Atendimento)
         query_agendamentos = db.query(AgendamentoRevisao)
-        query_rpa = db.query(TarefaRPA)
+        query_rpa = db.query(RPAFila)
         query_leads_atacado = db.query(LeadAtacado)
 
         if filtro == "hoje":
@@ -10958,10 +11050,10 @@ def dashboard():
                     AgendamentoRevisao.criado_em <= fim,
                 )
 
-            if hasattr(TarefaRPA, "data_criacao"):
+            if hasattr(RPAFila, "criado_em"):
                 query_rpa = query_rpa.filter(
-                    TarefaRPA.data_criacao >= inicio,
-                    TarefaRPA.data_criacao <= fim,
+                    RPAFila.criado_em >= inicio,
+                    RPAFila.criado_em <= fim,
                 )
 
             if hasattr(LeadAtacado, "data"):
@@ -10981,7 +11073,7 @@ def dashboard():
 
         tarefas_rpa = (
             query_rpa
-            .order_by(TarefaRPA.id.desc())
+            .order_by(RPAFila.id.desc())
             .limit(50)
             .all()
         )
