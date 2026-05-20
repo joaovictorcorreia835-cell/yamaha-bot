@@ -211,6 +211,10 @@ SANCES_API_URL = os.getenv(
     "SANCES_API_URL",
     "https://api.sancesturbo.com.br/integracao/oficina/agendamentos"
 ).strip()
+SANCES_CLIENTES_URL = os.getenv(
+    "SANCES_CLIENTES_URL",
+    "https://api.sancesturbo.com.br/integracao/clientes"
+).strip()
 SANCES_ESTOQUE_URL = os.getenv(
     "SANCES_ESTOQUE_URL",
     "https://api.sancesturbo.com.br/integracao/estoque/produtos"
@@ -6270,6 +6274,104 @@ def km_sances(valor):
         return 0
 
 
+def extrair_codigo_cliente_sances(retorno_json):
+    try:
+        if isinstance(retorno_json, list):
+            item = retorno_json[0] if retorno_json else {}
+        elif isinstance(retorno_json, dict):
+            dados = (
+                retorno_json.get("dados")
+                or retorno_json.get("clientes")
+                or retorno_json.get("data")
+                or retorno_json.get("resultado")
+                or retorno_json
+            )
+
+            if isinstance(dados, list):
+                item = dados[0] if dados else {}
+            elif isinstance(dados, dict):
+                item = dados
+            else:
+                item = {}
+        else:
+            item = {}
+
+        if not isinstance(item, dict):
+            return ""
+
+        return limpar_texto(
+            item.get("codigo_cliente")
+            or item.get("codigoCliente")
+            or item.get("codigo")
+            or item.get("id")
+            or item.get("id_cliente")
+            or item.get("idCliente")
+            or ""
+        )
+
+    except Exception:
+        return ""
+
+
+def buscar_codigo_cliente_sances_por_cpf(cpf):
+    try:
+        cpf_limpo = limpar_cpf(cpf)
+
+        if not cpf_limpo:
+            return ""
+
+        if not SANCES_CLIENTES_URL:
+            log_info("[SANCES] Consulta cliente ignorada: SANCES_CLIENTES_URL nao configurada")
+            return ""
+
+        if not SANCES_TOKEN:
+            log_info("[SANCES] Consulta cliente ignorada: SANCES_TOKEN nao configurado")
+            return ""
+
+        params = {
+            "cpf_cnpj_cliente": cpf_limpo,
+            "cpf": cpf_limpo,
+            "cpfCnpj": cpf_limpo,
+        }
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta cliente por CPF iniciada:", cpf_limpo)
+
+        response = requests.get(
+            SANCES_CLIENTES_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status consulta cliente:", response.status_code)
+        log_info("[SANCES] Resposta consulta cliente:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return ""
+
+        codigo_cliente = extrair_codigo_cliente_sances(retorno_json)
+        log_info("[SANCES] Codigo cliente localizado:", codigo_cliente or "-")
+        return codigo_cliente
+
+    except requests.Timeout:
+        log_erro("[SANCES] Timeout consulta cliente por CPF")
+        return ""
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta cliente por CPF:", repr(e))
+        return ""
+
+
 def montar_payload_agendamento_sances(dados):
     dados = dados or {}
     revisao = limpar_texto(dados.get("revisao", ""))
@@ -6282,10 +6384,10 @@ def montar_payload_agendamento_sances(dados):
     return {
         "data_hora_agendamento": montar_data_hora_agendamento_sances(dados),
         "codigo_empresa": 1,
-        "codigo_consultor": 15810,
+        "codigo_consultor": 52423,
         "codigo_midia": 1,
-        "codigo_assunto": 2,
-        "codigo_cliente": None,
+        "codigo_assunto": 10006,
+        "codigo_cliente": dados.get("codigo_cliente") or None,
         "nome_cliente": limpar_texto(dados.get("nome", "")),
         "telefone_contato": limpar_telefone(dados.get("telefone", "")),
         "codigo_veiculo": None,
@@ -6390,6 +6492,15 @@ def enviar_agendamento_para_sances(dados):
             "Authorization": f"Bearer {SANCES_TOKEN}",
             "Content-Type": "application/json",
         }
+
+        if not dados.get("codigo_cliente"):
+            codigo_cliente = buscar_codigo_cliente_sances_por_cpf(
+                dados.get("cpf", "")
+            )
+
+            if codigo_cliente:
+                dados["codigo_cliente"] = codigo_cliente
+
         payload = montar_payload_agendamento_sances(dados)
         log_info("[SANCES] Payload montado:", payload)
 
