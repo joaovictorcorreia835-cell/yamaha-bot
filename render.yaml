@@ -130,7 +130,7 @@ services:
         value: 4
 
       - key: SANCES_CLIENTES_URL
-        value: https://api.sancesturbo.com.br/integracao/clientes
+        value: https://api.sancesturbo.com.br/integracao/cadastros/clientes
 
       - key: SANCES_VEICULOS_URL
         value: https://api.sancesturbo.com.br/integracao/veiculos
@@ -148,7 +148,7 @@ services:
         value: 1
 
       - key: SANCES_NEGOCIACAO_URL
-        value: https://api.sancesturbo.com.br/integracao/negociacao
+        value: https://api.sancesturbo.com.br/integracao/veiculos/getNegociacao
 
       # ==========================================
       # GUNICORN

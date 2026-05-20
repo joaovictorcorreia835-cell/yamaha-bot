@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, send_from_directory, render_template, redirect
+from flask import Flask, request, jsonify, send_from_directory, send_file, render_template, redirect
 
 import requests
 import os
@@ -9,6 +9,7 @@ import re
 import threading
 import uuid
 import json
+import io
 
 from datetime import datetime, timedelta
 from collections import Counter, deque
@@ -210,7 +211,7 @@ SANCES_API_URL = os.getenv(
 ).strip() or SANCES_URL
 SANCES_CLIENTES_URL = os.getenv(
     "SANCES_CLIENTES_URL",
-    "https://api.sancesturbo.com.br/integracao/clientes"
+    "https://api.sancesturbo.com.br/integracao/cadastros/clientes"
 ).strip()
 SANCES_VEICULOS_URL = os.getenv(
     "SANCES_VEICULOS_URL",
@@ -226,7 +227,7 @@ SANCES_POS_VENDA_URL = os.getenv(
 ).strip()
 SANCES_NEGOCIACAO_URL = os.getenv(
     "SANCES_NEGOCIACAO_URL",
-    "https://api.sancesturbo.com.br/integracao/negociacao"
+    "https://api.sancesturbo.com.br/integracao/veiculos/getNegociacao"
 ).strip()
 SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
 SANCES_EMPRESA = env_int("SANCES_EMPRESA", 1)
@@ -6298,6 +6299,211 @@ def buscar_codigo_cliente_sances_por_cpf(cpf):
         return ""
 
 
+def obter_lista_clientes_sances(retorno_json):
+    if isinstance(retorno_json, list):
+        return retorno_json
+
+    if not isinstance(retorno_json, dict):
+        return []
+
+    for chave in ["dados", "clientes", "data", "resultado", "items", "registros"]:
+        valor = retorno_json.get(chave)
+        if isinstance(valor, list):
+            return valor
+        if isinstance(valor, dict):
+            return [valor]
+
+    return [retorno_json] if retorno_json else []
+
+
+def telefone_cliente_sances(cliente, item=None):
+    cliente = cliente if isinstance(cliente, dict) else {}
+    item = item if isinstance(item, dict) else {}
+    contato = cliente.get("contato") if isinstance(cliente.get("contato"), dict) else {}
+    telefone_cliente = cliente.get("telefone") if isinstance(cliente.get("telefone"), dict) else {}
+    telefone_item = item.get("telefone") if isinstance(item.get("telefone"), dict) else {}
+
+    return limpar_telefone(
+        contato.get("telefone_celular")
+        or contato.get("celular")
+        or contato.get("telefone")
+        or telefone_cliente.get("celular")
+        or telefone_cliente.get("comercial")
+        or telefone_cliente.get("residencial")
+        or telefone_item.get("celular")
+        or telefone_item.get("comercial")
+        or telefone_item.get("residencial")
+        or cliente.get("telefone_celular")
+        or (cliente.get("telefone") if not isinstance(cliente.get("telefone"), dict) else "")
+        or cliente.get("celular")
+        or item.get("telefone_celular")
+        or (item.get("telefone") if not isinstance(item.get("telefone"), dict) else "")
+        or item.get("celular")
+        or ""
+    )
+
+
+def data_compra_sances(item, veiculo=None):
+    item = item if isinstance(item, dict) else {}
+    veiculo = veiculo if isinstance(veiculo, dict) else {}
+
+    return limpar_texto(
+        veiculo.get("data_compra")
+        or veiculo.get("dataCompra")
+        or veiculo.get("data_faturamento")
+        or item.get("data_compra")
+        or item.get("dataCompra")
+        or item.get("data_fechamento")
+        or item.get("data_aprovacao")
+        or item.get("data_faturamento")
+        or item.get("data_cadastro")
+        or item.get("criado_em")
+        or ""
+    )
+
+
+def montar_linhas_clientes_sances(retorno_json):
+    linhas = []
+
+    for item in obter_lista_clientes_sances(retorno_json):
+        if not isinstance(item, dict):
+            continue
+
+        cliente = item.get("cliente") if isinstance(item.get("cliente"), dict) else item
+        veiculos = item.get("veiculos") or item.get("veículos") or item.get("motos") or []
+
+        if isinstance(veiculos, dict):
+            veiculos = [veiculos]
+        elif not isinstance(veiculos, list) or not veiculos:
+            veiculos = [{}]
+
+        nome = limpar_texto(
+            cliente.get("nome")
+            or cliente.get("nome_cliente")
+            or item.get("nome_cliente")
+            or item.get("cliente")
+            or ""
+        )
+        telefone = telefone_cliente_sances(cliente, item)
+
+        for veiculo in veiculos:
+            veiculo = veiculo if isinstance(veiculo, dict) else {}
+            linhas.append({
+                "data_compra": data_compra_sances(item, veiculo),
+                "nome": nome,
+                "telefone": telefone,
+                "chassi": limpar_texto(
+                    veiculo.get("chassi")
+                    or veiculo.get("chassi_serie")
+                    or veiculo.get("chassiSerie")
+                    or item.get("chassi")
+                    or item.get("chassi_serie")
+                    or ""
+                ).upper(),
+                "modelo_moto": limpar_texto(
+                    veiculo.get("modelo")
+                    or veiculo.get("descricao_modelo")
+                    or veiculo.get("descricao_modelo_veiculo")
+                    or item.get("modelo")
+                    or item.get("descricao_modelo")
+                    or item.get("descricao_modelo_veiculo")
+                    or ""
+                ).upper(),
+            })
+
+    return linhas
+
+
+def consultar_clientes_sances_para_planilha(data_inicio="", data_fim="", limit=500, offset=0):
+    try:
+        if not SANCES_CLIENTES_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "Endpoint de clientes Sances não configurado.",
+                "linhas": [],
+                "erro": "SANCES_CLIENTES_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances não configurado.",
+                "linhas": [],
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        params = {
+            "limit": int(limit or 500),
+            "offset": int(offset or 0),
+        }
+        data_inicio = limpar_texto(data_inicio)
+        data_fim = limpar_texto(data_fim)
+
+        if data_inicio:
+            params["data_compra_inicio"] = data_inicio
+            params["data_inicio"] = data_inicio
+
+        if data_fim:
+            params["data_compra_fim"] = data_fim
+            params["data_fim"] = data_fim
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta clientes para planilha iniciada:", params)
+
+        response = requests.get(
+            SANCES_CLIENTES_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status clientes planilha:", response.status_code)
+
+        if not (200 <= response.status_code < 300):
+            return {
+                "sucesso": False,
+                "mensagem": "Erro ao consultar clientes no Sances.",
+                "linhas": [],
+                "erro": f"HTTP {response.status_code}",
+            }
+
+        linhas = montar_linhas_clientes_sances(retorno_json)
+        linhas = sorted(linhas, key=lambda item: limpar_texto(item.get("data_compra", "")))
+
+        return {
+            "sucesso": True,
+            "mensagem": "Clientes consultados no Sances.",
+            "linhas": linhas,
+            "erro": "",
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar clientes no Sances.",
+            "linhas": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta clientes planilha:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar clientes no Sances.",
+            "linhas": [],
+            "erro": repr(e),
+        }
+
+
 def extrair_veiculos_sances(retorno_json):
     try:
         if isinstance(retorno_json, list):
@@ -6967,7 +7173,7 @@ def consultar_negociacao_sances(codigo_negociacao):
             }
 
         params = {
-            "codigo_negociacao": codigo,
+            "codigoNegociacao": codigo,
         }
         headers = {
             "Accept": "application/json",
@@ -10933,6 +11139,74 @@ def api_gestor_crm():
         return jsonify({
             "ok": False,
             "resposta": "Não encontrei dados suficientes no CRM para responder com segurança.",
+        }), 500
+
+
+@app.route("/exportar-clientes-sances.xlsx", methods=["GET"])
+def exportar_clientes_sances_xlsx():
+    try:
+        data_inicio = limpar_texto(request.args.get("data_inicio", ""))
+        data_fim = limpar_texto(request.args.get("data_fim", ""))
+        limit = env_int("SANCES_CLIENTES_LIMIT", 500)
+        offset = 0
+
+        try:
+            if request.args.get("limit"):
+                limit = int(request.args.get("limit"))
+            if request.args.get("offset"):
+                offset = int(request.args.get("offset"))
+        except Exception:
+            limit = 500
+            offset = 0
+
+        consulta = consultar_clientes_sances_para_planilha(
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            limit=limit,
+            offset=offset,
+        )
+
+        if not consulta.get("sucesso"):
+            return jsonify({
+                "ok": False,
+                "mensagem": consulta.get("mensagem", "Falha ao consultar clientes Sances."),
+                "erro": consulta.get("erro", ""),
+            }), 500
+
+        linhas = consulta.get("linhas", []) or []
+        df = pd.DataFrame(
+            linhas,
+            columns=["data_compra", "nome", "telefone", "chassi", "modelo_moto"],
+        )
+        df = df.rename(columns={
+            "data_compra": "Data de compra",
+            "nome": "Nome",
+            "telefone": "Telefone",
+            "chassi": "Chassi",
+            "modelo_moto": "Modelo da moto",
+        })
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Clientes Sances")
+
+        buffer.seek(0)
+
+        nome_arquivo = "clientes_sances_por_data_compra.xlsx"
+
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=nome_arquivo,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except Exception as e:
+        log_erro("[SANCES] Erro exportar planilha clientes:", repr(e))
+        return jsonify({
+            "ok": False,
+            "mensagem": "Erro ao gerar planilha de clientes Sances.",
+            "erro": repr(e),
         }), 500
 
 
