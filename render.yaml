@@ -109,13 +109,22 @@ services:
       # SANCES
       # ==========================================
       - key: SANCES_MODO
-        value: mock
+        value: real
 
       - key: SANCES_TIMEOUT
         value: 30
 
       - key: SANCES_RETRY_MAX
         value: 3
+
+      - key: SANCES_API_URL
+        value: https://api.sancesturbo.com.br/integracao/oficina/agendar
+
+      - key: SANCES_CLIENTES_URL
+        value: https://api.sancesturbo.com.br/integracao/clientes
+
+      - key: SANCES_VEICULOS_URL
+        value: https://api.sancesturbo.com.br/integracao/veiculos
 
       # ==========================================
       # GUNICORN

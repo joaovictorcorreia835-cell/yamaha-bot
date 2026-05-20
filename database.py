@@ -43,6 +43,8 @@ class Atendimento(Base):
     setor = Column(String, index=True, nullable=True)
 
     modelo = Column(String, index=True, nullable=True)
+    placa = Column(String, index=True, nullable=True)
+    chassi = Column(String, index=True, nullable=True)
     ano = Column(String, nullable=True)
     km_atual = Column(String, nullable=True)
     tipo_atendimento = Column(String, nullable=True)
@@ -208,6 +210,8 @@ class AgendamentoRevisao(Base):
     cpf = Column(String, index=True)
 
     modelo = Column(String, index=True, nullable=True)
+    placa = Column(String, index=True, nullable=True)
+    chassi = Column(String, index=True, nullable=True)
     ano = Column(String, nullable=True)
     km_atual = Column(String, nullable=True)
     tipo_atendimento = Column(String, nullable=True)
@@ -350,6 +354,8 @@ def migrar_colunas_followup():
         "oportunidade_comercial": "BOOLEAN DEFAULT FALSE",
         "status_comercial": "VARCHAR",
         "km_atual": "VARCHAR",
+        "placa": "VARCHAR",
+        "chassi": "VARCHAR",
         "tipo_atendimento": "VARCHAR",
         "resposta_ia": "TEXT",
         "confianca_ia": "VARCHAR",
@@ -378,6 +384,8 @@ def migrar_colunas_sances():
 
     novas_colunas = {
         "km_atual": "VARCHAR",
+        "placa": "VARCHAR",
+        "chassi": "VARCHAR",
         "tipo_atendimento": "VARCHAR",
         "sances_status": "VARCHAR DEFAULT 'PENDENTE'",
         "sances_enviado": "BOOLEAN DEFAULT FALSE",

@@ -209,11 +209,15 @@ SANCES_RETRY_MAX = env_int("SANCES_RETRY_MAX", 3)
 SANCES_URL = os.getenv("SANCES_URL", "").strip()
 SANCES_API_URL = os.getenv(
     "SANCES_API_URL",
-    "https://api.sancesturbo.com.br/integracao/oficina/agendamentos"
+    "https://api.sancesturbo.com.br/integracao/oficina/agendar"
 ).strip()
 SANCES_CLIENTES_URL = os.getenv(
     "SANCES_CLIENTES_URL",
     "https://api.sancesturbo.com.br/integracao/clientes"
+).strip()
+SANCES_VEICULOS_URL = os.getenv(
+    "SANCES_VEICULOS_URL",
+    "https://api.sancesturbo.com.br/integracao/veiculos"
 ).strip()
 SANCES_ESTOQUE_URL = os.getenv(
     "SANCES_ESTOQUE_URL",
@@ -838,6 +842,8 @@ def etapa_bloqueia_ia_comercial(etapa):
         "revisao_modelo",
         "revisao_nome",
         "revisao_cpf",
+        "revisao_escolher_veiculo",
+        "revisao_placa_chassi",
         "revisao_ano",
         "revisao_km",
         "revisao_revisao",
@@ -1817,6 +1823,8 @@ ETAPAS_COLETA_RESTRITA = {
     "revisao_modelo",
     "revisao_nome",
     "revisao_cpf",
+    "revisao_escolher_veiculo",
+    "revisao_placa_chassi",
     "revisao_ano",
     "revisao_km",
     "revisao_revisao",
@@ -2704,6 +2712,9 @@ def estado_padrao_cliente():
         "intencao_ia": "",
         "id_envio_zapi": "",
         "status_retorno": "",
+        "codigo_cliente": "",
+        "codigo_veiculo": "",
+        "veiculos_sances": [],
 
         "proxima_acao": "",
         "nivel_interesse": "",
@@ -3194,6 +3205,8 @@ def limpar_dados_fluxo_revisao(telefone):
         "modelo",
         "nome",
         "cpf",
+        "placa",
+        "chassi",
         "ano",
         "revisao",
         "km_atual",
@@ -3213,6 +3226,8 @@ def limpar_dados_fluxo_revisao(telefone):
         "intencao_ia",
         "id_envio_zapi",
         "status_retorno",
+        "codigo_cliente",
+        "codigo_veiculo",
         "proxima_acao",
         "nivel_interesse",
         "temperatura_lead",
@@ -3226,6 +3241,7 @@ def limpar_dados_fluxo_revisao(telefone):
     for campo in campos_limpar:
         clientes[telefone][campo] = ""
 
+    clientes[telefone]["veiculos_sances"] = []
     clientes[telefone]["horarios_disponiveis"] = []
     clientes[telefone]["concluido"] = False
     clientes[telefone]["followup_nivel"] = 0
@@ -5263,6 +5279,7 @@ def montar_resumo_confirmacao(telefone):
         f"👤 *Nome:* {dados.get('nome', '-') or '-'}\n"
         f"📄 *CPF:* {dados.get('cpf', '-') or '-'}\n"
         f"🏍️ *Modelo:* {dados.get('modelo', '-') or '-'}\n"
+        f"🔢 *Placa/Chassi:* {dados.get('placa') or dados.get('chassi') or '-'}\n"
         f"📅 *Ano:* {dados.get('ano', '-') or '-'}\n"
         f"🔢 *KM:* {dados.get('km_atual', '-') or '-'}\n"
         f"🔧 *Revisão:* {revisao_formatada}\n"
@@ -5301,6 +5318,12 @@ def mensagem_por_etapa_revisao(telefone, etapa):
 
     if etapa == "revisao_cpf":
         return "Perfeito.\n\nAgora preciso do seu *CPF com 11 números* para continuar o agendamento."
+
+    if etapa == "revisao_placa_chassi":
+        return (
+            "Não consegui localizar sua moto automaticamente pelo CPF.\n\n"
+            "Para enviar o agendamento ao Sances, informe a *placa* ou o *chassi* da moto."
+        )
 
     if etapa == "revisao_ano":
         return "Certo 👍\n\nMe informe agora o *ano da sua moto*."
@@ -5513,6 +5536,8 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
     nome = limpar_texto(dados_extraidos.get("nome"))
     cpf = limpar_cpf(dados_extraidos.get("cpf"))
     ano = limpar_texto(dados_extraidos.get("ano"))
+    placa = limpar_texto(dados_extraidos.get("placa")).upper()
+    chassi = limpar_texto(dados_extraidos.get("chassi")).upper()
 
     revisao_bruta = limpar_texto(dados_extraidos.get("revisao"))
     revisao = normalizar_revisao_para_fluxo(revisao_bruta)
@@ -5567,6 +5592,12 @@ def aplicar_dados_ia_no_cliente(telefone, dados_extraidos):
 
     if cpf and len(cpf) == 11 and not dados.get("cpf") and etapa_atual in etapas_cpf:
         dados["cpf"] = cpf
+
+    if placa and not dados.get("placa"):
+        dados["placa"] = placa
+
+    if chassi and not dados.get("chassi"):
+        dados["chassi"] = chassi
 
     if ano and not dados.get("ano") and etapa_atual in etapas_ano:
         dados["ano"] = ano
@@ -5771,6 +5802,9 @@ def primeira_etapa_pendente_revisao(telefone):
 
     if len(limpar_cpf(dados.get("cpf", ""))) != 11:
         return "revisao_cpf"
+
+    if not limpar_texto(dados.get("placa", "")) and not limpar_texto(dados.get("chassi", "")):
+        return "revisao_placa_chassi"
 
     if not limpar_texto(dados.get("ano", "")):
         return "revisao_ano"
@@ -6372,6 +6406,240 @@ def buscar_codigo_cliente_sances_por_cpf(cpf):
         return ""
 
 
+def extrair_veiculos_sances(retorno_json):
+    try:
+        if isinstance(retorno_json, list):
+            itens = retorno_json
+        elif isinstance(retorno_json, dict):
+            dados = (
+                retorno_json.get("dados")
+                or retorno_json.get("veiculos")
+                or retorno_json.get("veículos")
+                or retorno_json.get("data")
+                or retorno_json.get("resultado")
+                or retorno_json.get("items")
+                or retorno_json.get("registros")
+                or []
+            )
+
+            if isinstance(dados, list):
+                itens = dados
+            elif isinstance(dados, dict):
+                itens = [dados]
+            else:
+                itens = []
+        else:
+            itens = []
+
+        veiculos = []
+
+        for item in itens:
+            if not isinstance(item, dict):
+                continue
+
+            veiculos_item = (
+                item.get("veiculos")
+                or item.get("veÃ­culos")
+                or item.get("veiculos_cliente")
+                or item.get("veiculosCliente")
+            )
+
+            if isinstance(veiculos_item, list):
+                for veiculo_item in veiculos_item:
+                    if not isinstance(veiculo_item, dict):
+                        continue
+
+                    veiculo_normalizado = dict(veiculo_item)
+                    veiculo_normalizado.setdefault("codigo_cliente", item.get("codigo_cliente", ""))
+                    veiculo_normalizado.setdefault("codigoCliente", item.get("codigoCliente", ""))
+                    veiculo_normalizado.setdefault("id_cliente", item.get("id_cliente", ""))
+                    veiculo_normalizado.setdefault("idCliente", item.get("idCliente", ""))
+                    itens.append(veiculo_normalizado)
+                continue
+
+            if isinstance(veiculos_item, dict):
+                veiculo_normalizado = dict(veiculos_item)
+                veiculo_normalizado.setdefault("codigo_cliente", item.get("codigo_cliente", ""))
+                veiculo_normalizado.setdefault("codigoCliente", item.get("codigoCliente", ""))
+                veiculo_normalizado.setdefault("id_cliente", item.get("id_cliente", ""))
+                veiculo_normalizado.setdefault("idCliente", item.get("idCliente", ""))
+                itens.append(veiculo_normalizado)
+                continue
+
+            placa = limpar_texto(
+                item.get("placa_veiculo")
+                or item.get("placa")
+                or item.get("placaVeiculo")
+                or ""
+            ).upper()
+            chassi = limpar_texto(
+                item.get("chassi_serie")
+                or item.get("chassi")
+                or item.get("chassiSerie")
+                or item.get("serie")
+                or ""
+            ).upper()
+            modelo = limpar_texto(
+                item.get("descricao_modelo")
+                or item.get("descricao_modelo_veiculo")
+                or item.get("modelo")
+                or item.get("modelo_veiculo")
+                or item.get("descricaoModelo")
+                or ""
+            ).upper()
+            ano = limpar_texto(
+                item.get("ano")
+                or item.get("ano_modelo")
+                or item.get("anoModelo")
+                or item.get("ano_fabricacao")
+                or ""
+            )
+            codigo_veiculo = limpar_texto(
+                item.get("codigo_veiculo")
+                or item.get("codigoVeiculo")
+                or item.get("codigo")
+                or item.get("id")
+                or ""
+            )
+            codigo_cliente = limpar_texto(
+                item.get("codigo_cliente")
+                or item.get("codigoCliente")
+                or item.get("id_cliente")
+                or item.get("idCliente")
+                or ""
+            )
+
+            if placa or chassi or modelo:
+                veiculos.append({
+                    "placa": placa,
+                    "chassi": chassi,
+                    "modelo": modelo,
+                    "ano": ano,
+                    "codigo_veiculo": codigo_veiculo,
+                    "codigo_cliente": codigo_cliente,
+                })
+
+        return veiculos
+
+    except Exception as e:
+        log_erro("[SANCES] Erro extrair veiculos:", repr(e))
+        return []
+
+
+def buscar_veiculos_sances_por_cpf(cpf):
+    try:
+        cpf_limpo = limpar_cpf(cpf)
+
+        if not cpf_limpo:
+            return []
+
+        if not SANCES_VEICULOS_URL:
+            log_info("[SANCES] Consulta veiculos ignorada: SANCES_VEICULOS_URL nao configurada")
+            return []
+
+        if not SANCES_TOKEN:
+            log_info("[SANCES] Consulta veiculos ignorada: SANCES_TOKEN nao configurado")
+            return []
+
+        params = {
+            "cpf_cnpj_cliente": cpf_limpo,
+            "cpf": cpf_limpo,
+            "cpfCnpj": cpf_limpo,
+        }
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta veiculos por CPF iniciada:", cpf_limpo)
+
+        response = requests.get(
+            SANCES_VEICULOS_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status consulta veiculos:", response.status_code)
+        log_info("[SANCES] Resposta consulta veiculos:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return []
+
+        return extrair_veiculos_sances(retorno_json)
+
+    except requests.Timeout:
+        log_erro("[SANCES] Timeout consulta veiculos por CPF")
+        return []
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta veiculos por CPF:", repr(e))
+        return []
+
+
+def aplicar_veiculo_sances_no_cliente(telefone, veiculo):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone or not isinstance(veiculo, dict):
+        return False
+
+    iniciar_cliente(telefone)
+    dados = clientes[telefone]
+
+    placa = limpar_texto(veiculo.get("placa", "")).upper()
+    chassi = limpar_texto(veiculo.get("chassi", "")).upper()
+    modelo = limpar_texto(veiculo.get("modelo", "")).upper()
+    ano = limpar_texto(veiculo.get("ano", ""))
+    codigo_veiculo = limpar_texto(veiculo.get("codigo_veiculo", ""))
+    codigo_cliente = limpar_texto(veiculo.get("codigo_cliente", ""))
+
+    if placa:
+        dados["placa"] = placa
+
+    if chassi:
+        dados["chassi"] = chassi
+
+    if modelo:
+        dados["modelo"] = modelo
+
+    if ano:
+        dados["ano"] = ano
+
+    if codigo_veiculo:
+        dados["codigo_veiculo"] = codigo_veiculo
+
+    if codigo_cliente:
+        dados["codigo_cliente"] = codigo_cliente
+
+    return bool(placa or chassi)
+
+
+def montar_opcoes_veiculos_sances(veiculos):
+    linhas = [
+        "Localizei mais de uma moto para esse CPF.\n",
+        "Digite o nÃºmero da moto que deseja agendar:\n",
+    ]
+
+    for indice, veiculo in enumerate((veiculos or [])[:9], start=1):
+        descricao = " / ".join([
+            valor for valor in [
+                limpar_texto(veiculo.get("placa", "")),
+                limpar_texto(veiculo.get("modelo", "")),
+                limpar_texto(veiculo.get("ano", "")),
+            ]
+            if valor
+        ])
+        linhas.append(f"{indice} - {descricao or 'Moto sem descriÃ§Ã£o'}")
+
+    return "\n".join(linhas)
+
+
 def montar_payload_agendamento_sances(dados):
     dados = dados or {}
     revisao = limpar_texto(dados.get("revisao", ""))
@@ -6388,9 +6656,11 @@ def montar_payload_agendamento_sances(dados):
         "codigo_midia": 1,
         "codigo_assunto": 10006,
         "codigo_cliente": dados.get("codigo_cliente") or None,
+        "cpf_cnpj_cliente": limpar_cpf(dados.get("cpf", "")),
+        "cpf_cliente": limpar_cpf(dados.get("cpf", "")),
         "nome_cliente": limpar_texto(dados.get("nome", "")),
         "telefone_contato": limpar_telefone(dados.get("telefone", "")),
-        "codigo_veiculo": None,
+        "codigo_veiculo": dados.get("codigo_veiculo") or None,
         "placa_veiculo": limpar_texto(dados.get("placa", "")).upper(),
         "chassi_serie": limpar_texto(dados.get("chassi", "")),
         "quilometragem": km_sances(dados.get("km_atual", "")),
@@ -6434,8 +6704,12 @@ def validar_payload_agendamento_sances(payload):
         if ausentes:
             return False, SANCES_STATUS_ERRO, f"Campos obrigatórios ausentes: {', '.join(ausentes)}"
 
-        if not payload.get("placa_veiculo") and not payload.get("chassi_serie"):
-            return False, SANCES_STATUS_PENDENTE_DADOS, "Sem placa ou chassi para envio ao Sances"
+        if (
+            not payload.get("codigo_veiculo")
+            and not payload.get("placa_veiculo")
+            and not payload.get("chassi_serie")
+        ):
+            return False, SANCES_STATUS_PENDENTE_DADOS, "Sem codigo do veiculo, placa ou chassi para envio ao Sances"
 
         return True, "", ""
 
@@ -6500,6 +6774,40 @@ def enviar_agendamento_para_sances(dados):
 
             if codigo_cliente:
                 dados["codigo_cliente"] = codigo_cliente
+
+        if (
+            not dados.get("codigo_veiculo")
+            and not limpar_texto(dados.get("placa", ""))
+            and not limpar_texto(dados.get("chassi", ""))
+        ):
+            veiculos = buscar_veiculos_sances_por_cpf(dados.get("cpf", ""))
+
+            if len(veiculos) == 1:
+                veiculo = veiculos[0]
+                dados["placa"] = limpar_texto(veiculo.get("placa", "")).upper()
+                dados["chassi"] = limpar_texto(veiculo.get("chassi", "")).upper()
+                dados["codigo_veiculo"] = limpar_texto(veiculo.get("codigo_veiculo", ""))
+
+                if not dados.get("modelo"):
+                    dados["modelo"] = limpar_texto(veiculo.get("modelo", "")).upper()
+
+                if not dados.get("ano"):
+                    dados["ano"] = limpar_texto(veiculo.get("ano", ""))
+
+                if veiculo.get("codigo_cliente") and not dados.get("codigo_cliente"):
+                    dados["codigo_cliente"] = limpar_texto(veiculo.get("codigo_cliente", ""))
+
+            elif len(veiculos) > 1:
+                retorno = {
+                    "sucesso": False,
+                    "status": SANCES_STATUS_PENDENTE_DADOS,
+                    "mensagem": "Mais de uma moto localizada para o CPF. Informe placa ou chassi para concluir o envio ao Sances.",
+                    "dados": {},
+                    "protocolo_sances": "",
+                    "erro": "Mais de uma moto localizada para o CPF",
+                }
+                log_info("[SANCES] Retorno recebido:", retorno)
+                return retorno
 
         payload = montar_payload_agendamento_sances(dados)
         log_info("[SANCES] Payload montado:", payload)
@@ -7803,6 +8111,8 @@ def salvar_agendamento(telefone, dados):
         setar("nome", limpar_texto(dados.get("nome", "")).upper())
         setar("cpf", limpar_cpf(dados.get("cpf", "")))
         setar("modelo", limpar_texto(dados.get("modelo", "")).upper())
+        setar("placa", limpar_texto(dados.get("placa", "")).upper())
+        setar("chassi", limpar_texto(dados.get("chassi", "")).upper())
         setar("ano", limpar_texto(dados.get("ano", "")))
         setar("km_atual", limpar_texto(dados.get("km_atual", "")))
         setar("tipo_atendimento", limpar_texto(dados.get("tipo_atendimento", "")))
@@ -11409,6 +11719,8 @@ def etapa_permite_ia_livre(etapa):
         "revisao_modelo",
         "revisao_nome",
         "revisao_cpf",
+        "revisao_escolher_veiculo",
+        "revisao_placa_chassi",
         "revisao_ano",
         "revisao_km",
         "revisao_revisao",
@@ -12005,14 +12317,113 @@ def processar_fluxo_revisao(
         # ==========================================
         elif etapa == "revisao_cpf":
 
-            clientes[telefone]["cpf"] = texto
-            clientes[telefone]["etapa"] = "revisao_ano"
+            cpf_limpo = limpar_cpf(texto)
+
+            if len(cpf_limpo) != 11:
+                enviar_mensagem(
+                    telefone,
+                    "📄 Informe um *CPF válido* com 11 números."
+                )
+                return True
+
+            clientes[telefone]["cpf"] = cpf_limpo
+
+            veiculos = buscar_veiculos_sances_por_cpf(cpf_limpo)
+
+            if len(veiculos) == 1:
+                aplicar_veiculo_sances_no_cliente(telefone, veiculos[0])
+                clientes[telefone]["veiculos_sances"] = []
+
+                placa_ou_chassi = (
+                    clientes[telefone].get("placa")
+                    or clientes[telefone].get("chassi")
+                    or "veículo localizado"
+                )
+
+                enviar_mensagem(
+                    telefone,
+                    f"✅ Localizei sua moto no Sances: *{placa_ou_chassi}*."
+                )
+
+                enviar_proxima_etapa_revisao(telefone)
+                return True
+
+            if len(veiculos) > 1:
+                clientes[telefone]["veiculos_sances"] = veiculos[:9]
+                clientes[telefone]["etapa"] = "revisao_escolher_veiculo"
+
+                enviar_mensagem(
+                    telefone,
+                    montar_opcoes_veiculos_sances(veiculos)
+                )
+                return True
+
+            clientes[telefone]["veiculos_sances"] = []
+            clientes[telefone]["etapa"] = "revisao_placa_chassi"
 
             enviar_mensagem(
                 telefone,
-                "📅 Informe o *ano da moto*."
+                mensagem_por_etapa_revisao(telefone, "revisao_placa_chassi")
             )
 
+            return True
+
+        # ==========================================
+        # ESCOLHA DE VEICULO SANCES
+        # ==========================================
+        elif etapa == "revisao_escolher_veiculo":
+
+            veiculos = clientes[telefone].get("veiculos_sances") or []
+
+            try:
+                indice = int(texto_opcao)
+            except Exception:
+                indice = 0
+
+            if indice < 1 or indice > len(veiculos):
+                enviar_mensagem(
+                    telefone,
+                    montar_opcoes_veiculos_sances(veiculos)
+                )
+                return True
+
+            aplicar_veiculo_sances_no_cliente(telefone, veiculos[indice - 1])
+            clientes[telefone]["veiculos_sances"] = []
+
+            placa_ou_chassi = (
+                clientes[telefone].get("placa")
+                or clientes[telefone].get("chassi")
+                or "veículo selecionado"
+            )
+
+            enviar_mensagem(
+                telefone,
+                f"✅ Perfeito, vou usar a moto *{placa_ou_chassi}* para o agendamento."
+            )
+
+            enviar_proxima_etapa_revisao(telefone)
+            return True
+
+        # ==========================================
+        # PLACA OU CHASSI
+        # ==========================================
+        elif etapa == "revisao_placa_chassi":
+
+            identificador = re.sub(r"[^A-Za-z0-9]", "", texto or "").upper()
+
+            if len(identificador) < 7:
+                enviar_mensagem(
+                    telefone,
+                    "Informe uma *placa* ou um *chassi* válido da moto."
+                )
+                return True
+
+            if len(identificador) >= 12:
+                clientes[telefone]["chassi"] = identificador
+            else:
+                clientes[telefone]["placa"] = identificador
+
+            enviar_proxima_etapa_revisao(telefone)
             return True
 
         # ==========================================
