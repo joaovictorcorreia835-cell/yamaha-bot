@@ -10344,6 +10344,35 @@ def dashboard():
             1 for a in atendimentos
             if "atacado" in normalizar_texto(getattr(a, "setor", ""))
             or normalizar_texto(getattr(a, "intencao_ia", "")) == "atacado"
+        ) or len(leads_atacado_lista)
+
+        parceiros_quentes_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "parceiro_quente"
+            or normalizar_texto(getattr(lead, "nivel_interesse", "")) in ["alto", "quente"]
+            or "cotacao" in normalizar_texto(getattr(lead, "status", ""))
+        )
+
+        parceiros_mornos_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "parceiro_morno"
+        )
+
+        parceiros_frios_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "parceiro_frio"
+        )
+
+        novos_parceiros_atacado = sum(
+            1 for lead in leads_atacado_lista
+            if normalizar_texto(getattr(lead, "nivel_interesse_atacado", "")) == "novo_parceiro"
+            or "cadastro" in normalizar_texto(getattr(lead, "status", ""))
+        )
+
+        cotacoes_atacado_recebidas = sum(
+            1 for lead in leads_atacado_lista
+            if limpar_texto(getattr(lead, "itens_cotacao", ""))
+            or "cotacao" in normalizar_texto(getattr(lead, "status", ""))
         )
 
         leads_comerciais = sum(
@@ -10471,6 +10500,8 @@ def dashboard():
         contador_setores = Counter()
         contador_modelos = Counter()
         contador_produtos = Counter()
+        contador_cidades_atacado = Counter()
+        contador_produtos_atacado = Counter()
 
         for at in atendimentos:
             adicionar_ranking(contador_setores, getattr(at, "setor", ""))
