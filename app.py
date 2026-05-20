@@ -6923,6 +6923,139 @@ def consultar_pos_venda_sances(
         }
 
 
+def consultar_ordens_servico_sances():
+    try:
+        if not SANCES_POS_VENDA_URL:
+            return {
+                "sucesso": False,
+                "configurado": False,
+                "mensagem": "A consulta real ao Sances ainda não está configurada.",
+                "total_abertas": 0,
+                "ordens": [],
+                "erro": "SANCES_POS_VENDA_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "configurado": False,
+                "mensagem": "A consulta real ao Sances ainda não está configurada.",
+                "total_abertas": 0,
+                "ordens": [],
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+        params = {
+            "codigo_empresa": SANCES_EMPRESA,
+            "codigoEmpresa": SANCES_EMPRESA,
+        }
+
+        log_info("[SANCES] Consulta real OS abertas iniciada:", params)
+
+        response = requests.get(
+            SANCES_POS_VENDA_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status consulta OS abertas:", response.status_code)
+        log_info("[SANCES] Resposta consulta OS abertas:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return {
+                "sucesso": False,
+                "configurado": True,
+                "mensagem": "Não consegui consultar as ordens de serviço no Sances agora.",
+                "total_abertas": 0,
+                "ordens": [],
+                "erro": f"HTTP {response.status_code}",
+            }
+
+        dados = []
+
+        if isinstance(retorno_json, dict):
+            dados = retorno_json.get("dados") or []
+        elif isinstance(retorno_json, list):
+            dados = retorno_json
+
+        if isinstance(dados, dict):
+            dados = [dados]
+
+        ordens_abertas = []
+
+        for registro in dados or []:
+            if not isinstance(registro, dict):
+                continue
+
+            descricao_tipo = limpar_texto(registro.get("descricao_tipo", ""))
+
+            if normalizar_texto(descricao_tipo) != "ordem de servico":
+                continue
+
+            situacao = limpar_texto(registro.get("situacao", ""))
+            situacao_norm = normalizar_texto(situacao)
+
+            if situacao_norm in ["fechada", "cancelada", "cancelado"]:
+                continue
+
+            modelo = limpar_texto(
+                registro.get("descricao_modelo_veiculo")
+                or registro.get("modelo")
+                or registro.get("descricao_modelo")
+                or ""
+            )
+            placa = limpar_texto(registro.get("placa_veiculo") or registro.get("placa") or "")
+            moto = " / ".join([valor for valor in [placa, modelo] if valor])
+
+            ordens_abertas.append({
+                "numero": registro.get("numero") or registro.get("ordem_servico") or registro.get("codigo"),
+                "cliente": limpar_texto(registro.get("nome_cliente") or registro.get("cliente") or ""),
+                "moto": moto,
+                "data_entrada": limpar_texto(registro.get("data_entrada") or ""),
+                "situacao": situacao,
+            })
+
+        return {
+            "sucesso": True,
+            "configurado": True,
+            "mensagem": "Registros de pós vendas consultados.",
+            "total_abertas": len(ordens_abertas),
+            "ordens": ordens_abertas,
+            "erro": "",
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "configurado": True,
+            "mensagem": "Timeout ao consultar ordens de serviço no Sances.",
+            "total_abertas": 0,
+            "ordens": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consultar OS abertas:", repr(e))
+        return {
+            "sucesso": False,
+            "configurado": True,
+            "mensagem": "Erro ao consultar ordens de serviço no Sances.",
+            "total_abertas": 0,
+            "ordens": [],
+            "erro": repr(e),
+        }
+
+
 def valor_numero_pos_venda(valor):
     try:
         if isinstance(valor, (int, float)):
@@ -10268,10 +10401,55 @@ def responder_gestor_crm(pergunta, filtro_padrao="hoje"):
     try:
         filtro = normalizar_periodo_gestor(pergunta_original, filtro_padrao)
         log_info("[IA_GESTOR] pergunta:", pergunta_original)
-        log_info("[IA_GESTOR] consulta:", f"metricas_crm periodo={filtro}")
+
+        texto = normalizar_texto(pergunta_original)
+
+        pergunta_os_sances = (
+            (
+                "ordem de servico" in texto
+                or "ordens de servico" in texto
+                or re.search(r"(^|\W)os($|\W)", texto)
+            )
+            and (
+                "sances" in texto
+                or "aberta" in texto
+                or "abertas" in texto
+                or "aberto" in texto
+                or "em aberto" in texto
+            )
+        )
+
+        if pergunta_os_sances:
+            log_info("[IA_GESTOR] consulta:", "ordens_servico_sances")
+            consulta_os = consultar_ordens_servico_sances()
+
+            if not consulta_os.get("configurado", True):
+                resposta = "A consulta real ao Sances ainda não está configurada."
+                log_info("[IA_GESTOR] resposta:", resposta)
+                return resposta
+
+            if not consulta_os.get("sucesso"):
+                resposta = consulta_os.get("mensagem") or "Não consegui consultar as ordens de serviço no Sances agora."
+                log_info("[IA_GESTOR] resposta:", resposta)
+                return resposta
+
+            total_abertas = int(consulta_os.get("total_abertas", 0) or 0)
+            linhas = [f"Existem {total_abertas} ordens de serviço em aberto no Sances."]
+
+            for ordem in (consulta_os.get("ordens") or [])[:5]:
+                numero = limpar_texto(ordem.get("numero", "")) or "-"
+                cliente = limpar_texto(ordem.get("cliente", "")) or "Cliente não informado"
+                moto = limpar_texto(ordem.get("moto", "")) or "Moto não informada"
+                situacao = limpar_texto(ordem.get("situacao", "")) or "Situação não informada"
+                data_entrada = limpar_texto(ordem.get("data_entrada", "")) or "-"
+                linhas.append(f"- OS {numero}: {cliente} | {moto} | {data_entrada} | {situacao}")
+
+            resposta = "\n".join(linhas)
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
 
         metricas = montar_metricas_crm(filtro)
-        texto = normalizar_texto(pergunta_original)
+        log_info("[IA_GESTOR] consulta:", f"metricas_crm periodo={filtro}")
 
         periodo_label = {
             "hoje": "hoje",
