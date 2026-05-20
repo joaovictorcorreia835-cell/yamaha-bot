@@ -6338,6 +6338,8 @@ def extrair_veiculos_sances(retorno_json):
                 veiculo_normalizado = dict(veiculos_item)
                 veiculo_normalizado.setdefault("codigo_cliente", item.get("codigo_cliente", ""))
                 veiculo_normalizado.setdefault("codigoCliente", item.get("codigoCliente", ""))
+                veiculo_normalizado.setdefault("codigo_proprietario", item.get("codigo_proprietario", ""))
+                veiculo_normalizado.setdefault("codigoProprietario", item.get("codigoProprietario", ""))
                 veiculo_normalizado.setdefault("id_cliente", item.get("id_cliente", ""))
                 veiculo_normalizado.setdefault("idCliente", item.get("idCliente", ""))
                 itens.append(veiculo_normalizado)
@@ -6359,6 +6361,7 @@ def extrair_veiculos_sances(retorno_json):
             modelo = limpar_texto(
                 item.get("descricao_modelo")
                 or item.get("descricao_modelo_veiculo")
+                or item.get("descricaoModeloVeiculo")
                 or item.get("modelo")
                 or item.get("modelo_veiculo")
                 or item.get("descricaoModelo")
@@ -6367,20 +6370,27 @@ def extrair_veiculos_sances(retorno_json):
             ano = limpar_texto(
                 item.get("ano")
                 or item.get("ano_modelo")
+                or item.get("ano_modelo_veiculo")
                 or item.get("anoModelo")
+                or item.get("anoModeloVeiculo")
                 or item.get("ano_fabricacao")
+                or item.get("ano_fabricacao_veiculo")
+                or item.get("anoFabricacaoVeiculo")
                 or ""
             )
             codigo_veiculo = limpar_texto(
                 item.get("codigo_veiculo")
                 or item.get("codigoVeiculo")
-                or item.get("codigo")
+                or item.get("codigo_veiculo_sances")
+                or item.get("codigoVeiculoSances")
                 or item.get("id")
                 or ""
             )
             codigo_cliente = limpar_texto(
                 item.get("codigo_cliente")
                 or item.get("codigoCliente")
+                or item.get("codigo_proprietario")
+                or item.get("codigoProprietario")
                 or item.get("id_cliente")
                 or item.get("idCliente")
                 or ""
