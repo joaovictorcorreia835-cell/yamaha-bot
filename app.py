@@ -8680,19 +8680,23 @@ def mensagem_confirmacao_sances(retorno_sances):
     status = limpar_texto(retorno_sances.get("status", "")).upper()
 
     if status == SANCES_STATUS_ENVIADO:
-        return "✅ Sua revisão foi registrada com sucesso no sistema da concessionária."
+        return "Seu agendamento foi registrado e enviado para validação no sistema Sances."
 
     if status == SANCES_STATUS_NAO_CONFIGURADO:
         return (
-            "✅ Seu agendamento foi registrado na Motoshow Yamaha.\n\n"
-            "A integração automática com o sistema da concessionária ainda não está configurada, "
-            "mas nossa equipe já consegue acompanhar seu agendamento por aqui."
+            "Seu agendamento foi registrado em nossa agenda interna e será validado "
+            "no sistema da concessionária."
+        )
+
+    if status == SANCES_STATUS_PENDENTE:
+        return (
+            "Seu agendamento foi registrado em nossa agenda interna e ficou pendente "
+            "de validação no sistema da concessionária."
         )
 
     return (
-        "✅ Seu agendamento foi registrado na Motoshow Yamaha.\n\n"
-        "Não consegui confirmar automaticamente no sistema da concessionária agora, "
-        "mas deixei o envio na fila e nossa equipe pode acompanhar pelo painel."
+        "Seu agendamento foi registrado em nossa agenda interna e será validado "
+        "no sistema da concessionária."
     )
 
 
@@ -12222,7 +12226,10 @@ def processar_fluxo_revisao(
                 dados_sances["telefone"] = telefone
                 dados_sances["protocolo"] = protocolo
 
-                retorno_sances = enviar_agendamento_para_sances(dados_sances)
+                if SANCES_MODO == "mock":
+                    retorno_sances = enviar_agendamento_para_sances_legado(dados_sances)
+                else:
+                    retorno_sances = enviar_agendamento_para_sances(dados_sances)
                 if not isinstance(retorno_sances, dict):
                     retorno_sances = {
                         "sucesso": False,
@@ -12236,7 +12243,19 @@ def processar_fluxo_revisao(
                 status_sances = limpar_texto(
                     retorno_sances.get("status", SANCES_STATUS_ERRO)
                 ).upper()
-                retorno_sances["status"] = status_sances or SANCES_STATUS_ERRO
+
+                if status_sances == SANCES_STATUS_PENDENTE_DADOS:
+                    status_sances = SANCES_STATUS_PENDENTE
+
+                if status_sances not in [
+                    SANCES_STATUS_PENDENTE,
+                    SANCES_STATUS_ENVIADO,
+                    SANCES_STATUS_ERRO,
+                    SANCES_STATUS_NAO_CONFIGURADO,
+                ]:
+                    status_sances = SANCES_STATUS_ERRO
+
+                retorno_sances["status"] = status_sances
                 atualizar_status_sances_agendamento(protocolo, retorno_sances)
 
                 clientes[telefone]["protocolo"] = protocolo
@@ -12251,24 +12270,12 @@ def processar_fluxo_revisao(
                 )
                 clientes[telefone]["sances_data_envio"] = formatar_data_hora()
 
-                if not retorno_sances.get("sucesso"):
-                    enviar_mensagem(
-                        telefone,
-                        "✅ *Agendamento registrado!*\n\n"
-                        f"📋 Protocolo: {protocolo}\n\n"
-                        "Seu agendamento foi registrado em nossa agenda interna. "
-                        "Nossa equipe irá validar no sistema.\n\n"
-                        "Obrigado por escolher a Motoshow Yamaha."
-                    )
-
-                    resetar_cliente(telefone)
-                    return True
-
                 mensagem_sances = mensagem_confirmacao_sances(retorno_sances)
                 enviar_mensagem(
                     telefone,
-                    "✅ *Agendamento realizado com sucesso!*\n\n"
-                    f"📋 Protocolo: {protocolo}\n\n"
+                    "✅ *Agendamento registrado!*\n\n"
+                    f"📋 Protocolo interno: {protocolo}\n"
+                    f"🔄 Status Sances: {status_sances}\n\n"
                     f"{mensagem_sances}\n\n"
                     "Obrigado por escolher a Motoshow Yamaha."
                 )
