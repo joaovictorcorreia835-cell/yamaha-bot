@@ -108,14 +108,17 @@ services:
       # ==========================================
       # SANCES
       # ==========================================
-      - key: SANCES_MODO
-        value: real
-
       - key: SANCES_TIMEOUT
         value: 30
 
       - key: SANCES_RETRY_MAX
         value: 3
+
+      - key: SANCES_EMPRESA
+        value: 1
+
+      - key: SANCES_URL
+        value: https://api.sancesturbo.com.br/integracao/oficina/agendar
 
       - key: SANCES_API_URL
         value: https://api.sancesturbo.com.br/integracao/oficina/agendar

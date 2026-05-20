@@ -198,19 +198,16 @@ PDF_ACESSORIOS_GERAL = "acessorios.pdf"
 # ==========================================
 # CONFIG FUTURA SANCES
 # ==========================================
-SANCES_MODO = os.getenv("SANCES_MODO", "mock").strip().lower()
-SANCES_SIMULAR_RESULTADO = os.getenv(
-    "SANCES_SIMULAR_RESULTADO",
-    "nao_configurado"
-).strip().lower()
-
 SANCES_TIMEOUT = env_int("SANCES_TIMEOUT", 15)
 SANCES_RETRY_MAX = env_int("SANCES_RETRY_MAX", 3)
-SANCES_URL = os.getenv("SANCES_URL", "").strip()
-SANCES_API_URL = os.getenv(
-    "SANCES_API_URL",
+SANCES_URL = os.getenv(
+    "SANCES_URL",
     "https://api.sancesturbo.com.br/integracao/oficina/agendar"
 ).strip()
+SANCES_API_URL = os.getenv(
+    "SANCES_API_URL",
+    SANCES_URL
+).strip() or SANCES_URL
 SANCES_CLIENTES_URL = os.getenv(
     "SANCES_CLIENTES_URL",
     "https://api.sancesturbo.com.br/integracao/clientes"
@@ -228,6 +225,7 @@ SANCES_POS_VENDA_URL = os.getenv(
     "https://api.sancesturbo.com.br/integracao/oficina/pos-venda"
 ).strip()
 SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
+SANCES_EMPRESA = env_int("SANCES_EMPRESA", 1)
 
 
 # ==========================================
@@ -6146,127 +6144,6 @@ def extrair_tipo_atendimento(texto):
         return ""
 
 
-def enviar_agendamento_para_sances_legado(dados):
-    """
-    Envia dados de agendamento para integração Sances.
-    Retorna dict com: sucesso, status, protocolo_sances, erro
-    """
-    try:
-        if not isinstance(dados, dict):
-            return {
-                "sucesso": False,
-                "status": SANCES_STATUS_ERRO,
-                "protocolo_sances": "",
-                "erro": "Dados inválidos para envio Sances",
-            }
-
-        # Se o modo é mock, simular resposta
-        if SANCES_MODO == "mock":
-            resultado_mock = SANCES_SIMULAR_RESULTADO.lower()
-            log_info("[SANCES MOCK] Envio iniciado:", dados.get("protocolo", ""), resultado_mock)
-
-            if resultado_mock in ["nao_configurado", "nao-configurado", "off", "offline"]:
-                retorno = {
-                    "sucesso": False,
-                    "status": SANCES_STATUS_NAO_CONFIGURADO,
-                    "protocolo_sances": "",
-                    "erro": "Modo mock: integracao Sances nao configurada",
-                }
-                log_info("[SANCES MOCK] Retorno recebido:", retorno)
-                return retorno
-
-            sucesso_simulado = resultado_mock == "sucesso"
-
-            retorno = {
-                "sucesso": sucesso_simulado,
-                "status": SANCES_STATUS_ENVIADO if sucesso_simulado else SANCES_STATUS_ERRO,
-                "protocolo_sances": f"SANCES-{uuid.uuid4().hex[:8].upper()}" if sucesso_simulado else "",
-                "erro": "" if sucesso_simulado else "Modo mock: resultado simulado",
-            }
-            log_info("[SANCES MOCK] Retorno recebido:", retorno)
-            return retorno
-
-        # Modo real: integração com Sances
-        log_info("[SANCES] Envio iniciado:", dados.get("protocolo", ""))
-
-        if not SANCES_URL:
-            retorno = {
-                "sucesso": False,
-                "status": SANCES_STATUS_NAO_CONFIGURADO,
-                "protocolo_sances": "",
-                "erro": "SANCES_URL nao configurada",
-            }
-            log_info("[SANCES] Retorno recebido:", retorno)
-            return retorno
-
-        headers = {"Content-Type": "application/json"}
-
-        if SANCES_TOKEN:
-            headers["Authorization"] = f"Bearer {SANCES_TOKEN}"
-
-        try:
-            response = requests.post(
-                SANCES_URL,
-                json=dados,
-                headers=headers,
-                timeout=SANCES_TIMEOUT,
-            )
-
-            try:
-                retorno_json = response.json()
-            except Exception:
-                retorno_json = {}
-
-            sucesso = 200 <= response.status_code < 300
-            retorno = {
-                "sucesso": sucesso,
-                "status": SANCES_STATUS_ENVIADO if sucesso else SANCES_STATUS_ERRO,
-                "protocolo_sances": limpar_texto(
-                    retorno_json.get("protocolo")
-                    or retorno_json.get("protocolo_sances")
-                    or retorno_json.get("id")
-                    or ""
-                ),
-                "erro": "" if sucesso else limpar_texto(
-                    retorno_json.get("erro")
-                    or retorno_json.get("message")
-                    or f"HTTP {response.status_code}"
-                ),
-            }
-            log_info("[SANCES] Retorno recebido:", retorno)
-            return retorno
-
-        except requests.Timeout:
-            retorno = {
-                "sucesso": False,
-                "status": SANCES_STATUS_ERRO,
-                "protocolo_sances": "",
-                "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
-            }
-            log_erro("[SANCES] Timeout:", retorno)
-            return retorno
-
-        except Exception as e:
-            retorno = {
-                "sucesso": False,
-                "status": SANCES_STATUS_ERRO,
-                "protocolo_sances": "",
-                "erro": f"Erro HTTP Sances: {repr(e)}",
-            }
-            log_erro("[SANCES] Erro de integracao:", retorno)
-            return retorno
-
-    except Exception as e:
-        log_erro("Erro ao enviar agendamento para Sances:", repr(e))
-
-        return {
-            "sucesso": False,
-            "status": SANCES_STATUS_ERRO,
-            "protocolo_sances": "",
-            "erro": f"Erro na integração Sances: {repr(e)}",
-        }
-
-
 def montar_data_hora_agendamento_sances(dados):
     try:
         dados = dados or {}
@@ -6651,7 +6528,7 @@ def montar_payload_agendamento_sances(dados):
 
     return {
         "data_hora_agendamento": montar_data_hora_agendamento_sances(dados),
-        "codigo_empresa": 1,
+        "codigo_empresa": SANCES_EMPRESA,
         "codigo_consultor": 52423,
         "codigo_midia": 1,
         "codigo_assunto": 10006,
@@ -6720,7 +6597,7 @@ def validar_payload_agendamento_sances(payload):
 
 def enviar_agendamento_para_sances(dados):
     """
-    Cria agendamento na integração Sances.
+    Cria agendamento na integração real Sances.
     Retorna dict com: sucesso, status, mensagem, dados, erro.
     Mantém protocolo_sances para compatibilidade com o dashboard/retry.
     """
@@ -6738,14 +6615,16 @@ def enviar_agendamento_para_sances(dados):
         log_info("[SANCES] Envio iniciado:", dados.get("protocolo", ""))
         log_info("[SANCES] Dados completos do fluxo:", dados)
 
-        if not SANCES_API_URL:
+        endpoint_sances = limpar_texto(SANCES_API_URL or SANCES_URL)
+
+        if not endpoint_sances:
             retorno = {
                 "sucesso": False,
                 "status": SANCES_STATUS_NAO_CONFIGURADO,
                 "mensagem": "API Sances não configurada.",
                 "dados": {},
                 "protocolo_sances": "",
-                "erro": "SANCES_API_URL não configurada",
+                "erro": "SANCES_URL/SANCES_API_URL não configurada",
             }
             log_info("[SANCES] Retorno recebido:", retorno)
             return retorno
@@ -6763,6 +6642,7 @@ def enviar_agendamento_para_sances(dados):
             return retorno
 
         headers = {
+            "Accept": "application/json",
             "Authorization": f"Bearer {SANCES_TOKEN}",
             "Content-Type": "application/json",
         }
@@ -6817,9 +6697,12 @@ def enviar_agendamento_para_sances(dados):
         if not payload_valido:
             retorno = {
                 "sucesso": False,
-                "status": status_payload or SANCES_STATUS_ERRO,
+                "status": SANCES_STATUS_ERRO,
                 "mensagem": erro_payload,
-                "dados": {},
+                "dados": {
+                    "status_validacao": status_payload,
+                    "payload": payload,
+                },
                 "protocolo_sances": "",
                 "erro": erro_payload,
             }
@@ -6829,7 +6712,7 @@ def enviar_agendamento_para_sances(dados):
         log_info("[SANCES] Payload enviado:", payload)
 
         response = requests.post(
-            SANCES_API_URL,
+            endpoint_sances,
             json=payload,
             headers=headers,
             timeout=SANCES_TIMEOUT,
@@ -6868,8 +6751,14 @@ def enviar_agendamento_para_sances(dados):
         retorno = {
             "sucesso": sucesso,
             "status": SANCES_STATUS_ENVIADO if sucesso else SANCES_STATUS_ERRO,
-            "mensagem": mensagem,
-            "dados": retorno_json,
+            "mensagem": mensagem or ("Agendamento enviado ao Sances." if sucesso else "Erro no envio ao Sances."),
+            "dados": {
+                "endpoint": endpoint_sances,
+                "status_code": response.status_code,
+                "payload": payload,
+                "resposta": retorno_json,
+                "resposta_texto": response.text[:2000],
+            },
             "protocolo_sances": protocolo_sances,
             "erro": erro,
         }
@@ -6881,7 +6770,10 @@ def enviar_agendamento_para_sances(dados):
             "sucesso": False,
             "status": SANCES_STATUS_ERRO,
             "mensagem": "Timeout ao enviar agendamento para Sances.",
-            "dados": {},
+            "dados": {
+                "endpoint": limpar_texto(SANCES_API_URL or SANCES_URL),
+                "timeout": SANCES_TIMEOUT,
+            },
             "protocolo_sances": "",
             "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
         }
@@ -6897,7 +6789,9 @@ def enviar_agendamento_para_sances(dados):
             "sucesso": False,
             "status": SANCES_STATUS_ERRO,
             "mensagem": "Erro ao enviar agendamento para Sances.",
-            "dados": {},
+            "dados": {
+                "endpoint": limpar_texto(SANCES_API_URL or SANCES_URL),
+            },
             "protocolo_sances": "",
             "erro": repr(e),
         }
@@ -9015,12 +8909,18 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
             dados_retorno = retorno_sances.get("dados", {}) or {}
             if not isinstance(dados_retorno, dict):
                 dados_retorno = {}
+            resposta_retorno = dados_retorno.get("resposta", {}) or {}
+            if not isinstance(resposta_retorno, dict):
+                resposta_retorno = {}
 
             ag.sances_protocolo = limpar_texto(
                 retorno_sances.get("protocolo_sances", "")
                 or dados_retorno.get("protocolo", "")
                 or dados_retorno.get("id", "")
                 or dados_retorno.get("codigo_agendamento", "")
+                or resposta_retorno.get("protocolo", "")
+                or resposta_retorno.get("id", "")
+                or resposta_retorno.get("codigo_agendamento", "")
             )
 
         if hasattr(ag, "sances_erro"):
@@ -9036,7 +8936,11 @@ def atualizar_status_sances_agendamento(protocolo, retorno_sances):
             ag.sances_ultima_tentativa = agora_time
 
         if hasattr(ag, "sances_ultimo_retorno"):
-            ag.sances_ultimo_retorno = str(retorno_sances)
+            ag.sances_ultimo_retorno = json.dumps(
+                retorno_sances,
+                ensure_ascii=False,
+                default=str,
+            )
 
         if hasattr(ag, "atualizado_em"):
             ag.atualizado_em = agora_time
@@ -12748,10 +12652,7 @@ def processar_fluxo_revisao(
                 dados_sances["telefone"] = telefone
                 dados_sances["protocolo"] = protocolo
 
-                if SANCES_MODO == "mock":
-                    retorno_sances = enviar_agendamento_para_sances_legado(dados_sances)
-                else:
-                    retorno_sances = enviar_agendamento_para_sances(dados_sances)
+                retorno_sances = enviar_agendamento_para_sances(dados_sances)
                 if not isinstance(retorno_sances, dict):
                     retorno_sances = {
                         "sucesso": False,
