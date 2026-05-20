@@ -121,13 +121,34 @@ services:
         value: https://api.sancesturbo.com.br/integracao/oficina/agendar
 
       - key: SANCES_API_URL
-        value: https://api.sancesturbo.com.br/integracao/oficina/agendar
+        value: https://api.sancesturbo.com.br/integracao/posVenda
+
+      - key: SANCES_LIMIT
+        value: 20
+
+      - key: SANCES_OFFSET
+        value: 4
 
       - key: SANCES_CLIENTES_URL
         value: https://api.sancesturbo.com.br/integracao/clientes
 
       - key: SANCES_VEICULOS_URL
         value: https://api.sancesturbo.com.br/integracao/veiculos
+
+      - key: SANCES_ESTOQUE_URL
+        value: https://api.sancesturbo.com.br/integracao/estoque
+
+      - key: SANCES_ESTOQUE_LIMIT
+        value: 20
+
+      - key: SANCES_ESTOQUE_OFFSET
+        value: 0
+
+      - key: SANCES_ESTOQUE_ATIVO
+        value: 1
+
+      - key: SANCES_NEGOCIACAO_URL
+        value: https://api.sancesturbo.com.br/integracao/negociacao
 
       # ==========================================
       # GUNICORN

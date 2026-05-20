@@ -218,14 +218,23 @@ SANCES_VEICULOS_URL = os.getenv(
 ).strip()
 SANCES_ESTOQUE_URL = os.getenv(
     "SANCES_ESTOQUE_URL",
-    "https://api.sancesturbo.com.br/integracao/estoque/produtos"
+    "https://api.sancesturbo.com.br/integracao/estoque"
 ).strip()
 SANCES_POS_VENDA_URL = os.getenv(
     "SANCES_POS_VENDA_URL",
-    "https://api.sancesturbo.com.br/integracao/oficina/pos-venda"
+    "https://api.sancesturbo.com.br/integracao/posVenda"
+).strip()
+SANCES_NEGOCIACAO_URL = os.getenv(
+    "SANCES_NEGOCIACAO_URL",
+    "https://api.sancesturbo.com.br/integracao/negociacao"
 ).strip()
 SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
 SANCES_EMPRESA = env_int("SANCES_EMPRESA", 1)
+SANCES_LIMIT = env_int("SANCES_LIMIT", 20)
+SANCES_OFFSET = env_int("SANCES_OFFSET", 4)
+SANCES_ESTOQUE_LIMIT = env_int("SANCES_ESTOQUE_LIMIT", 20)
+SANCES_ESTOQUE_OFFSET = env_int("SANCES_ESTOQUE_OFFSET", 0)
+SANCES_ESTOQUE_ATIVO = env_int("SANCES_ESTOQUE_ATIVO", 1)
 
 
 # ==========================================
@@ -6625,7 +6634,7 @@ def enviar_agendamento_para_sances(dados):
         log_info("[SANCES] Envio iniciado:", dados.get("protocolo", ""))
         log_info("[SANCES] Dados completos do fluxo:", dados)
 
-        endpoint_sances = limpar_texto(SANCES_API_URL or SANCES_URL)
+        endpoint_sances = limpar_texto(SANCES_URL or SANCES_API_URL)
 
         if not endpoint_sances:
             retorno = {
@@ -6781,7 +6790,7 @@ def enviar_agendamento_para_sances(dados):
             "status": SANCES_STATUS_ERRO,
             "mensagem": "Timeout ao enviar agendamento para Sances.",
             "dados": {
-                "endpoint": limpar_texto(SANCES_API_URL or SANCES_URL),
+                "endpoint": limpar_texto(SANCES_URL or SANCES_API_URL),
                 "timeout": SANCES_TIMEOUT,
             },
             "protocolo_sances": "",
@@ -6800,7 +6809,7 @@ def enviar_agendamento_para_sances(dados):
             "status": SANCES_STATUS_ERRO,
             "mensagem": "Erro ao enviar agendamento para Sances.",
             "dados": {
-                "endpoint": limpar_texto(SANCES_API_URL or SANCES_URL),
+                "endpoint": limpar_texto(SANCES_URL or SANCES_API_URL),
             },
             "protocolo_sances": "",
             "erro": repr(e),
@@ -6898,7 +6907,7 @@ def consultar_pos_venda_sances(
         if not sucesso and not erro:
             erro = f"HTTP {response.status_code}"
 
-        return {
+        resumo = {
             "sucesso": sucesso,
             "mensagem": mensagem,
             "dados": dados if sucesso else [],
@@ -6923,16 +6932,118 @@ def consultar_pos_venda_sances(
         }
 
 
+def consultar_negociacao_sances(codigo_negociacao):
+    try:
+        codigo = limpar_texto(codigo_negociacao)
+
+        if not codigo:
+            return {
+                "sucesso": False,
+                "mensagem": "Código da negociação não informado.",
+                "dados": {},
+                "erro": "codigo_negociacao ausente",
+            }
+
+        if not SANCES_NEGOCIACAO_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "Endpoint de negociação Sances não configurado.",
+                "dados": {},
+                "erro": "SANCES_NEGOCIACAO_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances não configurado.",
+                "dados": {},
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        params = {
+            "codigo_negociacao": codigo,
+        }
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta negociação iniciada:", params)
+
+        response = requests.get(
+            SANCES_NEGOCIACAO_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status negociação:", response.status_code)
+        log_info("[SANCES] Resposta negociação:", retorno_json)
+
+        sucesso_http = 200 <= response.status_code < 300
+        sucesso_api = bool(retorno_json.get("sucesso", sucesso_http)) if isinstance(retorno_json, dict) else sucesso_http
+
+        mensagem = ""
+        erro = ""
+
+        if isinstance(retorno_json, dict):
+            mensagem = limpar_texto(
+                retorno_json.get("mensagemUsuarioFinal")
+                or retorno_json.get("mensagem")
+                or retorno_json.get("message")
+                or ""
+            )
+            erro = limpar_texto(retorno_json.get("erro") or retorno_json.get("error") or "")
+
+        if not sucesso_http and not erro:
+            erro = f"HTTP {response.status_code}"
+
+        return {
+            "sucesso": sucesso_http and sucesso_api,
+            "mensagem": mensagem,
+            "dados": retorno_json,
+            "erro": "" if sucesso_http and sucesso_api else erro,
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar negociação Sances.",
+            "dados": {},
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta negociação:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar negociação Sances.",
+            "dados": {},
+            "erro": repr(e),
+        }
+
+
 def consultar_ordens_servico_sances():
     try:
-        if not SANCES_POS_VENDA_URL:
+        endpoint_pos_venda = limpar_texto(
+            os.getenv("SANCES_POS_VENDA_URL", "")
+            or SANCES_API_URL
+            or SANCES_POS_VENDA_URL
+        )
+
+        if not endpoint_pos_venda:
             return {
                 "sucesso": False,
                 "configurado": False,
                 "mensagem": "A consulta real ao Sances ainda não está configurada.",
                 "total_abertas": 0,
                 "ordens": [],
-                "erro": "SANCES_POS_VENDA_URL não configurada",
+                "erro": "SANCES_API_URL/SANCES_POS_VENDA_URL não configurada",
             }
 
         if not SANCES_TOKEN:
@@ -6950,14 +7061,14 @@ def consultar_ordens_servico_sances():
             "Authorization": f"Bearer {SANCES_TOKEN}",
         }
         params = {
-            "codigo_empresa": SANCES_EMPRESA,
-            "codigoEmpresa": SANCES_EMPRESA,
+            "limit": SANCES_LIMIT,
+            "offset": SANCES_OFFSET,
         }
 
-        log_info("[SANCES] Consulta real OS abertas iniciada:", params)
+        log_info("[SANCES] Consulta real OS abertas iniciada:", endpoint_pos_venda, params)
 
         response = requests.get(
-            SANCES_POS_VENDA_URL,
+            endpoint_pos_venda,
             params=params,
             headers=headers,
             timeout=SANCES_TIMEOUT,
@@ -7374,17 +7485,9 @@ def obter_lista_estoque_sances(retorno_json):
     return []
 
 
-def consultar_estoque_sances(termo, codigo_empresa=None):
+def consultar_estoque_sances(termo="", codigo_empresa=None):
     try:
         termo = limpar_texto(termo)
-
-        if not termo:
-            return {
-                "sucesso": False,
-                "mensagem": "Informe um termo para consulta de estoque.",
-                "dados": [],
-                "erro": "Termo de busca vazio",
-            }
 
         if not SANCES_ESTOQUE_URL:
             return {
@@ -7403,13 +7506,17 @@ def consultar_estoque_sances(termo, codigo_empresa=None):
             }
 
         params = {
-            "termo": termo,
-            "descricao": termo,
-            "referencia": termo,
-            "codigoBarras": termo,
-            "limit": 100,
-            "offset": 0,
+            "limit": SANCES_ESTOQUE_LIMIT,
+            "offset": SANCES_ESTOQUE_OFFSET,
+            "ativo": SANCES_ESTOQUE_ATIVO,
         }
+
+        if termo:
+            params["termo"] = termo
+            params["descricao"] = termo
+            params["referencia"] = termo
+            params["codigo"] = termo
+            params["codigoBarras"] = termo
 
         if codigo_empresa:
             params["codigoEmpresa"] = codigo_empresa
@@ -7439,6 +7546,26 @@ def consultar_estoque_sances(termo, codigo_empresa=None):
 
         sucesso = 200 <= response.status_code < 300
         dados = obter_lista_estoque_sances(retorno_json)
+        termo_norm = normalizar_texto(termo)
+
+        if termo_norm:
+            dados = [
+                item for item in dados
+                if termo_norm in normalizar_texto(
+                    " ".join([
+                        limpar_texto(item.get("descricao") or item.get("nome") or item.get("descricaoProduto") or ""),
+                        limpar_texto(item.get("referencia") or item.get("referência") or item.get("codigoReferencia") or ""),
+                        limpar_texto(item.get("codigo") or item.get("codigoProduto") or item.get("id") or ""),
+                        limpar_texto(item.get("codigoBarras") or item.get("codigo_barras") or item.get("ean") or ""),
+                    ])
+                )
+            ]
+
+        resumos = [
+            resumir_item_estoque_para_ia(item, codigo_empresa=codigo_empresa)
+            for item in dados
+        ]
+        resumos = [item for item in resumos if item]
 
         mensagem = ""
         erro = ""
@@ -7453,7 +7580,7 @@ def consultar_estoque_sances(termo, codigo_empresa=None):
         return {
             "sucesso": sucesso,
             "mensagem": mensagem,
-            "dados": dados if sucesso else [],
+            "dados": resumos if sucesso else [],
             "erro": "" if sucesso else erro,
         }
 
@@ -7528,7 +7655,7 @@ def resumir_item_estoque_para_ia(item, codigo_empresa=None):
             or ""
         )
 
-        return {
+        resumo = {
             "codigo": limpar_texto(item.get("codigo") or item.get("codigoProduto") or item.get("id") or ""),
             "descricao": limpar_texto(item.get("descricao") or item.get("nome") or item.get("descricaoProduto") or ""),
             "referencia": limpar_texto(item.get("referencia") or item.get("referência") or item.get("codigoReferencia") or ""),
@@ -7560,9 +7687,15 @@ def resumir_item_estoque_para_ia(item, codigo_empresa=None):
                 estoque_empresa.get("disponivel")
                 or estoque_empresa.get("estoqueDisponivel")
                 or estoque_empresa.get("estoque_disponivel")
+                or estoque_empresa.get("quantidade")
+                or estoque_empresa.get("saldo")
+                or estoque_empresa.get("qtde")
                 or item.get("estoqueDisponivel")
                 or item.get("estoque_disponivel")
                 or item.get("disponivel")
+                or item.get("quantidade")
+                or item.get("saldo")
+                or item.get("qtde")
                 or 0
             ),
             "reservado": numero_sances(estoque_empresa.get("reservado") or item.get("reservado") or 0),
@@ -7585,6 +7718,15 @@ def resumir_item_estoque_para_ia(item, codigo_empresa=None):
                 or ""
             ),
         }
+        resumo["estoque"] = resumo["estoque_disponivel"]
+        resumo["quantidade"] = resumo["estoque_disponivel"]
+        resumo["valor"] = (
+            resumo["preco_promocao"]
+            or resumo["preco_varejo"]
+            or resumo["preco_atacado"]
+            or numero_sances(item.get("valor") or item.get("preco") or item.get("preco_unitario") or 0)
+        )
+        return resumo
 
     except Exception as e:
         log_erro("Erro resumir_item_estoque_para_ia:", repr(e))
@@ -10460,6 +10602,51 @@ def responder_gestor_crm(pergunta, filtro_padrao="hoje"):
 
         def resposta_numero(label, valor):
             return f"{label} {periodo_label}: {valor}."
+
+        pergunta_estoque_sances = (
+            "estoque" in texto
+            or "tem peca" in texto
+            or "tem peça" in pergunta_original.lower()
+            or "referencia" in texto
+            or "referência" in pergunta_original.lower()
+        )
+
+        if pergunta_estoque_sances:
+            termo_estoque = pergunta_original
+            termo_estoque = re.sub(r"(?i)\b(consulta|consultar|estoque|tem|peca|peça|referencia|referência|no|na|do|da|sances)\b", " ", termo_estoque)
+            termo_estoque = re.sub(r"(?i)\b(o|a|os|as|um|uma|de|para|por|codigo|código)\b", " ", termo_estoque)
+            termo_estoque = re.sub(r"[?!.:,;]+", " ", termo_estoque)
+            termo_estoque = limpar_texto(re.sub(r"\s+", " ", termo_estoque))
+
+            log_info("[IA_GESTOR] consulta:", f"estoque_sances termo={termo_estoque}")
+            consulta_estoque = consultar_estoque_sances(termo_estoque)
+
+            if not consulta_estoque.get("sucesso"):
+                resposta = consulta_estoque.get("mensagem") or "Não consegui consultar o estoque no Sances agora."
+                log_info("[IA_GESTOR] resposta:", resposta)
+                return resposta
+
+            itens = consulta_estoque.get("dados") or []
+
+            if not itens:
+                resposta = "Não encontrei esse item no estoque do Sances."
+                log_info("[IA_GESTOR] resposta:", resposta)
+                return resposta
+
+            linhas = [f"Encontrei {len(itens)} item(ns) no estoque do Sances."]
+
+            for item in itens[:5]:
+                codigo = limpar_texto(item.get("codigo", "")) or "-"
+                descricao = limpar_texto(item.get("descricao", "")) or "Descrição não informada"
+                referencia = limpar_texto(item.get("referencia", "")) or "-"
+                estoque = item.get("estoque") if item.get("estoque") is not None else item.get("estoque_disponivel", 0)
+                valor = numero_sances(item.get("valor", 0))
+                valor_texto = f" | valor {formatar_valor_brl(valor)}" if valor else ""
+                linhas.append(f"- {codigo} | {descricao} | ref. {referencia} | estoque {estoque}{valor_texto}")
+
+            resposta = "\n".join(linhas)
+            log_info("[IA_GESTOR] resposta:", resposta)
+            return resposta
 
         if "follow" in texto:
             pendentes = metricas.get("followups_pendentes", 0)
