@@ -354,12 +354,13 @@ def texto_parece_valor_pecas(texto_normalizado):
         return False
 
     termos_valor = [
-        "valor", "preco", "quanto custa", "quanto e",
+        "valor", "preco", "pre?o", "quanto custa", "quanto e",
         "custa", "orcamento", "disponibilidade", "tem", "possui",
     ]
 
     termos_pecas = [
-        "peca", "pecas", "oleo", "filtro", "filtro de oleo",
+        "peca", "pecas", "oleo", "?leo", "yamalube", "10w40", "20w50",
+        "10w-40", "20w-50", "lubrificante", "filtro", "filtro de oleo",
         "filtro de ar", "pastilha", "pastilha de freio",
         "pastilha dianteira", "pastilha traseira", "vela",
         "vela de ignicao", "bateria", "relacao", "kit transmissao",
@@ -381,7 +382,8 @@ def texto_parece_consulta_pecas(texto_normalizado):
         return False
 
     termos_pecas = [
-        "peca", "pecas", "oleo", "filtro", "filtro de oleo",
+        "peca", "pecas", "oleo", "?leo", "yamalube", "10w40", "20w50",
+        "10w-40", "20w-50", "lubrificante", "filtro", "filtro de oleo",
         "filtro de ar", "pastilha", "vela", "bateria",
         "relacao", "kit transmissao", "pneu", "corrente",
         "coroa", "pinhao", "retentor", "embreagem",
@@ -406,7 +408,8 @@ def texto_parece_pecas(texto_normalizado):
 
     termos = [
         "peca", "pecas", "preciso de peca", "comprar peca",
-        "filtro de oleo", "filtro de ar", "pastilha", "vela",
+        "oleo", "?leo", "yamalube", "10w40", "20w50", "10w-40", "20w-50",
+        "lubrificante", "filtro de oleo", "filtro de ar", "pastilha", "vela",
         "relacao", "kit transmissao", "corrente", "coroa",
         "pinhao", "retentor", "embreagem", "pneu",
     ]
@@ -418,7 +421,7 @@ def texto_parece_orcamento(texto_normalizado):
     texto_normalizado = normalizar_texto(texto_normalizado)
 
     termos = [
-        "orcamento", "cotacao", "cotar", "preco", "valor",
+        "orcamento", "cotacao", "cotar", "preco", "pre?o", "valor",
         "quanto custa", "quanto fica",
     ]
 
@@ -1040,11 +1043,12 @@ def classificar_com_ia(texto):
                         "Você é um classificador de intenção para um bot de pós-vendas Yamaha. "
                         "Responda apenas uma das opções: agendar_revisao, valor_revisao, pecas, "
                         "acessorios, garantia, atacado, duvidas, atendimento_humano, orcamento, "
-                        "acompanhar_garantia, cancelar_revisao, reagendar_revisao, nao_interessado, "
+                        "valor_peca, consulta_estoque, acompanhar_garantia, cancelar_revisao, reagendar_revisao, nao_interessado, "
                         "consultar_agendamento, atacado_catalogo, menu. "
                         "Se o cliente pedir para falar com atendente, consultor ou humano, responda atendimento_humano. "
-                        "Se pedir preço, valor ou orçamento de peças, responda orcamento. "
-                        "Perguntas sobre manual, garantia, óleo, painel, manutenção, funcionamento "
+                        "Se pedir preço, valor ou orçamento de peças, óleo, Yamalube, 10W40, 20W50, filtro, pastilha, relação ou pneu, responda orcamento. "
+                        "Se perguntar se tem peça ou estoque, responda consulta_estoque. "
+                        "Perguntas sobre manual, garantia, painel, manutenção, funcionamento "
                         "ou quando fazer revisão devem ser classificadas como duvidas, não como agendamento. "
                         "Se falar explicitamente em marcar ou agendar revisão, responda agendar_revisao. "
                         "Se parecer dado de cadastro, responda vazio."
@@ -1069,6 +1073,8 @@ def classificar_com_ia(texto):
             "duvidas",
             "atendimento_humano",
             "orcamento",
+            "valor_peca",
+            "consulta_estoque",
             "acompanhar_garantia",
             "cancelar_revisao",
             "reagendar_revisao",
@@ -1101,6 +1107,10 @@ def normalizar_intencao_classificada(intencao):
         "reagendar_agendamento": "reagendar_revisao",
         "orcamento_pecas": "orcamento",
         "cotacao_pecas": "orcamento",
+        "valor_peca": "orcamento",
+        "valor_pecas": "orcamento",
+        "consulta_estoque": "pecas",
+        "estoque_pecas": "pecas",
         "garantia_acompanhar": "acompanhar_garantia",
     }
 
@@ -1560,6 +1570,18 @@ def detectar_intencao_regras(texto_normalizado):
     if texto_pede_humano_intencao(texto_normalizado):
         return "atendimento_humano", 0.99
 
+    if texto_parece_valor_pecas(texto_normalizado):
+        return "orcamento", 0.99
+
+    if texto_parece_consulta_pecas(texto_normalizado):
+        return "pecas", 0.97
+
+    if texto_parece_orcamento(texto_normalizado) and texto_parece_pecas(texto_normalizado):
+        return "orcamento", 0.98
+
+    if texto_parece_pecas(texto_normalizado):
+        return "pecas", 0.96
+
     if texto_parece_atacado(texto_normalizado):
         return "atacado", 0.98
 
@@ -1618,18 +1640,6 @@ def detectar_intencao_regras(texto_normalizado):
 
     if texto_parece_agendamento_revisao(texto_normalizado):
         return "agendar_revisao", 0.99
-
-    if texto_parece_valor_pecas(texto_normalizado):
-        return "orcamento", 0.99
-
-    if texto_parece_consulta_pecas(texto_normalizado):
-        return "pecas", 0.97
-
-    if texto_parece_orcamento(texto_normalizado) and texto_parece_pecas(texto_normalizado):
-        return "orcamento", 0.98
-
-    if texto_parece_pecas(texto_normalizado):
-        return "pecas", 0.96
 
     if any(p in texto_normalizado for p in [
         "o que troca",

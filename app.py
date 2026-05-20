@@ -1993,6 +1993,11 @@ ITENS_PRE_ORCAMENTO = {
     "pinhao": "Pinhão",
     "oleo": "Óleo",
     "yamalube": "Óleo Yamalube",
+    "10w40": "Óleo 10W40",
+    "20w50": "Óleo 20W50",
+    "10w-40": "Óleo 10W40",
+    "20w-50": "Óleo 20W50",
+    "lubrificante": "Lubrificante",
     "filtro de oleo": "Filtro de óleo",
     "filtro oleo": "Filtro de óleo",
     "filtro de ar": "Filtro de ar",
@@ -2030,6 +2035,10 @@ TERMOS_ORCAMENTO = [
     "quanto fica",
     "quanto custa",
     "tem ",
+    "estoque",
+    "tem estoque",
+    "disponivel",
+    "disponível",
     "preciso de",
     "quero comprar",
     "disponibilidade",
@@ -11647,6 +11656,8 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         "dúvida",
         "consultar_agendamento",
         "orcamento",
+        "valor_peca",
+        "consulta_estoque",
         "acompanhar_garantia",
         "cancelar_agendamento",
         "cancelar_revisao",
@@ -11702,12 +11713,12 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         clientes[telefone]["etapa"] = "menu"
         return True
 
-    if intencao == "pecas":
+    if intencao in ["pecas", "consulta_estoque"]:
         log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "pecas", "etapa_atual": etapa_atual})
         iniciar_fluxo_pecas(telefone, texto)
         return True
 
-    if intencao == "orcamento":
+    if intencao in ["orcamento", "valor_peca"]:
         log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "orcamento_pecas", "etapa_atual": etapa_atual})
         montar_pre_orcamento(texto, telefone)
         return True
@@ -12467,6 +12478,12 @@ def webhook():
             return jsonify({"status": "ok", "motivo": "menu_global"}), 200
 
         etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
+
+        if texto_parece_pre_orcamento(texto) and (
+            etapa == "menu" or etapa.startswith("revisao_")
+        ):
+            montar_pre_orcamento(texto, telefone)
+            return jsonify({"status": "ok", "motivo": "pre_orcamento_pecas"}), 200
 
         # ==========================================
         # FLUXO DE REVISÃO - PRIORIDADE ABSOLUTA
