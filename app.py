@@ -229,6 +229,10 @@ SANCES_NEGOCIACAO_URL = os.getenv(
     "SANCES_NEGOCIACAO_URL",
     "https://api.sancesturbo.com.br/integracao/veiculos/getNegociacao"
 ).strip()
+SANCES_GET_VENDAS_URL = os.getenv(
+    "SANCES_GET_VENDAS_URL",
+    "https://api.sancesturbo.com.br/integracao/vendas"
+).strip()
 SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
 SANCES_EMPRESA = env_int("SANCES_EMPRESA", 1)
 SANCES_LIMIT = env_int("SANCES_LIMIT", 20)
@@ -890,6 +894,8 @@ def etapa_bloqueia_ia_comercial(etapa):
         "garantia_acompanhar_modelo",
         "garantia_acompanhar_cpf",
         "garantia_acompanhar_descricao",
+        "garantia_consulta_cpf",
+        "garantia_escolher_os",
         "atacado",
         "atacado_cotacao",
         "atacado_cotacao_itens",
@@ -1878,6 +1884,8 @@ ETAPAS_COLETA_RESTRITA = {
     "garantia_acompanhar_modelo",
     "garantia_acompanhar_cpf",
     "garantia_acompanhar_descricao",
+    "garantia_consulta_cpf",
+    "garantia_escolher_os",
     "atacado",
     "atacado_cotacao",
     "atacado_cotacao_itens",
@@ -2691,6 +2699,7 @@ def estado_padrao_cliente():
         "placa": "",
         "chassi": "",
         "ano": "",
+        "proprietario": "",
         "revisao": "",
         "km_atual": "",
         "dia": "",
@@ -2729,6 +2738,8 @@ def estado_padrao_cliente():
         "codigo_cliente": "",
         "codigo_veiculo": "",
         "veiculos_sances": [],
+        "origem_veiculos_sances": "",
+        "garantia_os_sances": [],
 
         "proxima_acao": "",
         "nivel_interesse": "",
@@ -3222,6 +3233,7 @@ def limpar_dados_fluxo_revisao(telefone):
         "placa",
         "chassi",
         "ano",
+        "proprietario",
         "revisao",
         "km_atual",
         "dia",
@@ -3256,6 +3268,8 @@ def limpar_dados_fluxo_revisao(telefone):
         clientes[telefone][campo] = ""
 
     clientes[telefone]["veiculos_sances"] = []
+    clientes[telefone]["origem_veiculos_sances"] = ""
+    clientes[telefone]["garantia_os_sances"] = []
     clientes[telefone]["horarios_disponiveis"] = []
     clientes[telefone]["concluido"] = False
     clientes[telefone]["followup_nivel"] = 0
@@ -4802,6 +4816,71 @@ def finalizar_garantia_com_humano(telefone, etapa_evento, resumo):
     return True
 
 
+def consultar_garantia_por_cpf_fluxo(telefone, cpf):
+    telefone = limpar_telefone(telefone)
+    cpf_limpo = limpar_cpf(cpf)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    if len(cpf_limpo) != 11:
+        enviar_mensagem(telefone, "Informe um *CPF válido* com 11 números.")
+        return True
+
+    clientes[telefone]["cpf"] = cpf_limpo
+    ordens = buscar_os_garantia_por_cpf(cpf_limpo)
+
+    if len(ordens) == 1:
+        clientes[telefone]["garantia_os_sances"] = []
+        clientes[telefone]["etapa"] = "menu"
+
+        resposta = montar_resposta_status_garantia(ordens[0])
+        enviar_mensagem(telefone, resposta)
+
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Garantia",
+            status=STATUS_FINALIZADO,
+            etapa="garantia_consulta_sances",
+            dados=clientes[telefone],
+            atendimento_humano=False,
+            concluido=True,
+            origem=clientes[telefone].get("origem", "BOT"),
+        )
+        return True
+
+    if len(ordens) > 1:
+        clientes[telefone]["garantia_os_sances"] = ordens[:9]
+        clientes[telefone]["etapa"] = "garantia_escolher_os"
+        enviar_mensagem(telefone, montar_lista_os_garantia(ordens))
+        return True
+
+    clientes[telefone]["garantia_os_sances"] = []
+    clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+    clientes[telefone]["atendimento_humano"] = True
+    clientes[telefone]["etapa"] = "atendimento_humano"
+
+    salvar_evento_atendimento(
+        telefone=telefone,
+        setor="Garantia",
+        status=STATUS_ATENDIMENTO_HUMANO,
+        etapa="garantia_consulta_nao_encontrada",
+        dados=clientes[telefone],
+        atendimento_humano=True,
+        concluido=False,
+        origem=clientes[telefone].get("origem", "BOT"),
+    )
+
+    enviar_mensagem(
+        telefone,
+        "Não encontrei processo de garantia em aberto para este CPF. Vou direcionar você para um atendente."
+    )
+    ativar_atendimento_humano(telefone)
+    return True
+
+
 def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
     telefone = limpar_telefone(telefone)
     texto = limpar_texto(texto)
@@ -4828,12 +4907,13 @@ def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
             return True
 
         if texto_opcao == "2":
-            clientes[telefone]["etapa"] = "garantia_acompanhar_nome"
+            clientes[telefone]["etapa"] = "garantia_consulta_cpf"
             clientes[telefone]["nome"] = ""
             clientes[telefone]["modelo"] = ""
             clientes[telefone]["cpf"] = ""
             clientes[telefone]["observacao"] = ""
-            enviar_mensagem(telefone, "Informe seu *nome completo*.")
+            clientes[telefone]["garantia_os_sances"] = []
+            enviar_mensagem(telefone, "Informe seu *CPF* com 11 números para consultar a garantia.")
             return True
 
         if texto_opcao == "3":
@@ -4914,10 +4994,7 @@ def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
         return True
 
     if etapa == "garantia_acompanhar_cpf":
-        clientes[telefone]["cpf"] = limpar_cpf(texto) or texto
-        clientes[telefone]["etapa"] = "garantia_acompanhar_descricao"
-        enviar_mensagem(telefone, "Informe a *descricao ou protocolo da garantia*.")
-        return True
+        return consultar_garantia_por_cpf_fluxo(telefone, texto)
 
     if etapa == "garantia_acompanhar_descricao":
         clientes[telefone]["observacao"] = texto
@@ -4926,6 +5003,39 @@ def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
             telefone=telefone,
             etapa_evento="garantia_acompanhamento",
             resumo=resumo,
+        )
+        return True
+
+    if etapa == "garantia_consulta_cpf":
+        return consultar_garantia_por_cpf_fluxo(telefone, texto)
+
+    if etapa == "garantia_escolher_os":
+        ordens = clientes[telefone].get("garantia_os_sances") or []
+
+        try:
+            indice = int(texto_opcao)
+        except Exception:
+            indice = 0
+
+        if indice < 1 or indice > len(ordens):
+            enviar_mensagem(telefone, montar_lista_os_garantia(ordens))
+            return True
+
+        os_data = ordens[indice - 1]
+        clientes[telefone]["garantia_os_sances"] = []
+        clientes[telefone]["etapa"] = "menu"
+
+        enviar_mensagem(telefone, montar_resposta_status_garantia(os_data))
+
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Garantia",
+            status=STATUS_FINALIZADO,
+            etapa="garantia_consulta_sances",
+            dados=clientes[telefone],
+            atendimento_humano=False,
+            concluido=True,
+            origem=clientes[telefone].get("origem", "BOT"),
         )
         return True
 
@@ -6389,6 +6499,15 @@ def montar_linhas_clientes_sances(retorno_json):
         for veiculo in veiculos:
             veiculo = veiculo if isinstance(veiculo, dict) else {}
             linhas.append({
+                "codigo_cliente": limpar_texto(
+                    cliente.get("codigo_cliente")
+                    or cliente.get("codigoCliente")
+                    or item.get("codigo_cliente")
+                    or item.get("codigoCliente")
+                    or item.get("codigo")
+                    or item.get("id")
+                    or ""
+                ),
                 "data_compra": data_compra_sances(item, veiculo),
                 "nome": nome,
                 "telefone": telefone,
@@ -6504,6 +6623,259 @@ def consultar_clientes_sances_para_planilha(data_inicio="", data_fim="", limit=5
         }
 
 
+def formatar_data_venda_excel(valor):
+    valor = limpar_texto(valor)
+
+    if not valor:
+        return ""
+
+    try:
+        data = pd.to_datetime(valor, errors="coerce", dayfirst=False)
+
+        if pd.isna(data):
+            data = pd.to_datetime(valor, errors="coerce", dayfirst=True)
+
+        if pd.isna(data):
+            return valor
+
+        return data.strftime("%d/%m/%Y")
+
+    except Exception:
+        return valor
+
+
+def lista_dados_sances(retorno_json):
+    if isinstance(retorno_json, list):
+        return retorno_json
+
+    if not isinstance(retorno_json, dict):
+        return []
+
+    for chave in ["dados", "vendas", "data", "resultado", "items", "registros"]:
+        valor = retorno_json.get(chave)
+
+        if isinstance(valor, list):
+            return valor
+
+        if isinstance(valor, dict):
+            return [valor]
+
+    return []
+
+
+def telefone_venda_sances(venda):
+    venda = venda if isinstance(venda, dict) else {}
+    cliente = venda.get("cliente") if isinstance(venda.get("cliente"), dict) else {}
+    contato = cliente.get("contato") if isinstance(cliente.get("contato"), dict) else {}
+    telefone = cliente.get("telefone") if isinstance(cliente.get("telefone"), dict) else {}
+
+    return limpar_telefone(
+        venda.get("telefone_cliente")
+        or venda.get("telefone")
+        or venda.get("celular")
+        or contato.get("telefone_celular")
+        or contato.get("celular")
+        or contato.get("telefone")
+        or telefone.get("celular")
+        or telefone.get("comercial")
+        or telefone.get("residencial")
+        or cliente.get("telefone_celular")
+        or cliente.get("telefone")
+        or cliente.get("celular")
+        or ""
+    )
+
+
+def linhas_venda_sances(venda):
+    venda = venda if isinstance(venda, dict) else {}
+    cliente = venda.get("cliente") if isinstance(venda.get("cliente"), dict) else {}
+    veiculos = (
+        venda.get("veiculos")
+        or venda.get("veículos")
+        or venda.get("motos")
+        or venda.get("itens")
+        or []
+    )
+
+    if isinstance(veiculos, dict):
+        veiculos = [veiculos]
+
+    if not isinstance(veiculos, list) or not veiculos:
+        veiculos = [venda]
+
+    nome_cliente = limpar_texto(
+        venda.get("nome_cliente")
+        or venda.get("cliente_nome")
+        or cliente.get("nome")
+        or cliente.get("nome_cliente")
+        or ""
+    )
+    telefone_cliente = telefone_venda_sances(venda)
+    data_finalizacao = limpar_texto(
+        venda.get("data_finalizacao")
+        or venda.get("dataFinalizacao")
+        or venda.get("data_fechamento")
+        or venda.get("data_aprovacao")
+        or venda.get("data_faturamento")
+        or ""
+    )
+
+    if not data_finalizacao:
+        return []
+
+    linhas = []
+
+    for veiculo in veiculos:
+        veiculo = veiculo if isinstance(veiculo, dict) else {}
+        linhas.append({
+            "nome_cliente": nome_cliente,
+            "telefone_cliente": telefone_cliente,
+            "modelo": limpar_texto(
+                veiculo.get("modelo")
+                or veiculo.get("descricao_modelo")
+                or veiculo.get("descricao_modelo_veiculo")
+                or venda.get("modelo")
+                or venda.get("descricao_modelo")
+                or ""
+            ).upper(),
+            "chassi": limpar_texto(
+                veiculo.get("chassi")
+                or veiculo.get("chassi_serie")
+                or veiculo.get("chassiSerie")
+                or venda.get("chassi")
+                or venda.get("chassi_serie")
+                or ""
+            ).upper(),
+            "data_finalizacao": data_finalizacao,
+        })
+
+    return linhas
+
+
+def buscar_vendas_sances(data_inicio, data_fim):
+    try:
+        data_inicio = limpar_texto(data_inicio)
+        data_fim = limpar_texto(data_fim)
+
+        if not SANCES_GET_VENDAS_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "Endpoint GetVendas do Sances não configurado.",
+                "vendas": [],
+                "erro": "SANCES_GET_VENDAS_URL não configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances não configurado.",
+                "vendas": [],
+                "erro": "SANCES_TOKEN não configurado",
+            }
+
+        params = {
+            "data_inicio": data_inicio,
+            "data_fim": data_fim,
+            "dataInicio": data_inicio,
+            "dataFim": data_fim,
+            "data_finalizacao_inicio": data_inicio,
+            "data_finalizacao_fim": data_fim,
+            "dataFinalizacaoInicio": data_inicio,
+            "dataFinalizacaoFim": data_fim,
+        }
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta GetVendas iniciada:", params)
+
+        response = requests.get(
+            SANCES_GET_VENDAS_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status GetVendas:", response.status_code)
+        log_info("[SANCES] Resposta GetVendas:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return {
+                "sucesso": False,
+                "mensagem": "Erro ao consultar GetVendas no Sances.",
+                "vendas": [],
+                "erro": f"HTTP {response.status_code}",
+            }
+
+        vendas = []
+
+        for venda in lista_dados_sances(retorno_json):
+            vendas.extend(linhas_venda_sances(venda))
+
+        return {
+            "sucesso": True,
+            "mensagem": "Vendas consultadas no Sances.",
+            "vendas": vendas,
+            "erro": "",
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar GetVendas no Sances.",
+            "vendas": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consultar GetVendas:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar GetVendas no Sances.",
+            "vendas": [],
+            "erro": repr(e),
+        }
+
+
+def gerar_excel_vendas_sances(caminho, data_inicio, data_fim):
+    consulta = buscar_vendas_sances(data_inicio, data_fim)
+
+    if not consulta.get("sucesso"):
+        return False, consulta
+
+    vendas = consulta.get("vendas", []) or []
+    linhas = [
+        {
+            "Nome Cliente": venda.get("nome_cliente", ""),
+            "Telefone": venda.get("telefone_cliente", ""),
+            "Modelo": venda.get("modelo", ""),
+            "Chassi": venda.get("chassi", ""),
+            "Data Venda": formatar_data_venda_excel(venda.get("data_finalizacao", "")),
+        }
+        for venda in vendas
+        if limpar_texto(venda.get("data_finalizacao", ""))
+    ]
+
+    df = pd.DataFrame(
+        linhas,
+        columns=["Nome Cliente", "Telefone", "Modelo", "Chassi", "Data Venda"],
+    )
+    df.to_excel(caminho, index=False, engine="openpyxl")
+
+    return True, {
+        "sucesso": True,
+        "mensagem": "Relatório de vendas gerado.",
+        "arquivo": caminho,
+        "total": len(df),
+    }
+
+
 def extrair_veiculos_sances(retorno_json):
     try:
         if isinstance(retorno_json, list):
@@ -6550,8 +6922,13 @@ def extrair_veiculos_sances(retorno_json):
                     veiculo_normalizado = dict(veiculo_item)
                     veiculo_normalizado.setdefault("codigo_cliente", item.get("codigo_cliente", ""))
                     veiculo_normalizado.setdefault("codigoCliente", item.get("codigoCliente", ""))
+                    veiculo_normalizado.setdefault("codigo_proprietario", item.get("codigo_proprietario", ""))
+                    veiculo_normalizado.setdefault("codigoProprietario", item.get("codigoProprietario", ""))
                     veiculo_normalizado.setdefault("id_cliente", item.get("id_cliente", ""))
                     veiculo_normalizado.setdefault("idCliente", item.get("idCliente", ""))
+                    veiculo_normalizado.setdefault("nome_cliente", item.get("nome_cliente", ""))
+                    veiculo_normalizado.setdefault("nome_proprietario", item.get("nome_proprietario", ""))
+                    veiculo_normalizado.setdefault("proprietario", item.get("proprietario", ""))
                     itens.append(veiculo_normalizado)
                 continue
 
@@ -6563,6 +6940,9 @@ def extrair_veiculos_sances(retorno_json):
                 veiculo_normalizado.setdefault("codigoProprietario", item.get("codigoProprietario", ""))
                 veiculo_normalizado.setdefault("id_cliente", item.get("id_cliente", ""))
                 veiculo_normalizado.setdefault("idCliente", item.get("idCliente", ""))
+                veiculo_normalizado.setdefault("nome_cliente", item.get("nome_cliente", ""))
+                veiculo_normalizado.setdefault("nome_proprietario", item.get("nome_proprietario", ""))
+                veiculo_normalizado.setdefault("proprietario", item.get("proprietario", ""))
                 itens.append(veiculo_normalizado)
                 continue
 
@@ -6588,17 +6968,24 @@ def extrair_veiculos_sances(retorno_json):
                 or item.get("descricaoModelo")
                 or ""
             ).upper()
-            ano = limpar_texto(
-                item.get("ano")
-                or item.get("ano_modelo")
-                or item.get("ano_modelo_veiculo")
-                or item.get("anoModelo")
-                or item.get("anoModeloVeiculo")
-                or item.get("ano_fabricacao")
+            ano_fabricacao = limpar_texto(
+                item.get("ano_fabricacao")
                 or item.get("ano_fabricacao_veiculo")
                 or item.get("anoFabricacaoVeiculo")
                 or ""
             )
+            ano_modelo = limpar_texto(
+                item.get("ano_modelo")
+                or item.get("ano_modelo_veiculo")
+                or item.get("anoModelo")
+                or item.get("anoModeloVeiculo")
+                or ""
+            )
+            ano = limpar_texto(item.get("ano") or "")
+            if ano_fabricacao and ano_modelo:
+                ano = f"{ano_fabricacao}/{ano_modelo}"
+            elif not ano:
+                ano = ano_modelo or ano_fabricacao
             codigo_veiculo = limpar_texto(
                 item.get("codigo_veiculo")
                 or item.get("codigoVeiculo")
@@ -6616,6 +7003,26 @@ def extrair_veiculos_sances(retorno_json):
                 or item.get("idCliente")
                 or ""
             )
+            km = limpar_texto(
+                item.get("km")
+                or item.get("km_atual")
+                or item.get("km_entrada")
+                or item.get("quilometragem")
+                or item.get("quilometragem_atual")
+                or item.get("quilometragemAtual")
+                or ""
+            )
+            cliente = item.get("cliente") if isinstance(item.get("cliente"), dict) else {}
+            proprietario = limpar_texto(
+                item.get("proprietario")
+                or item.get("nome_proprietario")
+                or item.get("nomeProprietario")
+                or item.get("nome_cliente")
+                or item.get("nomeCliente")
+                or cliente.get("nome")
+                or cliente.get("nome_cliente")
+                or ""
+            )
 
             if placa or chassi or modelo:
                 veiculos.append({
@@ -6623,6 +7030,8 @@ def extrair_veiculos_sances(retorno_json):
                     "chassi": chassi,
                     "modelo": modelo,
                     "ano": ano,
+                    "km_atual": km,
+                    "proprietario": proprietario,
                     "codigo_veiculo": codigo_veiculo,
                     "codigo_cliente": codigo_cliente,
                 })
@@ -6691,6 +7100,210 @@ def buscar_veiculos_sances_por_cpf(cpf):
         return []
 
 
+def buscar_veiculos_sances_por_telefone(telefone):
+    try:
+        telefone_limpo = limpar_telefone(telefone)
+
+        if not telefone_limpo:
+            return []
+
+        if not SANCES_VEICULOS_URL:
+            log_info("[SANCES] Consulta veiculos por telefone ignorada: SANCES_VEICULOS_URL nao configurada")
+            return []
+
+        if not SANCES_TOKEN:
+            log_info("[SANCES] Consulta veiculos por telefone ignorada: SANCES_TOKEN nao configurado")
+            return []
+
+        params = {
+            "telefone": telefone_limpo,
+            "telefone_cliente": telefone_limpo,
+            "celular": telefone_limpo,
+        }
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta veiculos por telefone iniciada:", telefone_limpo)
+
+        response = requests.get(
+            SANCES_VEICULOS_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status consulta veiculos por telefone:", response.status_code)
+        log_info("[SANCES] Resposta consulta veiculos por telefone:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return []
+
+        return extrair_veiculos_sances(retorno_json)
+
+    except requests.Timeout:
+        log_erro("[SANCES] Timeout consulta veiculos por telefone")
+        return []
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta veiculos por telefone:", repr(e))
+        return []
+
+
+def deduplicar_veiculos_identificados(veiculos):
+    unicos = []
+    vistos = set()
+
+    for veiculo in veiculos or []:
+        if not isinstance(veiculo, dict):
+            continue
+
+        placa = limpar_texto(veiculo.get("placa", "")).upper()
+        chassi = limpar_texto(veiculo.get("chassi", "")).upper()
+        modelo = limpar_texto(veiculo.get("modelo", "")).upper()
+        ano = limpar_texto(veiculo.get("ano", ""))
+
+        if not placa and not chassi:
+            continue
+
+        chave = chassi or placa or f"{modelo}|{ano}"
+
+        if chave in vistos:
+            continue
+
+        vistos.add(chave)
+        unicos.append(veiculo)
+
+    return unicos
+
+
+def montar_veiculo_historico(registro):
+    if not registro:
+        return {}
+
+    placa = limpar_texto(getattr(registro, "placa", "") or "").upper()
+    chassi = limpar_texto(getattr(registro, "chassi", "") or "").upper()
+
+    if not placa and not chassi:
+        return {}
+
+    return {
+        "placa": placa,
+        "chassi": chassi,
+        "modelo": limpar_texto(getattr(registro, "modelo", "") or "").upper(),
+        "ano": limpar_texto(getattr(registro, "ano", "") or ""),
+        "km_atual": limpar_texto(getattr(registro, "km_atual", "") or ""),
+        "proprietario": limpar_texto(getattr(registro, "nome", "") or ""),
+        "codigo_veiculo": "",
+        "codigo_cliente": "",
+        "origem": "CRM",
+    }
+
+
+def buscar_veiculos_historico_crm(telefone="", cpf=""):
+    telefone_limpo = limpar_telefone(telefone)
+    cpf_limpo = limpar_cpf(cpf)
+
+    if not telefone_limpo and not cpf_limpo:
+        return []
+
+    db = SessionLocal()
+
+    try:
+        veiculos = []
+
+        filtros_agendamento = []
+        filtros_atendimento = []
+
+        if telefone_limpo:
+            filtros_agendamento.append(AgendamentoRevisao.telefone == telefone_limpo)
+            filtros_atendimento.append(Atendimento.telefone == telefone_limpo)
+
+        if cpf_limpo:
+            filtros_agendamento.append(AgendamentoRevisao.cpf == cpf_limpo)
+            filtros_atendimento.append(Atendimento.cpf == cpf_limpo)
+
+        if filtros_agendamento:
+            agendamentos = (
+                db.query(AgendamentoRevisao)
+                .filter(or_(*filtros_agendamento))
+                .order_by(AgendamentoRevisao.criado_em.desc())
+                .limit(10)
+                .all()
+            )
+            veiculos.extend(montar_veiculo_historico(item) for item in agendamentos)
+
+        if filtros_atendimento:
+            atendimentos = (
+                db.query(Atendimento)
+                .filter(or_(*filtros_atendimento))
+                .order_by(Atendimento.data.desc())
+                .limit(10)
+                .all()
+            )
+            veiculos.extend(montar_veiculo_historico(item) for item in atendimentos)
+
+        return deduplicar_veiculos_identificados(veiculos)
+
+    except Exception as e:
+        log_erro("Erro ao buscar veiculos no historico CRM:", repr(e))
+        return []
+
+    finally:
+        db.close()
+
+
+def buscar_veiculos_revisao(telefone, cpf):
+    veiculos = deduplicar_veiculos_identificados(buscar_veiculos_sances_por_cpf(cpf))
+    if veiculos:
+        return veiculos, "SANCES_CPF"
+
+    veiculos = deduplicar_veiculos_identificados(buscar_veiculos_sances_por_telefone(telefone))
+    if veiculos:
+        return veiculos, "SANCES_TELEFONE"
+
+    veiculos = buscar_veiculos_historico_crm(telefone=telefone, cpf=cpf)
+    if veiculos:
+        return veiculos, "CRM"
+
+    return [], ""
+
+
+def final_chassi(chassi):
+    chassi = limpar_texto(chassi).upper()
+    return chassi[-4:] if len(chassi) >= 4 else chassi
+
+
+def mensagem_veiculo_localizado(veiculo):
+    veiculo = veiculo if isinstance(veiculo, dict) else {}
+    modelo = limpar_texto(veiculo.get("modelo", "")).upper()
+    ano = limpar_texto(veiculo.get("ano", ""))
+    placa = limpar_texto(veiculo.get("placa", "")).upper()
+    chassi = limpar_texto(veiculo.get("chassi", "")).upper()
+
+    linhas = ["Encontrei sua moto 😊"]
+
+    if modelo:
+        linhas.append(f"Modelo: {modelo}")
+
+    if ano:
+        linhas.append(f"Ano: {ano}")
+
+    if chassi:
+        linhas.append(f"Chassi final: {final_chassi(chassi)}")
+    elif placa:
+        linhas.append(f"Placa: {placa}")
+
+    return "\n".join(linhas)
+
+
 def aplicar_veiculo_sances_no_cliente(telefone, veiculo):
     telefone = limpar_telefone(telefone)
 
@@ -6704,6 +7317,8 @@ def aplicar_veiculo_sances_no_cliente(telefone, veiculo):
     chassi = limpar_texto(veiculo.get("chassi", "")).upper()
     modelo = limpar_texto(veiculo.get("modelo", "")).upper()
     ano = limpar_texto(veiculo.get("ano", ""))
+    km_atual = limpar_texto(veiculo.get("km_atual", "") or veiculo.get("km", ""))
+    proprietario = limpar_texto(veiculo.get("proprietario", "") or veiculo.get("nome_proprietario", ""))
     codigo_veiculo = limpar_texto(veiculo.get("codigo_veiculo", ""))
     codigo_cliente = limpar_texto(veiculo.get("codigo_cliente", ""))
 
@@ -6719,6 +7334,15 @@ def aplicar_veiculo_sances_no_cliente(telefone, veiculo):
     if ano:
         dados["ano"] = ano
 
+    if km_atual:
+        dados["km_atual"] = km_atual
+
+    if proprietario:
+        dados["proprietario"] = proprietario
+
+        if not limpar_texto(dados.get("nome", "")):
+            dados["nome"] = proprietario.title()
+
     if codigo_veiculo:
         dados["codigo_veiculo"] = codigo_veiculo
 
@@ -6730,16 +7354,18 @@ def aplicar_veiculo_sances_no_cliente(telefone, veiculo):
 
 def montar_opcoes_veiculos_sances(veiculos):
     linhas = [
-        "Localizei mais de uma moto para esse CPF.\n",
+        "Localizei mais de uma moto no seu cadastro.\n",
         "Digite o nÃºmero da moto que deseja agendar:\n",
     ]
 
     for indice, veiculo in enumerate((veiculos or [])[:9], start=1):
+        chassi = limpar_texto(veiculo.get("chassi", "")).upper()
         descricao = " / ".join([
             valor for valor in [
                 limpar_texto(veiculo.get("placa", "")),
                 limpar_texto(veiculo.get("modelo", "")),
                 limpar_texto(veiculo.get("ano", "")),
+                f"chassi final {final_chassi(chassi)}" if chassi else "",
             ]
             if valor
         ])
@@ -7377,6 +8003,218 @@ def consultar_ordens_servico_sances():
             "ordens": [],
             "erro": repr(e),
         }
+
+
+def dados_lista_sances(retorno_json):
+    if isinstance(retorno_json, list):
+        return retorno_json
+
+    if not isinstance(retorno_json, dict):
+        return []
+
+    dados = retorno_json.get("dados") or retorno_json.get("data") or retorno_json.get("resultado") or []
+
+    if isinstance(dados, dict):
+        return [dados]
+
+    return dados if isinstance(dados, list) else []
+
+
+def filtrar_os_garantia_aberta(lista_os):
+    ordens = []
+
+    for registro in lista_os or []:
+        if not isinstance(registro, dict):
+            continue
+
+        descricao_tipo = normalizar_texto(registro.get("descricao_tipo", ""))
+
+        if descricao_tipo and descricao_tipo != "ordem de servico":
+            continue
+
+        situacao = normalizar_texto(registro.get("situacao", ""))
+
+        if situacao in ["fechada", "cancelada", "cancelado"]:
+            continue
+
+        texto_garantia = normalizar_texto(" ".join([
+            limpar_texto(registro.get("descricao_tipo_os", "")),
+            limpar_texto(registro.get("tipo_os", "")),
+            limpar_texto(registro.get("solicitacao_cliente", "")),
+            limpar_texto(registro.get("defeito_averiguado", "")),
+            limpar_texto(registro.get("observacao", "")),
+            limpar_texto(registro.get("observacao_nota", "")),
+        ]))
+
+        if "garantia" not in texto_garantia:
+            continue
+
+        ordens.append(registro)
+
+    return ordens
+
+
+def buscar_os_garantia_por_cpf(cpf):
+    cpf_limpo = limpar_cpf(cpf)
+
+    if len(cpf_limpo) != 11:
+        return []
+
+    try:
+        endpoint_pos_venda = limpar_texto(
+            os.getenv("SANCES_POS_VENDA_URL", "")
+            or SANCES_POS_VENDA_URL
+            or SANCES_API_URL
+        )
+
+        if not endpoint_pos_venda or not SANCES_TOKEN:
+            log_info("[SANCES] Consulta garantia ignorada: endpoint/token nao configurado")
+            return []
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+        params = {
+            "limit": SANCES_LIMIT,
+            "offset": SANCES_OFFSET,
+            "cpf": cpf_limpo,
+            "cpf_cliente": cpf_limpo,
+            "cpf_cnpj_cliente": cpf_limpo,
+            "cpfCnpj": cpf_limpo,
+        }
+
+        log_info("[SANCES] Consulta OS garantia por CPF iniciada:", cpf_limpo)
+
+        response = requests.get(
+            endpoint_pos_venda,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status OS garantia:", response.status_code)
+        log_info("[SANCES] Resposta OS garantia:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return []
+
+        return filtrar_os_garantia_aberta(dados_lista_sances(retorno_json))
+
+    except requests.Timeout:
+        log_erro("[SANCES] Timeout consulta OS garantia por CPF")
+        return []
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta OS garantia por CPF:", repr(e))
+        return []
+
+
+def extrair_numero_processo_garantia(texto):
+    texto = limpar_texto(texto)
+
+    if not texto:
+        return ""
+
+    padroes = [
+        r"(?:processo|protocolo)\s*(?:de\s*)?(?:garantia)?\s*[:#-]?\s*([A-Za-z0-9./-]{4,})",
+        r"garantia\s*[:#-]?\s*([A-Za-z0-9./-]{4,})",
+    ]
+
+    for padrao in padroes:
+        encontrado = re.search(padrao, texto, flags=re.IGNORECASE)
+
+        if encontrado:
+            return limpar_texto(encontrado.group(1))
+
+    return ""
+
+
+def montar_resumo_os_garantia(os_data):
+    os_data = os_data if isinstance(os_data, dict) else {}
+
+    modelo = limpar_texto(
+        os_data.get("descricao_modelo_veiculo")
+        or os_data.get("modelo")
+        or os_data.get("descricao_modelo")
+        or ""
+    )
+    chassi = limpar_texto(os_data.get("chassi") or os_data.get("chassi_serie") or "")
+
+    return {
+        "numero": limpar_texto(os_data.get("numero") or os_data.get("ordem_servico") or os_data.get("codigo") or ""),
+        "situacao": limpar_texto(os_data.get("situacao") or ""),
+        "cliente": limpar_texto(os_data.get("nome_cliente") or os_data.get("cliente") or os_data.get("nome_proprietario") or ""),
+        "modelo": modelo,
+        "chassi": chassi.upper(),
+        "solicitacao_cliente": limpar_texto(os_data.get("solicitacao_cliente") or ""),
+        "defeito_averiguado": limpar_texto(os_data.get("defeito_averiguado") or ""),
+        "observacao": limpar_texto(os_data.get("observacao") or os_data.get("observacao_nota") or ""),
+    }
+
+
+def montar_resposta_status_garantia(os_data):
+    dados = montar_resumo_os_garantia(os_data)
+    processo = extrair_numero_processo_garantia(dados.get("observacao", ""))
+
+    linhas = ["Localizei seu processo de garantia no Sances."]
+
+    if dados.get("numero"):
+        linhas.append(f"OS: {dados['numero']}")
+
+    if processo:
+        linhas.append(f"Processo de garantia: {processo}")
+
+    if dados.get("situacao"):
+        linhas.append(f"Situação: {dados['situacao']}")
+
+    if dados.get("cliente"):
+        linhas.append(f"Cliente: {dados['cliente']}")
+
+    if dados.get("modelo"):
+        linhas.append(f"Moto: {dados['modelo']}")
+
+    if dados.get("chassi"):
+        linhas.append(f"Chassi final: {dados['chassi'][-4:]}")
+
+    observacao = dados.get("observacao", "")
+
+    if observacao:
+        linhas.append(f"\nObservação da OS:\n{observacao}")
+    elif dados.get("defeito_averiguado"):
+        linhas.append(f"\nDefeito averiguado:\n{dados['defeito_averiguado']}")
+    elif dados.get("solicitacao_cliente"):
+        linhas.append(f"\nSolicitação registrada:\n{dados['solicitacao_cliente']}")
+
+    linhas.append("\nSe precisar de mais detalhes, posso direcionar você para um atendente.")
+
+    return "\n".join(linhas)
+
+
+def montar_lista_os_garantia(ordens):
+    linhas = [
+        "Encontrei mais de uma OS de garantia em aberto.",
+        "Digite o número da opção que deseja consultar:\n",
+    ]
+
+    for indice, os_data in enumerate((ordens or [])[:9], start=1):
+        resumo = montar_resumo_os_garantia(os_data)
+        descricao = " / ".join([
+            valor for valor in [
+                f"OS {resumo.get('numero')}" if resumo.get("numero") else "",
+                resumo.get("situacao", ""),
+                resumo.get("modelo", ""),
+            ]
+            if valor
+        ])
+        linhas.append(f"{indice} - {descricao or 'OS de garantia'}")
+
+    return "\n".join(linhas)
 
 
 def valor_numero_pos_venda(valor):
@@ -11176,9 +12014,10 @@ def exportar_clientes_sances_xlsx():
         linhas = consulta.get("linhas", []) or []
         df = pd.DataFrame(
             linhas,
-            columns=["data_compra", "nome", "telefone", "chassi", "modelo_moto"],
+            columns=["codigo_cliente", "data_compra", "nome", "telefone", "chassi", "modelo_moto"],
         )
         df = df.rename(columns={
+            "codigo_cliente": "Código cliente",
             "data_compra": "Data de compra",
             "nome": "Nome",
             "telefone": "Telefone",
@@ -11206,6 +12045,45 @@ def exportar_clientes_sances_xlsx():
         return jsonify({
             "ok": False,
             "mensagem": "Erro ao gerar planilha de clientes Sances.",
+            "erro": repr(e),
+        }), 500
+
+
+@app.route("/relatorio/vendas", methods=["GET"])
+def relatorio_vendas_sances():
+    data_inicio = "2025-10-01"
+    data_fim = "2026-01-01"
+    nome_arquivo = "relatorio_vendas_out2025_jan2026.xlsx"
+
+    try:
+        pasta_tmp = "/tmp" if os.path.isdir("/tmp") else os.getenv("TEMP", ".")
+        caminho = os.path.join(pasta_tmp, nome_arquivo)
+
+        sucesso, resultado = gerar_excel_vendas_sances(
+            caminho=caminho,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+        )
+
+        if not sucesso:
+            return jsonify({
+                "ok": False,
+                "mensagem": resultado.get("mensagem", "Falha ao gerar relatório de vendas."),
+                "erro": resultado.get("erro", ""),
+            }), 500
+
+        return send_file(
+            caminho,
+            as_attachment=True,
+            download_name=nome_arquivo,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except Exception as e:
+        log_erro("[SANCES] Erro rota relatório vendas:", repr(e))
+        return jsonify({
+            "ok": False,
+            "mensagem": "Erro ao gerar relatório de vendas do Sances.",
             "erro": repr(e),
         }), 500
 
@@ -12815,17 +13693,18 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "acompanhar_garantia", "etapa_atual": etapa_atual})
         iniciar_cliente(telefone)
         clientes[telefone]["intencao_ia"] = "acompanhar_garantia"
-        clientes[telefone]["etapa"] = "garantia_acompanhar_nome"
+        clientes[telefone]["etapa"] = "garantia_consulta_cpf"
         clientes[telefone]["atendimento_humano"] = False
         clientes[telefone]["nome"] = ""
         clientes[telefone]["modelo"] = ""
         clientes[telefone]["cpf"] = ""
         clientes[telefone]["observacao"] = ""
+        clientes[telefone]["garantia_os_sances"] = []
         clientes[telefone]["ultima_interacao"] = agora()
         enviar_mensagem(
             telefone,
             "Certo. Vou te ajudar a acompanhar sua garantia.\n\n"
-            "Informe seu *nome completo*."
+            "Informe seu *CPF* com 11 números."
         )
         return True
 
@@ -12973,21 +13852,16 @@ def processar_fluxo_revisao(
 
             clientes[telefone]["cpf"] = cpf_limpo
 
-            veiculos = buscar_veiculos_sances_por_cpf(cpf_limpo)
+            veiculos, origem_veiculos = buscar_veiculos_revisao(telefone, cpf_limpo)
 
             if len(veiculos) == 1:
                 aplicar_veiculo_sances_no_cliente(telefone, veiculos[0])
                 clientes[telefone]["veiculos_sances"] = []
-
-                placa_ou_chassi = (
-                    clientes[telefone].get("placa")
-                    or clientes[telefone].get("chassi")
-                    or "veículo localizado"
-                )
+                clientes[telefone]["origem_veiculos_sances"] = origem_veiculos
 
                 enviar_mensagem(
                     telefone,
-                    f"✅ Localizei sua moto no Sances: *{placa_ou_chassi}*."
+                    mensagem_veiculo_localizado(veiculos[0])
                 )
 
                 enviar_proxima_etapa_revisao(telefone)
@@ -12995,6 +13869,7 @@ def processar_fluxo_revisao(
 
             if len(veiculos) > 1:
                 clientes[telefone]["veiculos_sances"] = veiculos[:9]
+                clientes[telefone]["origem_veiculos_sances"] = origem_veiculos
                 clientes[telefone]["etapa"] = "revisao_escolher_veiculo"
 
                 enviar_mensagem(
@@ -13004,6 +13879,7 @@ def processar_fluxo_revisao(
                 return True
 
             clientes[telefone]["veiculos_sances"] = []
+            clientes[telefone]["origem_veiculos_sances"] = ""
             clientes[telefone]["etapa"] = "revisao_placa_chassi"
 
             enviar_mensagem(
@@ -13034,16 +13910,11 @@ def processar_fluxo_revisao(
 
             aplicar_veiculo_sances_no_cliente(telefone, veiculos[indice - 1])
             clientes[telefone]["veiculos_sances"] = []
-
-            placa_ou_chassi = (
-                clientes[telefone].get("placa")
-                or clientes[telefone].get("chassi")
-                or "veículo selecionado"
-            )
+            clientes[telefone]["origem_veiculos_sances"] = ""
 
             enviar_mensagem(
                 telefone,
-                f"✅ Perfeito, vou usar a moto *{placa_ou_chassi}* para o agendamento."
+                mensagem_veiculo_localizado(veiculos[indice - 1])
             )
 
             enviar_proxima_etapa_revisao(telefone)
@@ -14018,6 +14889,8 @@ def webhook():
             "garantia_acompanhar_modelo",
             "garantia_acompanhar_cpf",
             "garantia_acompanhar_descricao",
+            "garantia_consulta_cpf",
+            "garantia_escolher_os",
         ]:
             if processar_fluxo_garantia(telefone, texto, texto_opcao):
                 return jsonify({"status": "ok", "motivo": "fluxo_garantia"}), 200

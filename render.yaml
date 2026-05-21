@@ -150,6 +150,9 @@ services:
       - key: SANCES_NEGOCIACAO_URL
         value: https://api.sancesturbo.com.br/integracao/veiculos/getNegociacao
 
+      - key: SANCES_GET_VENDAS_URL
+        value: https://api.sancesturbo.com.br/integracao/vendas
+
       # ==========================================
       # GUNICORN
       # ==========================================

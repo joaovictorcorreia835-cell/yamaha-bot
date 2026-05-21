@@ -459,6 +459,10 @@ def texto_parece_acompanhar_garantia(texto_normalizado):
     termos = [
         "acompanhar garantia", "status da garantia", "protocolo da garantia",
         "ver garantia", "consultar garantia", "minha garantia",
+        "consultar minha garantia", "processo de garantia",
+        "meu processo de garantia", "como esta minha garantia",
+        "como esta meu processo de garantia", "como está minha garantia",
+        "como está meu processo de garantia",
     ]
 
     return any(termo in texto_normalizado for termo in termos)
