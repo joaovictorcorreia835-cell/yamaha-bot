@@ -306,6 +306,21 @@ RPA_TIPOS_PREPARADOS = {
 }
 
 
+INTENCOES_PRIORITARIAS = {
+    "garantia",
+    "consultar_garantia",
+    "acompanhar_garantia",
+    "status_os",
+    "acompanhar_os",
+    "atendimento_humano",
+    "humano",
+    "menu",
+    "cancelar",
+    "cancelar_agendamento",
+    "cancelar_revisao",
+}
+
+
 # ==========================================
 # HOME
 # ==========================================
@@ -1982,6 +1997,123 @@ def texto_pede_humano(texto):
     ]
 
     return any(normalizar_texto(g) in texto_norm for g in gatilhos)
+
+
+def classificar_intencao_prioritaria(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if not texto_norm:
+        return ""
+
+    try:
+        resposta = classificar_intencao(texto) or {}
+    except Exception as e:
+        log_erro("Erro ao classificar intenção prioritária:", repr(e))
+        resposta = {}
+
+    intencao = limpar_texto(resposta.get("intencao", "")).lower()
+
+    try:
+        confianca = float(resposta.get("confianca", 0) or 0)
+    except Exception:
+        confianca = 0
+
+    aliases = {
+        "consultar_garantia": "acompanhar_garantia",
+        "garantia_acompanhar": "acompanhar_garantia",
+        "humano": "atendimento_humano",
+        "cancelar_revisao": "cancelar",
+        "cancelar_agendamento": "cancelar",
+    }
+    intencao = aliases.get(intencao, intencao)
+
+    if intencao in INTENCOES_PRIORITARIAS and confianca >= 0.55:
+        return intencao
+
+    if texto_pede_menu(texto):
+        return "menu"
+
+    if texto_pede_humano(texto):
+        return "atendimento_humano"
+
+    if texto_norm in ["cancelar", "cancela", "cancelamento", "cancelar revisao", "cancelar revisão"]:
+        return "cancelar"
+
+    if (
+        ("os" in texto_norm or "ordem de servico" in texto_norm or "ordem de serviço" in texto_norm)
+        and any(termo in texto_norm for termo in ["consultar", "acompanhar", "status", "aberta", "andamento"])
+    ):
+        return "acompanhar_os"
+
+    if "garantia" in texto_norm and any(
+        termo in texto_norm
+        for termo in ["consultar", "acompanhar", "status", "processo", "como esta", "como está"]
+    ):
+        return "acompanhar_garantia"
+
+    return ""
+
+
+def interromper_fluxo_revisao_por_intencao_prioritaria(telefone, texto):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    etapa_atual = limpar_texto(clientes.get(telefone, {}).get("etapa", "")).lower()
+
+    if not etapa_atual.startswith("revisao_"):
+        return False
+
+    intencao = classificar_intencao_prioritaria(texto)
+
+    if not intencao:
+        return False
+
+    log_info(
+        "INTENÇÃO PRIORITÁRIA INTERROMPEU REVISÃO:",
+        {"telefone": telefone, "intencao": intencao, "etapa_anterior": etapa_atual},
+    )
+
+    limpar_dados_fluxo_revisao(telefone)
+
+    if intencao == "menu":
+        resetar_cliente(telefone)
+        enviar_menu(telefone)
+        return True
+
+    if intencao == "cancelar":
+        resetar_cliente(telefone)
+        enviar_mensagem(telefone, "Atendimento de revisão cancelado. Voltando ao menu principal.")
+        enviar_menu(telefone)
+        return True
+
+    if intencao == "atendimento_humano":
+        clientes[telefone]["status"] = STATUS_ATENDIMENTO_HUMANO
+        clientes[telefone]["atendimento_humano"] = True
+        clientes[telefone]["etapa"] = "atendimento_humano"
+        enviar_mensagem(telefone, "Certo. Vou direcionar você para um atendente.")
+        ativar_atendimento_humano(telefone)
+        return True
+
+    if intencao in ["acompanhar_garantia", "consultar_garantia", "status_os", "acompanhar_os"]:
+        iniciar_cliente(telefone)
+        clientes[telefone]["intencao_ia"] = "acompanhar_garantia"
+        clientes[telefone]["etapa"] = "garantia_consulta_cpf"
+        clientes[telefone]["atendimento_humano"] = False
+        clientes[telefone]["cpf"] = ""
+        clientes[telefone]["garantia_os_sances"] = []
+        enviar_mensagem(
+            telefone,
+            "Certo. Vou consultar no Sances.\n\nInforme seu *CPF* com 11 números."
+        )
+        return True
+
+    if intencao == "garantia":
+        iniciar_fluxo_garantia(telefone)
+        return True
+
+    return False
 
 # ==========================================
 # APOIO ACESSÓRIOS
@@ -14534,6 +14666,9 @@ def webhook():
         # Exceções permitidas: menu, humano/atendente e cancelar.
         # ==========================================
         if etapa.startswith("revisao_"):
+            if interromper_fluxo_revisao_por_intencao_prioritaria(telefone, texto):
+                return jsonify({"status": "ok", "motivo": "intencao_prioritaria_revisao"}), 200
+
             texto_fluxo_norm = normalizar_texto(texto)
 
             if texto_pede_humano(texto):
