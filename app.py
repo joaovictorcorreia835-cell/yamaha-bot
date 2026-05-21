@@ -13416,6 +13416,8 @@ def etapa_permite_ia_livre(etapa):
         "garantia_acompanhar_modelo",
         "garantia_acompanhar_cpf",
         "garantia_acompanhar_descricao",
+        "garantia_consulta_cpf",
+        "garantia_escolher_os",
         "atacado",
         "atacado_cotacao",
         "atacado_cotacao_itens",

@@ -4,6 +4,7 @@
 # ==========================================
 
 import re
+import unicodedata
 from difflib import SequenceMatcher
 
 try:
@@ -29,25 +30,112 @@ except Exception:
 # ==========================================
 def normalizar_texto(texto):
     texto = str(texto or "").lower().strip()
-
-    substituicoes = {
-        "á": "a", "à": "a", "ã": "a", "â": "a",
-        "é": "e", "ê": "e",
-        "í": "i",
-        "ó": "o", "ô": "o", "õ": "o",
-        "ú": "u",
-        "ç": "c",
-    }
-
-    for antigo, novo in substituicoes.items():
-        texto = texto.replace(antigo, novo)
-
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(
+        caractere for caractere in texto
+        if unicodedata.category(caractere) != "Mn"
+    )
     texto = re.sub(r"\s+", " ", texto)
     return texto.strip()
 
 
 def limpar_texto(texto):
     return str(texto or "").strip()
+
+
+TERMOS_PECAS_PRIORITARIOS = [
+    "yamalube",
+    "10w40",
+    "20w50",
+    "oleo",
+    "óleo",
+    "filtro",
+    "pastilha",
+    "relacao",
+    "relação",
+    "pneu",
+    "bateria",
+    "vela",
+    "retrovisor",
+    "manete",
+    "cabo",
+    "corrente",
+    "coroa",
+    "pinhao",
+    "pinhão",
+]
+
+TERMOS_COTACAO = [
+    "preco",
+    "preço",
+    "valor",
+    "quanto custa",
+    "cotacao",
+    "cotação",
+    "orcamento",
+    "orçamento",
+]
+
+TERMOS_ESTOQUE = [
+    "tem",
+    "estoque",
+    "disponivel",
+    "disponível",
+    "referencia",
+    "referência",
+]
+
+
+def contem_termo(texto, termos):
+    texto_norm = normalizar_texto(texto)
+    return any(normalizar_texto(termo) in texto_norm for termo in termos)
+
+
+def detectar_item_peca(texto):
+    texto_norm = normalizar_texto(texto)
+    encontrados = []
+    vistos = set()
+
+    for termo in TERMOS_PECAS_PRIORITARIOS:
+        termo_norm = normalizar_texto(termo)
+
+        if termo_norm in texto_norm and termo_norm not in vistos:
+            vistos.add(termo_norm)
+            encontrados.append(termo_norm)
+
+    if not encontrados:
+        return ""
+
+    item = " ".join(encontrados)
+    medidas = re.findall(r"\b\d{1,2}w\d{2}\b", texto_norm)
+    medidas = [medida for medida in medidas if medida not in vistos]
+
+    if medidas:
+        item = f"{item} {' '.join(medidas)}"
+
+    return item.strip()
+
+
+def texto_parece_peca_ou_cotacao(texto):
+    tem_peca = contem_termo(texto, TERMOS_PECAS_PRIORITARIOS)
+    tem_cotacao = contem_termo(texto, TERMOS_COTACAO)
+    tem_estoque = contem_termo(texto, TERMOS_ESTOQUE)
+    return tem_peca and (tem_cotacao or tem_estoque or "yamalube" in normalizar_texto(texto))
+
+
+def texto_parece_status_garantia_ou_os(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if "garantia" in texto_norm and any(
+        termo in texto_norm
+        for termo in ["consultar", "acompanhar", "status", "processo", "como esta"]
+    ):
+        return True
+
+    return (
+        ("os" in texto_norm or "ordem de servico" in texto_norm)
+        and any(termo in texto_norm for termo in ["consultar", "acompanhar", "status", "aberta", "andamento"])
+    )
 
 
 # ==========================================
@@ -178,13 +266,21 @@ def classificar_urgencia(texto):
 def identificar_intencao(texto):
     texto = normalizar_texto(texto)
 
+    if texto_parece_status_garantia_ou_os(texto):
+        if "garantia" in texto:
+            return "acompanhar_garantia"
+        return "acompanhar_os"
+
+    if texto_parece_peca_ou_cotacao(texto):
+        if contem_termo(texto, TERMOS_ESTOQUE):
+            return "consulta_estoque"
+        return "pecas"
+
     intencoes = {
         "revisao": [
             "revisao",
             "revisão",
             "agendar",
-            "oleo",
-            "óleo",
             "manutencao",
             "manutenção",
             "km",
@@ -354,6 +450,66 @@ def sugerir_venda_adicional(modelo):
     return []
 
 
+def extrair_dados_estruturados(texto, modelo="", contexto_cliente=None):
+    contexto_cliente = contexto_cliente if isinstance(contexto_cliente, dict) else {}
+    modelo_detectado = modelo or identificar_modelo(texto) or contexto_cliente.get("modelo", "")
+
+    return {
+        "modelo": modelo_detectado,
+        "item": detectar_item_peca(texto),
+        "cpf": limpar_texto(contexto_cliente.get("cpf", "")),
+        "telefone": limpar_texto(contexto_cliente.get("telefone", "")),
+        "nome": limpar_texto(contexto_cliente.get("nome", "")),
+        "texto_original": limpar_texto(texto),
+    }
+
+
+def sugerir_acao(intencao):
+    return {
+        "pecas": "iniciar_fluxo_pecas",
+        "consulta_estoque": "consultar_estoque_sances",
+        "orcamento": "montar_pre_orcamento",
+        "garantia": "iniciar_fluxo_garantia",
+        "acompanhar_garantia": "consultar_garantia_sances",
+        "acompanhar_os": "consultar_os_sances",
+        "revisao": "responder_duvida_revisao",
+        "problema_tecnico": "encaminhar_pos_venda",
+        "humano": "encaminhar_atendimento_humano",
+        "atacado": "iniciar_fluxo_atacado",
+        "acessorios": "iniciar_fluxo_acessorios",
+    }.get(intencao or "", "encaminhar_atendimento_humano")
+
+
+def calcular_confianca(intencao, fonte, urgencia="baixa"):
+    if fonte in ["base_conhecimento", "manual_pdf"]:
+        return 0.9 if urgencia != "alta" else 0.75
+
+    if intencao in ["pecas", "consulta_estoque", "acompanhar_garantia", "acompanhar_os"]:
+        return 0.88
+
+    if intencao:
+        return 0.72
+
+    return 0.45
+
+
+def montar_retorno_ia(fonte, resposta, categoria, modelo, urgencia, intencao, dados, encaminhar_humano=False):
+    confianca = calcular_confianca(intencao, fonte, urgencia)
+
+    return {
+        "fonte": fonte,
+        "resposta": resposta,
+        "categoria": categoria,
+        "modelo": modelo,
+        "urgencia": urgencia,
+        "intencao": intencao,
+        "acao": sugerir_acao(intencao),
+        "dados": dados,
+        "confianca": confianca,
+        "encaminhar_humano": bool(encaminhar_humano or urgencia == "alta" or confianca < 0.55),
+    }
+
+
 # ==========================================
 # BASE DE CONHECIMENTO
 # ==========================================
@@ -438,6 +594,11 @@ def montar_resposta_fallback(texto, modelo="", urgencia="baixa"):
             "Vou encaminhar para um consultor verificar o caso corretamente."
         )
 
+    if intencao in ["acompanhar_garantia", "acompanhar_os"]:
+        return (
+            "Certo. Para consultar o andamento no Sances, preciso confirmar seu CPF com 11 números."
+        )
+
     if intencao == "problema_tecnico":
         return (
             "Entendi o problema informado. Para evitar uma orientação incorreta, o ideal é uma avaliação técnica.\n\n"
@@ -448,6 +609,11 @@ def montar_resposta_fallback(texto, modelo="", urgencia="baixa"):
         return (
             "Recebi sua solicitação de peças. Para verificar corretamente, preciso confirmar modelo, ano e item desejado.\n\n"
             "Vou encaminhar para nossa equipe de peças continuar."
+        )
+
+    if intencao == "consulta_estoque":
+        return (
+            "Vou consultar a disponibilidade desse item. Para cotar corretamente, me informe modelo, ano e a peça ou referência desejada."
         )
 
     if intencao == "atacado":
@@ -465,16 +631,30 @@ def montar_resposta_fallback(texto, modelo="", urgencia="baixa"):
 # ==========================================
 # IA PRINCIPAL
 # ==========================================
-def responder_ia(texto, modelo=""):
+def responder_ia(texto, modelo="", contexto_cliente=None):
     texto_original = limpar_texto(texto)
     texto_norm = normalizar_texto(texto_original)
+    contexto_cliente = contexto_cliente if isinstance(contexto_cliente, dict) else {}
 
     if not modelo:
-        modelo = identificar_modelo(texto_norm)
+        modelo = identificar_modelo(texto_norm) or contexto_cliente.get("modelo", "")
 
     urgencia = classificar_urgencia(texto_norm)
     intencao = identificar_intencao(texto_norm)
     intencoes_manual = {"revisao", "garantia", "problema_tecnico"}
+    dados = extrair_dados_estruturados(texto_original, modelo=modelo, contexto_cliente=contexto_cliente)
+
+    if intencao in ["pecas", "consulta_estoque", "acompanhar_garantia", "acompanhar_os"]:
+        return montar_retorno_ia(
+            fonte="ferramenta_roteamento",
+            resposta=montar_resposta_fallback(texto_norm, modelo=modelo, urgencia=urgencia),
+            categoria=intencao,
+            modelo=modelo,
+            urgencia=urgencia,
+            intencao=intencao,
+            dados=dados,
+            encaminhar_humano=False,
+        )
 
     # Para dúvidas técnicas, o manual é a fonte oficial. A IA só transforma
     # o trecho encontrado em uma resposta natural.
@@ -482,15 +662,16 @@ def responder_ia(texto, modelo=""):
         resultado_manual = consultar_manual_pdf(modelo, texto_norm)
 
         if resultado_manual.get("encontrou"):
-            return {
-                "fonte": resultado_manual.get("fonte", "manual_pdf"),
-                "resposta": resultado_manual.get("resposta", ""),
-                "categoria": resultado_manual.get("assunto", "manual"),
-                "modelo": resultado_manual.get("modelo", modelo),
-                "urgencia": urgencia,
-                "intencao": intencao,
-                "encaminhar_humano": urgencia == "alta",
-            }
+            return montar_retorno_ia(
+                fonte=resultado_manual.get("fonte", "manual_pdf"),
+                resposta=resultado_manual.get("resposta", ""),
+                categoria=resultado_manual.get("assunto", "manual"),
+                modelo=resultado_manual.get("modelo", modelo),
+                urgencia=urgencia,
+                intencao=intencao,
+                dados=dados,
+                encaminhar_humano=urgencia == "alta",
+            )
 
     # ==========================================
     # 1) BASE DE CONHECIMENTO
@@ -498,15 +679,16 @@ def responder_ia(texto, modelo=""):
     resultado_base = consultar_base_conhecimento(texto_norm)
 
     if resultado_base.get("encontrou"):
-        return {
-            "fonte": "base_conhecimento",
-            "resposta": resultado_base.get("resposta", ""),
-            "categoria": resultado_base.get("categoria", intencao),
-            "modelo": modelo,
-            "urgencia": urgencia,
-            "intencao": intencao,
-            "encaminhar_humano": urgencia == "alta",
-        }
+        return montar_retorno_ia(
+            fonte="base_conhecimento",
+            resposta=resultado_base.get("resposta", ""),
+            categoria=resultado_base.get("categoria", intencao),
+            modelo=modelo,
+            urgencia=urgencia,
+            intencao=intencao,
+            dados=dados,
+            encaminhar_humano=urgencia == "alta",
+        )
 
     # ==========================================
     # 2) MANUAL PDF
@@ -516,32 +698,34 @@ def responder_ia(texto, modelo=""):
         resultado_manual = consultar_manual_pdf(modelo, texto_norm)
 
         if resultado_manual.get("encontrou"):
-            return {
-                "fonte": resultado_manual.get("fonte", "manual_pdf"),
-                "resposta": resultado_manual.get("resposta", ""),
-                "categoria": resultado_manual.get("assunto", "manual"),
-                "modelo": resultado_manual.get("modelo", modelo),
-                "urgencia": urgencia,
-                "intencao": intencao,
-                "encaminhar_humano": urgencia == "alta",
-            }
+            return montar_retorno_ia(
+                fonte=resultado_manual.get("fonte", "manual_pdf"),
+                resposta=resultado_manual.get("resposta", ""),
+                categoria=resultado_manual.get("assunto", "manual"),
+                modelo=resultado_manual.get("modelo", modelo),
+                urgencia=urgencia,
+                intencao=intencao,
+                dados=dados,
+                encaminhar_humano=urgencia == "alta",
+            )
 
     # ==========================================
     # 3) FALLBACK
     # ==========================================
-    return {
-        "fonte": "fallback",
-        "resposta": montar_resposta_fallback(
+    return montar_retorno_ia(
+        fonte="fallback",
+        resposta=montar_resposta_fallback(
             texto=texto_norm,
             modelo=modelo,
             urgencia=urgencia,
         ),
-        "categoria": intencao or "humano",
-        "modelo": modelo,
-        "urgencia": urgencia,
-        "intencao": intencao,
-        "encaminhar_humano": True,
-    }
+        categoria=intencao or "humano",
+        modelo=modelo,
+        urgencia=urgencia,
+        intencao=intencao,
+        dados=dados,
+        encaminhar_humano=True,
+    )
 
 
 # ==========================================
