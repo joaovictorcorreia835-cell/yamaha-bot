@@ -117,6 +117,15 @@ services:
       - key: SANCES_EMPRESA
         value: 1
 
+      - key: SANCES_CONSULTOR
+        value: 52423
+
+      - key: SANCES_MIDIA
+        value: 0
+
+      - key: SANCES_ASSUNTO
+        value: 10006
+
       - key: SANCES_URL
         value: https://api.sancesturbo.com.br/integracao/oficina/agendar
 

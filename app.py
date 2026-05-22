@@ -235,6 +235,9 @@ SANCES_GET_VENDAS_URL = os.getenv(
 ).strip()
 SANCES_TOKEN = os.getenv("SANCES_TOKEN", "").strip()
 SANCES_EMPRESA = env_int("SANCES_EMPRESA", 1)
+SANCES_CONSULTOR = env_int("SANCES_CONSULTOR", 52423)
+SANCES_MIDIA = env_int("SANCES_MIDIA", 0)
+SANCES_ASSUNTO = env_int("SANCES_ASSUNTO", 10006)
 SANCES_LIMIT = env_int("SANCES_LIMIT", 20)
 SANCES_OFFSET = env_int("SANCES_OFFSET", 4)
 SANCES_ESTOQUE_LIMIT = env_int("SANCES_ESTOQUE_LIMIT", 20)
@@ -7587,12 +7590,11 @@ def montar_payload_agendamento_sances(dados):
         or dados.get("observacoes", "")
     )
 
-    return {
+    payload = {
         "data_hora_agendamento": montar_data_hora_agendamento_sances(dados),
         "codigo_empresa": SANCES_EMPRESA,
-        "codigo_consultor": 52423,
-        "codigo_midia": 1,
-        "codigo_assunto": 10006,
+        "codigo_consultor": SANCES_CONSULTOR,
+        "codigo_assunto": SANCES_ASSUNTO,
         "codigo_cliente": dados.get("codigo_cliente") or None,
         "cpf_cnpj_cliente": limpar_cpf(dados.get("cpf", "")),
         "cpf_cliente": limpar_cpf(dados.get("cpf", "")),
@@ -7608,6 +7610,11 @@ def montar_payload_agendamento_sances(dados):
         "observacao": observacao,
     }
 
+    if SANCES_MIDIA:
+        payload["codigo_midia"] = SANCES_MIDIA
+
+    return payload
+
 
 def validar_payload_agendamento_sances(payload):
     try:
@@ -7617,12 +7624,8 @@ def validar_payload_agendamento_sances(payload):
             "data_hora_agendamento",
             "codigo_empresa",
             "codigo_consultor",
-            "codigo_midia",
             "codigo_assunto",
-            "nome_cliente",
-            "telefone_contato",
             "quilometragem",
-            "descricao_modelo",
             "solicitacao_cliente",
         ]
 
@@ -7642,12 +7645,28 @@ def validar_payload_agendamento_sances(payload):
         if ausentes:
             return False, SANCES_STATUS_ERRO, f"Campos obrigatórios ausentes: {', '.join(ausentes)}"
 
+        if not payload.get("codigo_cliente"):
+            cliente_ausentes = [
+                campo
+                for campo in ["nome_cliente", "telefone_contato"]
+                if not payload.get(campo)
+            ]
+
+            if cliente_ausentes:
+                return False, SANCES_STATUS_ERRO, (
+                    "Campos obrigatorios ausentes sem codigo_cliente: "
+                    + ", ".join(cliente_ausentes)
+                )
+
         if (
             not payload.get("codigo_veiculo")
             and not payload.get("placa_veiculo")
             and not payload.get("chassi_serie")
         ):
             return False, SANCES_STATUS_PENDENTE_DADOS, "Sem codigo do veiculo, placa ou chassi para envio ao Sances"
+
+        if not payload.get("codigo_modelo") and not payload.get("descricao_modelo"):
+            return False, SANCES_STATUS_ERRO, "Campos obrigatorios ausentes sem codigo_modelo: descricao_modelo"
 
         return True, "", ""
 
@@ -9996,6 +10015,8 @@ def agendamento_para_dict(agendamento):
             "nome": str(getattr(agendamento, "nome", "") or ""),
             "cpf": str(getattr(agendamento, "cpf", "") or ""),
             "modelo": str(getattr(agendamento, "modelo", "") or ""),
+            "placa": str(getattr(agendamento, "placa", "") or ""),
+            "chassi": str(getattr(agendamento, "chassi", "") or ""),
             "ano": str(getattr(agendamento, "ano", "") or ""),
             "km_atual": str(getattr(agendamento, "km_atual", "") or ""),
             "tipo_atendimento": str(getattr(agendamento, "tipo_atendimento", "") or ""),
