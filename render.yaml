@@ -123,6 +123,9 @@ services:
       - key: SANCES_API_URL
         value: https://api.sancesturbo.com.br/integracao/posVenda
 
+      - key: SANCES_POS_VENDA_URL
+        value: https://api.sancesturbo.com.br/integracao/posVenda
+
       - key: SANCES_LIMIT
         value: 20
 

@@ -2103,6 +2103,7 @@ def interromper_fluxo_revisao_por_intencao_prioritaria(telefone, texto):
         clientes[telefone]["atendimento_humano"] = False
         clientes[telefone]["cpf"] = ""
         clientes[telefone]["garantia_os_sances"] = []
+        clientes[telefone]["garantia_numero_os"] = extrair_numero_os_texto(texto)
         enviar_mensagem(
             telefone,
             "Certo. Vou consultar no Sances.\n\nInforme seu *CPF* com 11 números."
@@ -2815,6 +2816,55 @@ def atendimento_humano_ativo_no_banco(telefone):
         db.close()
 
 
+def atendimento_atacado_catalogo_recente(telefone, minutos=5):
+    telefone_limpo = limpar_telefone(telefone)
+
+    if not telefone_limpo:
+        return False
+
+    db = SessionLocal()
+
+    try:
+        limite = agora_datetime() - timedelta(minutes=minutos)
+
+        atendimento = (
+            db.query(Atendimento)
+            .filter(Atendimento.telefone == telefone_limpo)
+            .filter(Atendimento.data >= limite)
+            .order_by(Atendimento.id.desc())
+            .first()
+        )
+
+        if not atendimento:
+            return False
+
+        texto_contexto = normalizar_texto(
+            " ".join([
+                limpar_texto(getattr(atendimento, "setor", "")),
+                limpar_texto(getattr(atendimento, "status", "")),
+                limpar_texto(getattr(atendimento, "etapa", "")),
+                limpar_texto(getattr(atendimento, "observacao", "")),
+                limpar_texto(getattr(atendimento, "observacoes", "")),
+                limpar_texto(getattr(atendimento, "intencao_ia", "")),
+            ])
+        )
+
+        return (
+            "atacado" in texto_contexto
+            and (
+                "catalogo" in texto_contexto
+                or "catalogo_atacado" in texto_contexto
+            )
+        )
+
+    except Exception as e:
+        log_erro("Erro ao verificar catÃ¡logo de atacado recente:", repr(e))
+        return False
+
+    finally:
+        db.close()
+
+
 # ==========================================
 # CONTROLE DE ESTADO
 # ==========================================
@@ -2872,6 +2922,7 @@ def estado_padrao_cliente():
         "veiculos_sances": [],
         "origem_veiculos_sances": "",
         "garantia_os_sances": [],
+        "garantia_numero_os": "",
 
         "proxima_acao": "",
         "nivel_interesse": "",
@@ -3402,6 +3453,7 @@ def limpar_dados_fluxo_revisao(telefone):
     clientes[telefone]["veiculos_sances"] = []
     clientes[telefone]["origem_veiculos_sances"] = ""
     clientes[telefone]["garantia_os_sances"] = []
+    clientes[telefone]["garantia_numero_os"] = ""
     clientes[telefone]["horarios_disponiveis"] = []
     clientes[telefone]["concluido"] = False
     clientes[telefone]["followup_nivel"] = 0
@@ -4951,24 +5003,43 @@ def finalizar_garantia_com_humano(telefone, etapa_evento, resumo):
 def consultar_garantia_por_cpf_fluxo(telefone, cpf):
     telefone = limpar_telefone(telefone)
     cpf_limpo = limpar_cpf(cpf)
+    numero_os = limpar_texto(
+        extrair_numero_os_texto(cpf)
+        or clientes.get(telefone, {}).get("garantia_numero_os", "")
+    )
 
     if not telefone:
         return False
 
     iniciar_cliente(telefone)
 
+    if numero_os:
+        clientes[telefone]["garantia_numero_os"] = numero_os
+
     if len(cpf_limpo) != 11:
+        if numero_os:
+            ordens_por_os = buscar_os_aberta_por_numero(numero_os)
+
+            if ordens_por_os:
+                clientes[telefone]["garantia_os_sances"] = []
+                clientes[telefone]["etapa"] = "menu"
+                enviar_mensagem(telefone, montar_resposta_status_os_aberta(ordens_por_os[0]))
+                return True
+
         enviar_mensagem(telefone, "Informe um *CPF válido* com 11 números.")
         return True
 
     clientes[telefone]["cpf"] = cpf_limpo
-    ordens = buscar_os_garantia_por_cpf(cpf_limpo)
+    ordens = buscar_os_aberta_por_cpf(cpf_limpo)
+
+    if not ordens and numero_os:
+        ordens = buscar_os_aberta_por_numero(numero_os)
 
     if len(ordens) == 1:
         clientes[telefone]["garantia_os_sances"] = []
         clientes[telefone]["etapa"] = "menu"
 
-        resposta = montar_resposta_status_garantia(ordens[0])
+        resposta = montar_resposta_status_os_aberta(ordens[0])
         enviar_mensagem(telefone, resposta)
 
         salvar_evento_atendimento(
@@ -5045,6 +5116,7 @@ def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
             clientes[telefone]["cpf"] = ""
             clientes[telefone]["observacao"] = ""
             clientes[telefone]["garantia_os_sances"] = []
+            clientes[telefone]["garantia_numero_os"] = ""
             enviar_mensagem(telefone, "Informe seu *CPF* com 11 números para consultar a garantia.")
             return True
 
@@ -5157,7 +5229,7 @@ def processar_fluxo_garantia(telefone, texto, texto_opcao=""):
         clientes[telefone]["garantia_os_sances"] = []
         clientes[telefone]["etapa"] = "menu"
 
-        enviar_mensagem(telefone, montar_resposta_status_garantia(os_data))
+        enviar_mensagem(telefone, montar_resposta_status_os_aberta(os_data))
 
         salvar_evento_atendimento(
             telefone=telefone,
@@ -7796,7 +7868,10 @@ def consultar_pos_venda_sances(
     codigo_empresa=None,
 ):
     try:
-        params = {}
+        params = {
+            "limit": SANCES_LIMIT,
+            "offset": SANCES_OFFSET,
+        }
 
         if cpf_cliente:
             params["cpf_cnpj_cliente"] = limpar_cpf(cpf_cliente)
@@ -7815,7 +7890,15 @@ def consultar_pos_venda_sances(
             params["codigo_empresa"] = codigo_empresa
             params["codigoEmpresa"] = codigo_empresa
 
-        if not params:
+        filtros_informados = any([
+            cpf_cliente,
+            placa,
+            protocolo,
+            ordem_servico,
+            codigo_empresa,
+        ])
+
+        if not filtros_informados:
             return {
                 "sucesso": False,
                 "mensagem": "Informe CPF/CNPJ, placa, protocolo ou O.S. para consulta.",
@@ -7861,21 +7944,34 @@ def consultar_pos_venda_sances(
         log_info("[SANCES] Status pós-venda/O.S.:", response.status_code)
         log_info("[SANCES] Resposta pós-venda/O.S.:", retorno_json)
 
-        sucesso = 200 <= response.status_code < 300
+        sucesso_http = 200 <= response.status_code < 300
+        sucesso_api = True
+
+        if isinstance(retorno_json, dict) and "sucesso" in retorno_json:
+            sucesso_api = bool(retorno_json.get("sucesso"))
+
+        sucesso = sucesso_http and sucesso_api
         dados = obter_lista_estoque_sances(retorno_json)
 
-        if sucesso and not dados and isinstance(retorno_json, dict):
+        if sucesso_http and not dados and isinstance(retorno_json, dict):
             dados = [retorno_json]
 
         mensagem = ""
         erro = ""
 
         if isinstance(retorno_json, dict):
-            mensagem = limpar_texto(retorno_json.get("mensagem") or retorno_json.get("message") or "")
+            mensagem = limpar_texto(
+                retorno_json.get("mensagemUsuarioFinal")
+                or retorno_json.get("mensagem")
+                or retorno_json.get("message")
+                or ""
+            )
             erro = limpar_texto(retorno_json.get("erro") or retorno_json.get("error") or "")
 
-        if not sucesso and not erro:
+        if not sucesso_http and not erro:
             erro = f"HTTP {response.status_code}"
+        elif sucesso_http and not sucesso_api and not erro:
+            erro = mensagem or "Consulta Sances sem sucesso"
 
         resumo = {
             "sucesso": sucesso,
@@ -7883,6 +7979,8 @@ def consultar_pos_venda_sances(
             "dados": dados if sucesso else [],
             "erro": "" if sucesso else erro,
         }
+
+        return resumo
 
     except requests.Timeout:
         return {
@@ -8186,6 +8284,208 @@ def filtrar_os_garantia_aberta(lista_os):
     return ordens
 
 
+def os_esta_aberta_sances(registro):
+    try:
+        if not isinstance(registro, dict):
+            return False
+
+        tipo = limpar_texto(registro.get("tipo", ""))
+        descricao_tipo = normalizar_texto(
+            registro.get("descricao_tipo", "")
+            or registro.get("tipo_atendimento", "")
+        )
+
+        eh_ordem_servico = (
+            tipo == "2"
+            or descricao_tipo == "ordem de servico"
+            or "ordem de servi" in descricao_tipo
+        )
+
+        if descricao_tipo and not eh_ordem_servico:
+            return False
+
+        situacao = normalizar_texto(
+            registro.get("situacao", "")
+            or registro.get("descricao_situacao", "")
+            or registro.get("status", "")
+        )
+        data_saida = limpar_texto(registro.get("data_saida") or registro.get("data_fechamento") or "")
+
+        if data_saida:
+            return False
+
+        termos_fechado = [
+            "fechada",
+            "fechado",
+            "cancelada",
+            "cancelado",
+            "finalizada",
+            "finalizado",
+            "concluida",
+            "concluido",
+            "encerrada",
+            "encerrado",
+            "faturada",
+            "faturado",
+            "entregue",
+            "retirado",
+        ]
+
+        return not any(termo in situacao for termo in termos_fechado)
+
+    except Exception:
+        return False
+
+
+def filtrar_os_aberta(lista_os):
+    return [
+        registro
+        for registro in (lista_os or [])
+        if isinstance(registro, dict) and os_esta_aberta_sances(registro)
+    ]
+
+
+def filtrar_os_por_numero(lista_os, numero_os):
+    numero_os = limpar_texto(numero_os)
+
+    if not numero_os:
+        return []
+
+    return [
+        registro
+        for registro in (lista_os or [])
+        if isinstance(registro, dict)
+        and limpar_texto(
+            registro.get("numero")
+            or registro.get("ordem_servico")
+            or registro.get("codigo")
+            or ""
+        ) == numero_os
+    ]
+
+
+def extrair_numero_os_texto(texto):
+    texto = limpar_texto(texto)
+
+    if not texto:
+        return ""
+
+    padroes = [
+        r"(?:os|o\.s\.|ordem\s+de\s+servi[cç]o|ordem)\s*(?:n[uú]mero|n[ºo]|#)?\s*[:\-]?\s*(\d{3,})",
+        r"\b(\d{4,7})\b",
+    ]
+
+    for padrao in padroes:
+        encontrado = re.search(padrao, texto, flags=re.IGNORECASE)
+
+        if encontrado:
+            return limpar_texto(encontrado.group(1))
+
+    return ""
+
+
+def buscar_os_garantia_por_numero(numero_os):
+    numero_os = limpar_texto(numero_os)
+
+    if not numero_os:
+        return []
+
+    consulta = consultar_pos_venda_sances(ordem_servico=numero_os)
+
+    if not isinstance(consulta, dict) or not consulta.get("sucesso"):
+        return []
+
+    return filtrar_os_garantia_aberta(consulta.get("dados", []))
+
+
+def buscar_os_aberta_por_numero(numero_os):
+    numero_os = limpar_texto(numero_os)
+
+    if not numero_os:
+        return []
+
+    consulta = consultar_pos_venda_sances(ordem_servico=numero_os)
+
+    if not isinstance(consulta, dict) or not consulta.get("sucesso"):
+        return []
+
+    ordens_numero = filtrar_os_por_numero(consulta.get("dados", []), numero_os)
+
+    if ordens_numero:
+        return filtrar_os_aberta(ordens_numero)
+
+    return filtrar_os_aberta(consulta.get("dados", []))
+
+
+def buscar_os_aberta_por_cpf(cpf):
+    cpf_limpo = limpar_cpf(cpf)
+
+    if len(cpf_limpo) != 11:
+        return []
+
+    try:
+        endpoint_pos_venda = limpar_texto(
+            os.getenv("SANCES_POS_VENDA_URL", "")
+            or SANCES_POS_VENDA_URL
+            or SANCES_API_URL
+        )
+
+        if not endpoint_pos_venda or not SANCES_TOKEN:
+            log_info("[SANCES] Consulta OS aberta ignorada: endpoint/token nao configurado")
+            return []
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+        params = {
+            "limit": SANCES_LIMIT,
+            "offset": SANCES_OFFSET,
+            "cpf": cpf_limpo,
+            "cpf_cliente": cpf_limpo,
+            "cpf_cnpj_cliente": cpf_limpo,
+            "cpfCnpj": cpf_limpo,
+        }
+
+        log_info("[SANCES] Consulta OS aberta por CPF iniciada:", cpf_limpo)
+
+        response = requests.get(
+            endpoint_pos_venda,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status OS aberta por CPF:", response.status_code)
+        log_info("[SANCES] Resposta OS aberta por CPF:", retorno_json)
+
+        if 200 <= response.status_code < 300:
+            ordens = filtrar_os_aberta(dados_lista_sances(retorno_json))
+
+            if ordens:
+                return ordens
+
+        consulta = consultar_pos_venda_sances(cpf_cliente=cpf_limpo)
+
+        if isinstance(consulta, dict) and consulta.get("sucesso"):
+            return filtrar_os_aberta(consulta.get("dados", []))
+
+        return []
+
+    except requests.Timeout:
+        log_erro("[SANCES] Timeout consulta OS aberta por CPF")
+        return []
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta OS aberta por CPF:", repr(e))
+        return []
+
+
 def buscar_os_garantia_por_cpf(cpf):
     cpf_limpo = limpar_cpf(cpf)
 
@@ -8236,7 +8536,17 @@ def buscar_os_garantia_por_cpf(cpf):
         if not (200 <= response.status_code < 300):
             return []
 
-        return filtrar_os_garantia_aberta(dados_lista_sances(retorno_json))
+        ordens = filtrar_os_garantia_aberta(dados_lista_sances(retorno_json))
+
+        if ordens:
+            return ordens
+
+        consulta = consultar_pos_venda_sances(cpf_cliente=cpf_limpo)
+
+        if isinstance(consulta, dict) and consulta.get("sucesso"):
+            return filtrar_os_garantia_aberta(consulta.get("dados", []))
+
+        return []
 
     except requests.Timeout:
         log_erro("[SANCES] Timeout consulta OS garantia por CPF")
@@ -8286,8 +8596,53 @@ def montar_resumo_os_garantia(os_data):
         "chassi": chassi.upper(),
         "solicitacao_cliente": limpar_texto(os_data.get("solicitacao_cliente") or ""),
         "defeito_averiguado": limpar_texto(os_data.get("defeito_averiguado") or ""),
-        "observacao": limpar_texto(os_data.get("observacao") or os_data.get("observacao_nota") or ""),
+        "observacao": limpar_texto(
+            os_data.get("observacao")
+            or os_data.get("observacoes")
+            or os_data.get("observacao_os")
+            or os_data.get("observacao_nota")
+            or os_data.get("observacao_cliente")
+            or os_data.get("descricao_observacao")
+            or os_data.get("mensagem_observacao")
+            or ""
+        ),
     }
+
+
+def montar_resposta_status_os_aberta(os_data):
+    dados = montar_resumo_os_garantia(os_data)
+
+    linhas = ["Consultei sua ordem de servico em aberto no Sances."]
+
+    if dados.get("numero"):
+        linhas.append(f"OS: {dados['numero']}")
+
+    if dados.get("situacao"):
+        linhas.append(f"Situacao atual: {dados['situacao']}")
+
+    if dados.get("cliente"):
+        linhas.append(f"Cliente: {dados['cliente']}")
+
+    if dados.get("modelo"):
+        linhas.append(f"Moto: {dados['modelo']}")
+
+    if dados.get("chassi"):
+        linhas.append(f"Chassi final: {dados['chassi'][-4:]}")
+
+    observacao = dados.get("observacao", "")
+
+    if observacao:
+        linhas.append(f"\nInformacao da observacao da OS:\n{observacao}")
+    elif dados.get("defeito_averiguado"):
+        linhas.append(f"\nDefeito averiguado:\n{dados['defeito_averiguado']}")
+    elif dados.get("solicitacao_cliente"):
+        linhas.append(f"\nSolicitacao registrada:\n{dados['solicitacao_cliente']}")
+    else:
+        linhas.append("\nA OS esta em aberto, mas nao encontrei observacao registrada para retorno automatico.")
+
+    linhas.append("\nSe precisar de mais detalhes, posso direcionar voce para um atendente.")
+
+    return "\n".join(linhas)
 
 
 def montar_resposta_status_garantia(os_data):
@@ -8347,6 +8702,87 @@ def montar_lista_os_garantia(ordens):
         linhas.append(f"{indice} - {descricao or 'OS de garantia'}")
 
     return "\n".join(linhas)
+
+
+def texto_parece_consulta_os_aberta(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if not texto_norm:
+        return False
+
+    tem_os = (
+        "ordem de servico" in texto_norm
+        or "ordem servico" in texto_norm
+        or re.search(r"\bos\b", texto_norm)
+    )
+    tem_numero_os = bool(extrair_numero_os_texto(texto))
+    termos_consulta = [
+        "consultar",
+        "acompanhar",
+        "status",
+        "andamento",
+        "como esta",
+        "aberta",
+        "observacao",
+        "observacoes",
+    ]
+
+    return tem_os and (tem_numero_os or any(termo in texto_norm for termo in termos_consulta))
+
+
+def responder_consulta_os_aberta(telefone, texto):
+    telefone = limpar_telefone(telefone)
+    texto = limpar_texto(texto)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    numero_os = extrair_numero_os_texto(texto)
+    cpf_limpo = limpar_cpf(texto)
+
+    if numero_os:
+        ordens = buscar_os_aberta_por_numero(numero_os)
+
+        if ordens:
+            clientes[telefone]["etapa"] = "menu"
+            clientes[telefone]["garantia_os_sances"] = []
+            clientes[telefone]["garantia_numero_os"] = numero_os
+            enviar_mensagem(telefone, montar_resposta_status_os_aberta(ordens[0]))
+            salvar_evento_atendimento(
+                telefone=telefone,
+                setor="Oficina",
+                status=STATUS_FINALIZADO,
+                etapa="consulta_os_aberta_sances",
+                dados=clientes[telefone],
+                atendimento_humano=False,
+                concluido=True,
+                origem=clientes[telefone].get("origem", "BOT"),
+            )
+            return True
+
+        enviar_mensagem(
+            telefone,
+            "NÃ£o encontrei ordem de serviÃ§o em aberto com esse nÃºmero. Confira o nÃºmero da OS ou informe seu CPF com 11 nÃºmeros."
+        )
+        clientes[telefone]["etapa"] = "garantia_consulta_cpf"
+        clientes[telefone]["garantia_numero_os"] = numero_os
+        return True
+
+    if len(cpf_limpo) == 11:
+        return consultar_garantia_por_cpf_fluxo(telefone, cpf_limpo)
+
+    clientes[telefone]["etapa"] = "garantia_consulta_cpf"
+    clientes[telefone]["intencao_ia"] = "acompanhar_os"
+    clientes[telefone]["garantia_os_sances"] = []
+    clientes[telefone]["garantia_numero_os"] = ""
+    enviar_mensagem(
+        telefone,
+        "Certo. Vou consultar as ordens de serviÃ§o em aberto no Sances.\n\n"
+        "Informe o *nÃºmero da OS* ou seu *CPF com 11 nÃºmeros*."
+    )
+    return True
 
 
 def valor_numero_pos_venda(valor):
@@ -13480,6 +13916,19 @@ def interpretar_opcao_menu_rapido(telefone, opcao):
     clientes[telefone]["button_id"] = opcao_normalizada
     clientes[telefone]["ultima_interacao"] = agora()
 
+    if (
+        etapa_atual == "menu"
+        and opcao_normalizada in ["1", "OPCAO_1"]
+        and atendimento_atacado_catalogo_recente(telefone)
+    ):
+        clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
+        clientes[telefone]["intencao_ia"] = "atacado"
+        clientes[telefone]["proxima_acao"] = "ATACADO_COTACAO_ITENS"
+        clientes[telefone]["proxima_acao_atacado"] = "AGUARDAR_LISTA_COTACAO"
+        clientes[telefone]["catalogo_enviado"] = True
+        log_info("OpÃ§Ã£o 1 duplicada apÃ³s catÃ¡logo de atacado ignorada:", telefone)
+        return True
+
     if opcao_normalizada in ["MENU", "VOLTAR_MENU", "MENU_PRINCIPAL", "OPCAO_MENU"]:
         encerrar_atendimento_humano(telefone)
         resetar_cliente(telefone)
@@ -13693,6 +14142,9 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
     if not etapa_permite_ia_livre(etapa_atual):
         return False
 
+    if texto_parece_consulta_os_aberta(texto):
+        return responder_consulta_os_aberta(telefone, texto)
+
     resposta_ia = obter_dados_extraidos_ia(texto)
 
     if not isinstance(resposta_ia, dict):
@@ -13743,6 +14195,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         "valor_peca",
         "consulta_estoque",
         "acompanhar_garantia",
+        "acompanhar_os",
         "cancelar_agendamento",
         "cancelar_revisao",
         "reagendar_agendamento",
@@ -13823,8 +14276,11 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         iniciar_fluxo_garantia(telefone)
         return True
 
-    if intencao == "acompanhar_garantia":
-        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "acompanhar_garantia", "etapa_atual": etapa_atual})
+    if intencao in ["acompanhar_garantia", "acompanhar_os"]:
+        log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": intencao, "etapa_atual": etapa_atual})
+        if intencao == "acompanhar_os" or texto_parece_consulta_os_aberta(texto):
+            return responder_consulta_os_aberta(telefone, texto)
+
         iniciar_cliente(telefone)
         clientes[telefone]["intencao_ia"] = "acompanhar_garantia"
         clientes[telefone]["etapa"] = "garantia_consulta_cpf"
@@ -13834,6 +14290,7 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
         clientes[telefone]["cpf"] = ""
         clientes[telefone]["observacao"] = ""
         clientes[telefone]["garantia_os_sances"] = []
+        clientes[telefone]["garantia_numero_os"] = extrair_numero_os_texto(texto)
         clientes[telefone]["ultima_interacao"] = agora()
         enviar_mensagem(
             telefone,
@@ -14521,6 +14978,14 @@ def webhook():
 
         etapa_anterior = limpar_texto(clientes[telefone].get("etapa", "menu")) or "menu"
         ultima_interacao_anterior = clientes[telefone].get("ultima_interacao", agora())
+
+        if tipo_mensagem in ["document", "media"] and "catalogo" in texto_normalizado and "atacado" in texto_normalizado:
+            clientes[telefone]["etapa"] = "atacado_catalogo_enviado"
+            clientes[telefone]["intencao_ia"] = "atacado"
+            clientes[telefone]["catalogo_enviado"] = True
+            clientes[telefone]["ultima_interacao"] = agora()
+            log_info("Callback/documento de catÃ¡logo de atacado ignorado:", telefone)
+            return jsonify({"status": "ignorado", "motivo": "catalogo_atacado_documento"}), 200
 
         if not texto and tipo_mensagem not in ["button", "audio", "image", "video", "document", "media"]:
             return jsonify({"status": "ignorado", "motivo": "sem_texto"}), 200
