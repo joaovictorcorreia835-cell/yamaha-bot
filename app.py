@@ -201,6 +201,10 @@ PDF_ACESSORIOS_GERAL = "acessorios.pdf"
 # ==========================================
 SANCES_TIMEOUT = env_int("SANCES_TIMEOUT", 15)
 SANCES_RETRY_MAX = env_int("SANCES_RETRY_MAX", 3)
+SANCES_BASE_URL = os.getenv(
+    "SANCES_BASE_URL",
+    "https://api.sancesturbo.com.br"
+).strip().rstrip("/")
 SANCES_URL = os.getenv(
     "SANCES_URL",
     "https://api.sancesturbo.com.br/integracao/oficina/agendar"
@@ -224,6 +228,10 @@ SANCES_ESTOQUE_URL = os.getenv(
 SANCES_POS_VENDA_URL = os.getenv(
     "SANCES_POS_VENDA_URL",
     "https://api.sancesturbo.com.br/integracao/posVenda"
+).strip()
+SANCES_POS_VENDA_REGISTROS_URL = os.getenv(
+    "SANCES_POS_VENDA_REGISTROS_URL",
+    SANCES_POS_VENDA_URL or f"{SANCES_BASE_URL}/integracao/posVenda"
 ).strip()
 SANCES_NEGOCIACAO_URL = os.getenv(
     "SANCES_NEGOCIACAO_URL",
@@ -914,6 +922,7 @@ def etapa_bloqueia_ia_comercial(etapa):
         "garantia_acompanhar_descricao",
         "garantia_consulta_cpf",
         "garantia_escolher_os",
+        "consultar_os_numero",
         "atacado",
         "atacado_cotacao",
         "atacado_cotacao_itens",
@@ -1904,6 +1913,7 @@ ETAPAS_COLETA_RESTRITA = {
     "garantia_acompanhar_descricao",
     "garantia_consulta_cpf",
     "garantia_escolher_os",
+    "consultar_os_numero",
     "atacado",
     "atacado_cotacao",
     "atacado_cotacao_itens",
@@ -4399,6 +4409,10 @@ def enviar_mensagem(telefone, mensagem, botoes=None):
     except Exception as e:
         log_erro("Erro envio mensagem Z-API:", repr(e))
         return False
+
+
+def enviar_texto(telefone, mensagem):
+    return enviar_mensagem(telefone, mensagem)
 
 
 def enviar_mensagem_botoes(telefone, mensagem, botoes=None):
@@ -8403,6 +8417,232 @@ def extrair_numero_os_texto(texto):
     return ""
 
 
+def extrair_numero_os_texto(texto):
+    texto = limpar_texto(texto)
+
+    if not texto:
+        return ""
+
+    texto_norm = normalizar_texto(texto)
+    padroes = [
+        r"(?:os|o\.s\.|ordem\s+de\s+servico|ordem)\s*(?:numero|n|#)?\s*[:\-]?\s*(\d{3,})",
+        r"\b(\d{4,7})\b",
+    ]
+
+    for padrao in padroes:
+        encontrado = re.search(padrao, texto_norm, flags=re.IGNORECASE)
+
+        if encontrado:
+            return limpar_texto(encontrado.group(1))
+
+    return ""
+
+
+def valor_os_sances(registro, *chaves):
+    if not isinstance(registro, dict):
+        return ""
+
+    for chave in chaves:
+        valor = registro.get(chave)
+
+        if valor not in [None, ""]:
+            return valor
+
+    return ""
+
+
+def numero_os_registro_sances(registro):
+    return limpar_texto(
+        valor_os_sances(
+            registro,
+            "numero",
+            "ordem_servico",
+            "numero_os",
+            "codigo",
+        )
+    )
+
+
+def registro_eh_ordem_servico_sances(registro):
+    if not isinstance(registro, dict):
+        return False
+
+    tipo = limpar_texto(registro.get("tipo", ""))
+    descricao_tipo = normalizar_texto(registro.get("descricao_tipo", ""))
+
+    return tipo == "2" and (
+        descricao_tipo == "ordem de servico"
+        or "ordem de servi" in descricao_tipo
+    )
+
+
+def montar_retorno_os_sances(registro):
+    registro = registro if isinstance(registro, dict) else {}
+
+    return {
+        "numero": limpar_texto(numero_os_registro_sances(registro)),
+        "situacao": limpar_texto(
+            valor_os_sances(registro, "situacao", "descricao_situacao", "status")
+        ),
+        "observacao": limpar_texto(
+            valor_os_sances(registro, "observacao", "observacao_nota")
+        ),
+        "solicitacao_cliente": limpar_texto(
+            valor_os_sances(registro, "solicitacao_cliente", "solicitacao")
+        ),
+        "defeito_averiguado": limpar_texto(
+            valor_os_sances(registro, "defeito_averiguado", "defeito")
+        ),
+        "descricao_tipo_os": limpar_texto(
+            valor_os_sances(registro, "descricao_tipo_os", "tipo_os")
+        ),
+        "descricao_modelo_veiculo": limpar_texto(
+            valor_os_sances(registro, "descricao_modelo_veiculo", "modelo", "modelo_veiculo")
+        ),
+        "placa_veiculo": limpar_texto(
+            valor_os_sances(registro, "placa_veiculo", "placa")
+        ).upper(),
+        "km_entrada": limpar_texto(
+            valor_os_sances(registro, "km_entrada", "quilometragem", "km")
+        ),
+        "data_entrada": limpar_texto(
+            valor_os_sances(registro, "data_entrada", "data_abertura", "data")
+        ),
+        "nome_consultor": limpar_texto(
+            valor_os_sances(registro, "nome_consultor", "consultor")
+        ),
+    }
+
+
+def buscar_os_por_numero(numero_os):
+    numero_os = limpar_texto(numero_os)
+
+    if not numero_os:
+        return None
+
+    endpoint = limpar_texto(
+        SANCES_POS_VENDA_REGISTROS_URL
+        or SANCES_POS_VENDA_URL
+        or f"{SANCES_BASE_URL}/integracao/posVenda"
+    )
+
+    if not endpoint:
+        log_erro("[SANCES] Endpoint pos-venda nao configurado para consulta OS")
+        return None
+
+    if not SANCES_TOKEN:
+        log_erro("[SANCES] Token nao configurado para consulta OS")
+        return None
+
+    try:
+        params = {
+            "limit": max(SANCES_LIMIT, 100),
+            "offset": 0,
+            "numero": numero_os,
+            "ordem_servico": numero_os,
+            "numero_os": numero_os,
+        }
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta OS por numero iniciada:", {
+            "endpoint": endpoint,
+            "numero": numero_os,
+        })
+
+        response = requests.get(
+            endpoint,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        if not (200 <= response.status_code < 300):
+            mensagem_erro = ""
+
+            if isinstance(retorno_json, dict):
+                mensagem_erro = limpar_texto(
+                    retorno_json.get("message")
+                    or retorno_json.get("mensagem")
+                    or retorno_json.get("mensagemUsuarioFinal")
+                    or ""
+                )
+
+            if "metodo: get" in normalizar_texto(mensagem_erro):
+                response = requests.post(
+                    endpoint,
+                    json=params,
+                    headers={**headers, "Content-Type": "application/json"},
+                    timeout=SANCES_TIMEOUT,
+                )
+
+                try:
+                    retorno_json = response.json()
+                except Exception:
+                    retorno_json = {}
+
+        log_info("[SANCES] Status consulta OS por numero:", response.status_code)
+        log_info("[SANCES] Resposta consulta OS por numero:", retorno_json)
+
+        if not (200 <= response.status_code < 300):
+            return None
+
+        registros = dados_lista_sances(retorno_json)
+
+        if not any(numero_os_registro_sances(registro) == numero_os for registro in registros if isinstance(registro, dict)):
+            params_sem_numero = {
+                "limit": max(SANCES_LIMIT, 100),
+                "offset": 0,
+            }
+            response = requests.get(
+                endpoint,
+                params=params_sem_numero,
+                headers=headers,
+                timeout=SANCES_TIMEOUT,
+            )
+
+            try:
+                retorno_json = response.json()
+            except Exception:
+                retorno_json = {}
+
+            log_info("[SANCES] Status consulta OS por numero sem filtro:", response.status_code)
+            log_info("[SANCES] Resposta consulta OS por numero sem filtro:", retorno_json)
+
+            if 200 <= response.status_code < 300:
+                registros = dados_lista_sances(retorno_json)
+
+        for registro in registros:
+            if not isinstance(registro, dict):
+                continue
+
+            if not registro_eh_ordem_servico_sances(registro):
+                continue
+
+            if numero_os_registro_sances(registro) != numero_os:
+                continue
+
+            return montar_retorno_os_sances(registro)
+
+        return None
+
+    except requests.Timeout:
+        log_erro("[SANCES] Timeout consulta OS por numero")
+        return None
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta OS por numero:", repr(e))
+        return None
+
+
 def buscar_os_garantia_por_numero(numero_os):
     numero_os = limpar_texto(numero_os)
 
@@ -8749,6 +8989,123 @@ def texto_parece_consulta_os_aberta(texto):
     return tem_os and (tem_numero_os or any(termo in texto_norm for termo in termos_consulta))
 
 
+def texto_parece_inicio_consulta_os_numero(texto):
+    texto_norm = normalizar_texto(texto)
+
+    if not texto_norm:
+        return False
+
+    gatilhos = [
+        "consultar os",
+        "consulta os",
+        "status da os",
+        "ordem de servico",
+        "garantia",
+    ]
+
+    return any(gatilho in texto_norm for gatilho in gatilhos)
+
+
+def iniciar_consulta_os_numero(telefone, texto=""):
+    telefone = limpar_telefone(telefone)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    numero_os = extrair_numero_os_texto(texto)
+
+    if numero_os:
+        clientes[telefone]["etapa"] = "consultar_os_numero"
+        clientes[telefone]["intencao_ia"] = "consultar_os"
+        clientes[telefone]["atendimento_humano"] = False
+        clientes[telefone]["ultima_interacao"] = agora()
+        return processar_consulta_os_numero(telefone, numero_os)
+
+    clientes[telefone]["etapa"] = "consultar_os_numero"
+    clientes[telefone]["intencao_ia"] = "consultar_os"
+    clientes[telefone]["atendimento_humano"] = False
+    clientes[telefone]["ultima_interacao"] = agora()
+
+    enviar_texto(
+        telefone,
+        "🔎 Informe o número da Ordem de Serviço para consulta."
+    )
+    return True
+
+
+def montar_mensagem_consulta_os(os_data):
+    os_data = os_data if isinstance(os_data, dict) else {}
+
+    observacao = limpar_texto(os_data.get("observacao", "")) or "Nenhuma observação cadastrada."
+    solicitacao = limpar_texto(os_data.get("solicitacao_cliente", "")) or "Não informado."
+    defeito = limpar_texto(os_data.get("defeito_averiguado", "")) or "Não informado."
+
+    linhas = [
+        "🔎 *Consulta de Ordem de Serviço*",
+        "",
+        f"*Número da OS:* {limpar_texto(os_data.get('numero', '')) or '-'}",
+        f"*Situação:* {limpar_texto(os_data.get('situacao', '')) or '-'}",
+        f"*Tipo da OS:* {limpar_texto(os_data.get('descricao_tipo_os', '')) or '-'}",
+        f"*Modelo:* {limpar_texto(os_data.get('descricao_modelo_veiculo', '')) or '-'}",
+        f"*Placa:* {limpar_texto(os_data.get('placa_veiculo', '')) or '-'}",
+        f"*Data de entrada:* {limpar_texto(os_data.get('data_entrada', '')) or '-'}",
+        f"*Consultor:* {limpar_texto(os_data.get('nome_consultor', '')) or '-'}",
+        "",
+        f"*Observação:* {observacao}",
+        f"*Solicitação do cliente:* {solicitacao}",
+        f"*Defeito averiguado:* {defeito}",
+    ]
+
+    return "\n".join(linhas)
+
+
+def processar_consulta_os_numero(telefone, texto):
+    telefone = limpar_telefone(telefone)
+    numero_os = limpar_texto(extrair_numero_os_texto(texto) or texto)
+
+    if not telefone:
+        return False
+
+    iniciar_cliente(telefone)
+
+    if not numero_os:
+        enviar_texto(
+            telefone,
+            "Informe um número de Ordem de Serviço válido para consulta."
+        )
+        return True
+
+    os_data = buscar_os_por_numero(numero_os)
+
+    if os_data:
+        enviar_texto(telefone, montar_mensagem_consulta_os(os_data))
+        salvar_evento_atendimento(
+            telefone=telefone,
+            setor="Oficina",
+            status=STATUS_FINALIZADO,
+            etapa="consulta_os_numero_sances",
+            dados={**clientes.get(telefone, {}), "os_sances": os_data},
+            atendimento_humano=False,
+            concluido=True,
+            origem=clientes[telefone].get("origem", "BOT"),
+        )
+    else:
+        enviar_texto(
+            telefone,
+            "Não encontrei nenhuma Ordem de Serviço com esse número."
+        )
+
+    clientes[telefone]["etapa"] = "menu"
+    clientes[telefone]["intencao_ia"] = ""
+    clientes[telefone]["garantia_os_sances"] = []
+    clientes[telefone]["garantia_numero_os"] = ""
+    clientes[telefone]["ultima_interacao"] = agora()
+    enviar_menu(telefone)
+    return True
+
+
 def responder_consulta_os_aberta(telefone, texto):
     telefone = limpar_telefone(telefone)
     texto = limpar_texto(texto)
@@ -8762,31 +9119,41 @@ def responder_consulta_os_aberta(telefone, texto):
     cpf_limpo = limpar_cpf(texto)
 
     if numero_os:
-        ordens = buscar_os_aberta_por_numero(numero_os)
+        os_data = buscar_os_por_numero(numero_os)
 
-        if ordens:
+        if os_data:
             clientes[telefone]["etapa"] = "menu"
             clientes[telefone]["garantia_os_sances"] = []
             clientes[telefone]["garantia_numero_os"] = numero_os
-            enviar_mensagem(telefone, montar_resposta_status_os_aberta(ordens[0]))
+            enviar_texto(telefone, montar_mensagem_consulta_os(os_data))
             salvar_evento_atendimento(
                 telefone=telefone,
                 setor="Oficina",
                 status=STATUS_FINALIZADO,
-                etapa="consulta_os_aberta_sances",
-                dados=clientes[telefone],
+                etapa="consulta_os_numero_sances",
+                dados={**clientes.get(telefone, {}), "os_sances": os_data},
                 atendimento_humano=False,
                 concluido=True,
                 origem=clientes[telefone].get("origem", "BOT"),
             )
             return True
 
+        enviar_texto(
+            telefone,
+            "Não encontrei nenhuma Ordem de Serviço com esse número."
+        )
+        clientes[telefone]["etapa"] = "menu"
+        clientes[telefone]["garantia_numero_os"] = ""
+        enviar_menu(telefone)
+        return True
+
         enviar_mensagem(
             telefone,
             "NÃ£o encontrei ordem de serviÃ§o em aberto com esse nÃºmero. Confira o nÃºmero da OS ou informe seu CPF com 11 nÃºmeros."
         )
-        clientes[telefone]["etapa"] = "garantia_consulta_cpf"
-        clientes[telefone]["garantia_numero_os"] = numero_os
+        clientes[telefone]["etapa"] = "menu"
+        clientes[telefone]["garantia_numero_os"] = ""
+        enviar_menu(telefone)
         return True
 
     if len(cpf_limpo) == 11:
@@ -13875,6 +14242,7 @@ def etapa_permite_ia_livre(etapa):
         "garantia_acompanhar_descricao",
         "garantia_consulta_cpf",
         "garantia_escolher_os",
+        "consultar_os_numero",
         "atacado",
         "atacado_cotacao",
         "atacado_cotacao_itens",
@@ -14163,6 +14531,9 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
     if not etapa_permite_ia_livre(etapa_atual):
         return False
 
+    if texto_parece_inicio_consulta_os_numero(texto):
+        return iniciar_consulta_os_numero(telefone, texto)
+
     if texto_parece_consulta_os_aberta(texto):
         return responder_consulta_os_aberta(telefone, texto)
 
@@ -14294,13 +14665,12 @@ def tentar_interpretar_ia_no_menu(telefone, texto):
 
     if intencao == "garantia":
         log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": "garantia", "etapa_atual": etapa_atual})
-        iniciar_fluxo_garantia(telefone)
-        return True
+        return iniciar_consulta_os_numero(telefone, texto)
 
     if intencao in ["acompanhar_garantia", "acompanhar_os"]:
         log_info("IA FLUXO ESCOLHIDO:", {"telefone": telefone, "fluxo": intencao, "etapa_atual": etapa_atual})
-        if intencao == "acompanhar_os" or texto_parece_consulta_os_aberta(texto):
-            return responder_consulta_os_aberta(telefone, texto)
+        if intencao == "acompanhar_os" or texto_parece_inicio_consulta_os_numero(texto) or texto_parece_consulta_os_aberta(texto):
+            return iniciar_consulta_os_numero(telefone, texto)
 
         iniciar_cliente(telefone)
         clientes[telefone]["intencao_ia"] = "acompanhar_garantia"
@@ -15141,6 +15511,10 @@ def webhook():
 
         etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
 
+        if etapa == "consultar_os_numero":
+            if processar_consulta_os_numero(telefone, texto):
+                return jsonify({"status": "ok", "motivo": "consulta_os_numero"}), 200
+
         if texto_parece_pre_orcamento(texto) and (
             etapa == "menu" or etapa.startswith("revisao_")
         ):
@@ -15224,6 +15598,10 @@ def webhook():
                 return jsonify({"status": "ok", "motivo": "opcao_rapida"}), 200
 
         etapa = limpar_texto(clientes[telefone].get("etapa", "menu")).lower() or "menu"
+
+        if etapa == "menu" and texto_parece_inicio_consulta_os_numero(texto):
+            iniciar_consulta_os_numero(telefone, texto)
+            return jsonify({"status": "ok", "motivo": "inicio_consulta_os_numero"}), 200
 
         # ==========================================
         # ATACADO - PRIORIDADE ANTES DE IA / REVISÃO
@@ -15514,6 +15892,7 @@ def webhook():
             "garantia_acompanhar_descricao",
             "garantia_consulta_cpf",
             "garantia_escolher_os",
+            "consultar_os_numero",
         ]:
             if processar_fluxo_garantia(telefone, texto, texto_opcao):
                 return jsonify({"status": "ok", "motivo": "fluxo_garantia"}), 200
