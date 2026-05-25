@@ -8342,10 +8342,8 @@ def os_esta_aberta_sances(registro):
             or registro.get("descricao_situacao", "")
             or registro.get("status", "")
         )
-        data_saida = limpar_texto(registro.get("data_saida") or registro.get("data_fechamento") or "")
-
-        if data_saida:
-            return False
+        data_fechamento = limpar_texto(registro.get("data_fechamento") or "")
+        data_saida = limpar_texto(registro.get("data_saida") or "")
 
         termos_fechado = [
             "fechada",
@@ -8364,7 +8362,26 @@ def os_esta_aberta_sances(registro):
             "retirado",
         ]
 
-        return not any(termo in situacao for termo in termos_fechado)
+        if any(termo in situacao for termo in termos_fechado):
+            return False
+
+        termos_aberto = [
+            "aberta",
+            "aberto",
+            "em aberto",
+            "andamento",
+            "em andamento",
+            "aguardando",
+            "pendente",
+        ]
+
+        if any(termo in situacao for termo in termos_aberto):
+            return True
+
+        if data_fechamento:
+            return False
+
+        return not bool(data_saida)
 
     except Exception:
         return False
@@ -8673,7 +8690,21 @@ def buscar_os_aberta_por_numero(numero_os):
     if ordens_numero:
         return filtrar_os_aberta(ordens_numero)
 
-    return filtrar_os_aberta(consulta.get("dados", []))
+    ordens_abertas = filtrar_os_aberta(consulta.get("dados", []))
+
+    if ordens_abertas:
+        return ordens_abertas
+
+    os_data = buscar_os_por_numero(numero_os)
+
+    if os_data and os_esta_aberta_sances({
+        **os_data,
+        "tipo": "2",
+        "descricao_tipo": "Ordem de servico",
+    }):
+        return [os_data]
+
+    return []
 
 
 def buscar_os_aberta_por_cpf(cpf):
