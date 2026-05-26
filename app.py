@@ -15376,6 +15376,37 @@ def processar_fluxo_revisao(
 # ==========================================
 # WEBHOOK - Z-API
 # ==========================================
+@app.route("/debug/os/<numero_os>", methods=["GET"])
+def debug_consulta_os(numero_os):
+    token_debug = limpar_texto(
+        request.args.get("token", "")
+        or request.headers.get("X-Debug-Token", "")
+    )
+    token_esperado = limpar_texto(
+        os.getenv("DEBUG_TOKEN", "")
+        or ZAPI_CLIENT_TOKEN
+    )
+
+    if not token_esperado or token_debug != token_esperado:
+        return jsonify({"ok": False, "erro": "nao_autorizado"}), 403
+
+    numero_os = limpar_texto(numero_os)
+    os_data = buscar_os_consulta_por_numero(numero_os)
+
+    return jsonify({
+        "ok": bool(os_data),
+        "numero_consultado": numero_os,
+        "commit": limpar_texto(os.getenv("RENDER_GIT_COMMIT", ""))[:12],
+        "endpoint_pos_venda": limpar_texto(
+            SANCES_POS_VENDA_REGISTROS_URL
+            or SANCES_POS_VENDA_URL
+            or SANCES_API_URL
+        ),
+        "sances_token_configurado": bool(SANCES_TOKEN),
+        "resultado": os_data or {},
+    }), 200
+
+
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
 
