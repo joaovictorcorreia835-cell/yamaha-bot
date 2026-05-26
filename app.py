@@ -8487,7 +8487,7 @@ def registro_eh_ordem_servico_sances(registro):
     tipo = limpar_texto(registro.get("tipo", ""))
     descricao_tipo = normalizar_texto(registro.get("descricao_tipo", ""))
 
-    return tipo == "2" and (
+    return tipo == "2" or (
         descricao_tipo == "ordem de servico"
         or "ordem de servi" in descricao_tipo
     )
@@ -8705,6 +8705,25 @@ def buscar_os_aberta_por_numero(numero_os):
         return [os_data]
 
     return []
+
+
+def buscar_os_consulta_por_numero(numero_os):
+    numero_os = limpar_texto(numero_os)
+
+    if not numero_os:
+        return None
+
+    os_data = buscar_os_por_numero(numero_os)
+
+    if os_data:
+        return os_data
+
+    ordens_abertas = buscar_os_aberta_por_numero(numero_os)
+
+    if ordens_abertas:
+        return montar_retorno_os_sances(ordens_abertas[0])
+
+    return None
 
 
 def buscar_os_aberta_por_cpf(cpf):
@@ -9108,7 +9127,7 @@ def processar_consulta_os_numero(telefone, texto):
         )
         return True
 
-    os_data = buscar_os_por_numero(numero_os)
+    os_data = buscar_os_consulta_por_numero(numero_os)
 
     if os_data:
         enviar_texto(telefone, montar_mensagem_consulta_os(os_data))
@@ -9150,7 +9169,7 @@ def responder_consulta_os_aberta(telefone, texto):
     cpf_limpo = limpar_cpf(texto)
 
     if numero_os:
-        os_data = buscar_os_por_numero(numero_os)
+        os_data = buscar_os_consulta_por_numero(numero_os)
 
         if os_data:
             clientes[telefone]["etapa"] = "menu"
