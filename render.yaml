@@ -129,6 +129,9 @@ services:
       - key: SANCES_BASE_URL
         value: https://api.sancesturbo.com.br
 
+      - key: SANCES_TOKEN
+        sync: false
+
       - key: SANCES_URL
         value: https://api.sancesturbo.com.br/integracao/oficina/agendar
 

@@ -9127,6 +9127,16 @@ def processar_consulta_os_numero(telefone, texto):
         )
         return True
 
+    if not SANCES_TOKEN:
+        enviar_texto(
+            telefone,
+            "Nao consegui consultar a Ordem de Servico agora porque a integracao com o Sances nao esta configurada."
+        )
+        clientes[telefone]["etapa"] = "menu"
+        clientes[telefone]["ultima_interacao"] = agora()
+        enviar_menu(telefone)
+        return True
+
     os_data = buscar_os_consulta_por_numero(numero_os)
 
     if os_data:
@@ -9167,6 +9177,15 @@ def responder_consulta_os_aberta(telefone, texto):
 
     numero_os = extrair_numero_os_texto(texto)
     cpf_limpo = limpar_cpf(texto)
+
+    if not SANCES_TOKEN:
+        enviar_texto(
+            telefone,
+            "Nao consegui consultar a Ordem de Servico agora porque a integracao com o Sances nao esta configurada."
+        )
+        clientes[telefone]["etapa"] = "menu"
+        enviar_menu(telefone)
+        return True
 
     if numero_os:
         os_data = buscar_os_consulta_por_numero(numero_os)
