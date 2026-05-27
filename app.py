@@ -6994,16 +6994,23 @@ def buscar_vendas_sances(data_inicio, data_fim):
                 "erro": "SANCES_TOKEN não configurado",
             }
 
-        params = {
-            "data_inicio": data_inicio,
-            "data_fim": data_fim,
-            "dataInicio": data_inicio,
-            "dataFim": data_fim,
-            "data_finalizacao_inicio": data_inicio,
-            "data_finalizacao_fim": data_fim,
-            "dataFinalizacaoInicio": data_inicio,
-            "dataFinalizacaoFim": data_fim,
-        }
+        params = {}
+
+        if data_inicio:
+            params.update({
+                "data_inicio": data_inicio,
+                "dataInicio": data_inicio,
+                "data_finalizacao_inicio": data_inicio,
+                "dataFinalizacaoInicio": data_inicio,
+            })
+
+        if data_fim:
+            params.update({
+                "data_fim": data_fim,
+                "dataFim": data_fim,
+                "data_finalizacao_fim": data_fim,
+                "dataFinalizacaoFim": data_fim,
+            })
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {SANCES_TOKEN}",
@@ -7063,6 +7070,149 @@ def buscar_vendas_sances(data_inicio, data_fim):
             "erro": repr(e),
         }
 
+
+def buscar_clientes_vendas_sances(data_inicio="", data_fim="", limit=None, offset=None):
+    try:
+        if not SANCES_GET_VENDAS_URL:
+            return {
+                "sucesso": False,
+                "mensagem": "Endpoint de vendas Sances nao configurado.",
+                "linhas": [],
+                "erro": "SANCES_GET_VENDAS_URL nao configurada",
+            }
+
+        if not SANCES_TOKEN:
+            return {
+                "sucesso": False,
+                "mensagem": "Token Sances nao configurado.",
+                "linhas": [],
+                "erro": "SANCES_TOKEN nao configurado",
+            }
+
+        params = {}
+
+        if limit not in [None, ""]:
+            params["limit"] = int(limit)
+
+        if offset not in [None, ""]:
+            params["offset"] = int(offset)
+        data_inicio = limpar_texto(data_inicio)
+        data_fim = limpar_texto(data_fim)
+
+        if data_inicio:
+            params.update({
+                "data_inicio": data_inicio,
+                "dataInicio": data_inicio,
+                "data_finalizacao_inicio": data_inicio,
+                "dataFinalizacaoInicio": data_inicio,
+            })
+
+        if data_fim:
+            params.update({
+                "data_fim": data_fim,
+                "dataFim": data_fim,
+                "data_finalizacao_fim": data_fim,
+                "dataFinalizacaoFim": data_fim,
+            })
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {SANCES_TOKEN}",
+        }
+
+        log_info("[SANCES] Consulta vendas clientes iniciada:", params)
+
+        response = requests.get(
+            SANCES_GET_VENDAS_URL,
+            params=params,
+            headers=headers,
+            timeout=SANCES_TIMEOUT,
+        )
+
+        try:
+            retorno_json = response.json()
+        except Exception:
+            retorno_json = {}
+
+        log_info("[SANCES] Status vendas clientes:", response.status_code)
+
+        if not (200 <= response.status_code < 300):
+            mensagem_erro = ""
+
+            if isinstance(retorno_json, dict):
+                mensagem_erro = limpar_texto(
+                    retorno_json.get("message")
+                    or retorno_json.get("mensagem")
+                    or retorno_json.get("mensagemUsuarioFinal")
+                    or ""
+                )
+
+            return {
+                "sucesso": False,
+                "mensagem": "Erro ao consultar vendas no Sances.",
+                "linhas": [],
+                "erro": f"HTTP {response.status_code}: {mensagem_erro}".strip(),
+            }
+
+        linhas = []
+        vistos = set()
+
+        for venda in lista_dados_sances(retorno_json):
+            for linha_venda in linhas_venda_sances(venda):
+                chassi = limpar_texto(linha_venda.get("chassi", "")).upper()
+                nome = limpar_texto(linha_venda.get("nome_cliente", ""))
+                telefone = limpar_telefone(linha_venda.get("telefone_cliente", ""))
+                modelo = limpar_texto(linha_venda.get("modelo", "")).upper()
+                data_finalizacao = limpar_texto(linha_venda.get("data_finalizacao", ""))
+
+                if not any([nome, telefone, chassi, modelo]):
+                    continue
+
+                chave = chassi or f"{nome}|{telefone}|{modelo}|{data_finalizacao}"
+
+                if chave in vistos:
+                    continue
+
+                vistos.add(chave)
+                linhas.append({
+                    "nome": nome,
+                    "telefone": telefone,
+                    "chassi": chassi,
+                    "modelo_moto": modelo,
+                    "data_venda": data_finalizacao,
+                })
+
+        linhas = sorted(
+            linhas,
+            key=lambda item: (
+                limpar_texto(item.get("nome", "")).upper(),
+                limpar_texto(item.get("chassi", "")).upper(),
+            ),
+        )
+
+        return {
+            "sucesso": True,
+            "mensagem": "Vendas consultadas no Sances.",
+            "linhas": linhas,
+            "erro": "",
+        }
+
+    except requests.Timeout:
+        return {
+            "sucesso": False,
+            "mensagem": "Timeout ao consultar vendas no Sances.",
+            "linhas": [],
+            "erro": f"Timeout Sances apos {SANCES_TIMEOUT}s",
+        }
+
+    except Exception as e:
+        log_erro("[SANCES] Erro consulta vendas clientes:", repr(e))
+        return {
+            "sucesso": False,
+            "mensagem": "Erro ao consultar vendas no Sances.",
+            "linhas": [],
+            "erro": repr(e),
+        }
 
 def gerar_excel_vendas_sances(caminho, data_inicio, data_fim):
     consulta = buscar_vendas_sances(data_inicio, data_fim)
@@ -13109,6 +13259,75 @@ def relatorio_vendas_sances():
         return jsonify({
             "ok": False,
             "mensagem": "Erro ao gerar relatório de vendas do Sances.",
+            "erro": repr(e),
+        }), 500
+
+
+@app.route("/exportar-clientes-vendas-sances.xlsx", methods=["GET"])
+def exportar_clientes_vendas_sances_xlsx():
+    try:
+        data_inicio = limpar_texto(request.args.get("data_inicio", ""))
+        data_fim = limpar_texto(request.args.get("data_fim", ""))
+        limit = None
+        offset = None
+
+        try:
+            if request.args.get("limit"):
+                limit = int(request.args.get("limit"))
+            if request.args.get("offset"):
+                offset = int(request.args.get("offset"))
+        except Exception:
+            limit = None
+            offset = None
+
+        consulta = buscar_clientes_vendas_sances(
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            limit=limit,
+            offset=offset,
+        )
+
+        if not consulta.get("sucesso"):
+            return jsonify({
+                "ok": False,
+                "mensagem": consulta.get("mensagem", "Falha ao consultar vendas Sances."),
+                "erro": consulta.get("erro", ""),
+            }), 500
+
+        linhas = consulta.get("linhas", []) or []
+        df = pd.DataFrame(
+            linhas,
+            columns=["nome", "telefone", "chassi", "modelo_moto", "data_venda"],
+        )
+        df = df.rename(columns={
+            "nome": "Nome completo",
+            "telefone": "Telefone",
+            "chassi": "Chassi",
+            "modelo_moto": "Modelo da moto",
+            "data_venda": "Data da venda",
+        })
+
+        if "Data da venda" in df.columns:
+            df["Data da venda"] = df["Data da venda"].apply(formatar_data_venda_excel)
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Clientes Vendas")
+
+        buffer.seek(0)
+
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name="clientes_vendas_sances.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except Exception as e:
+        log_erro("[SANCES] Erro exportar clientes vendas:", repr(e))
+        return jsonify({
+            "ok": False,
+            "mensagem": "Erro ao gerar planilha de clientes de vendas Sances.",
             "erro": repr(e),
         }), 500
 
