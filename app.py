@@ -15450,6 +15450,7 @@ def processar_fluxo_revisao(
             resumo = (
                 "📋 *CONFIRMAÇÃO DO AGENDAMENTO*\n\n"
                 f"👤 Cliente: {clientes[telefone].get('nome')}\n"
+                f"📍 Cidade: {clientes[telefone].get('cidade', '-') or '-'}\n"
                 f"🏍️ Moto: {clientes[telefone].get('modelo')}\n"
                 f"📅 Ano: {clientes[telefone].get('ano')}\n"
                 f"📍 KM: {clientes[telefone].get('km_atual')}\n"

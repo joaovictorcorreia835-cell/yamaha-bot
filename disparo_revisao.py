@@ -1,6 +1,7 @@
 import os
 import time
 import re
+import unicodedata
 from datetime import datetime
 
 import pandas as pd
@@ -24,11 +25,7 @@ URL_BASE = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN
 URL_ENVIO_TEXTO = f"{URL_BASE}/send-text"
 URL_ENVIO_BOTOES = f"{URL_BASE}/send-button-list"
 
-COLUNAS_OBRIGATORIAS = [
-    "NOME",
-    "TELEFONE",
-    "PERIODO_REVISAO",
-    "MODELO",
+COLUNAS_CONTROLE = [
     "DATA_DISPARO",
     "STATUS_ENVIO",
     "STATUS_RETORNO",
@@ -44,22 +41,35 @@ COLUNAS_OBRIGATORIAS = [
     "ID_ENVIO",
 ]
 
+CABECALHOS_ORIGEM = {
+    "NOME": ["NOME", "NOME DO CLIENTE"],
+    "TELEFONE": ["TELEFONE", "CELULAR DO CLIENTE"],
+    "MODELO": ["MODELO"],
+    "PERIODO_REVISAO": ["PERIODO REVISAO", "TIPO DA PROXIMA REVISAO"],
+    "CIDADE": ["CIDADE"],
+    "CHASSI": ["CHASSI"],
+    "DATA_VENDA": ["DATA DA VENDA"],
+    "KM_ULTIMO_REGISTRO": ["KM ULTIMO REGISTRO"],
+}
+
 STATUS_ENVIO_PERMITIDOS = ["", "PENDENTE"]
 
 
 # ==========================================
 # MENSAGEM
 # ==========================================
-def criar_mensagem(nome, modelo, periodo):
+def criar_mensagem(nome, modelo, periodo, cidade=""):
     nome = str(nome or "").strip().title()
     modelo = str(modelo or "").strip().upper()
     periodo = str(periodo or "").strip()
+    cidade = str(cidade or "").strip().title()
+    cidade_txt = f" em *{cidade}*" if cidade else ""
 
     return f"""Olá, {nome}! 👋
 
 Aqui é da *Motoshow Yamaha* 🏍️
 
-Identificamos que sua *{modelo}* está no período ideal para a revisão de *{periodo} meses*.
+Identificamos que sua *{modelo}* está no período ideal para a revisão de *{periodo}*{cidade_txt}.
 
 Manter a revisão em dia ajuda a preservar:
 
@@ -71,8 +81,8 @@ Manter a revisão em dia ajuda a preservar:
 Como deseja continuar?"""
 
 
-def criar_mensagem_fallback(nome, modelo, periodo):
-    mensagem = criar_mensagem(nome, modelo, periodo)
+def criar_mensagem_fallback(nome, modelo, periodo, cidade=""):
+    mensagem = criar_mensagem(nome, modelo, periodo, cidade)
 
     return mensagem + """
 
@@ -87,10 +97,35 @@ Responda com o número da opção desejada:
 # PLANILHA
 # ==========================================
 def garantir_colunas(df):
-    for coluna in COLUNAS_OBRIGATORIAS:
+    for coluna in COLUNAS_CONTROLE:
         if coluna not in df.columns:
             df[coluna] = ""
     return df
+
+
+def normalizar_cabecalho(valor):
+    valor = str(valor or "").strip().upper()
+    valor = unicodedata.normalize("NFKD", valor)
+    valor = "".join(char for char in valor if not unicodedata.combining(char))
+    valor = re.sub(r"[^A-Z0-9]+", " ", valor)
+    return re.sub(r"\s+", " ", valor).strip()
+
+
+def mapear_colunas_origem(df):
+    colunas_normalizadas = {
+        normalizar_cabecalho(coluna): coluna for coluna in df.columns
+    }
+    return {
+        campo: next(
+            (
+                colunas_normalizadas.get(normalizar_cabecalho(cabecalho))
+                for cabecalho in opcoes
+                if normalizar_cabecalho(cabecalho) in colunas_normalizadas
+            ),
+            None,
+        )
+        for campo, opcoes in CABECALHOS_ORIGEM.items()
+    }
 
 
 # ==========================================
@@ -316,6 +351,19 @@ def disparar():
         print(f"❌ Erro ao abrir a planilha {ARQUIVO_PLANILHA}: {e}")
         return
 
+    colunas_origem = mapear_colunas_origem(df)
+    campos_necessarios = ["NOME", "TELEFONE", "MODELO", "PERIODO_REVISAO"]
+    campos_ausentes = [
+        campo for campo in campos_necessarios if not colunas_origem.get(campo)
+    ]
+
+    if campos_ausentes:
+        print(
+            "❌ A planilha não possui os cabeçalhos necessários: "
+            + ", ".join(campos_ausentes)
+        )
+        return
+
     df = garantir_colunas(df)
 
     telefones_enviados_nesta_execucao = set()
@@ -325,7 +373,12 @@ def disparar():
         status_retorno = str(row.get("STATUS_RETORNO", "")).strip().upper()
 
         if status_envio not in STATUS_ENVIO_PERMITIDOS:
-            print("⏭ Pulando linha já tratada:", row.get("NOME", "Sem nome"), "-", status_envio)
+            print(
+                "⏭ Pulando linha já tratada:",
+                row.get(colunas_origem["NOME"], "Sem nome"),
+                "-",
+                status_envio,
+            )
             continue
 
         if status_retorno in [
@@ -334,13 +387,19 @@ def disparar():
             "NAO_INTERESSADO",
             "NÃO_INTERESSADO",
         ]:
-            print("⏭ Pulando cliente que já retornou:", row.get("NOME", "Sem nome"), "-", status_retorno)
+            print(
+                "⏭ Pulando cliente que já retornou:",
+                row.get(colunas_origem["NOME"], "Sem nome"),
+                "-",
+                status_retorno,
+            )
             continue
 
-        nome = str(row.get("NOME", "")).strip()
-        numero = normalizar_telefone(row.get("TELEFONE", ""))
-        modelo = str(row.get("MODELO", "")).strip()
-        periodo = str(row.get("PERIODO_REVISAO", "")).strip()
+        nome = str(row.get(colunas_origem["NOME"], "")).strip()
+        numero = normalizar_telefone(row.get(colunas_origem["TELEFONE"], ""))
+        modelo = str(row.get(colunas_origem["MODELO"], "")).strip()
+        periodo = str(row.get(colunas_origem["PERIODO_REVISAO"], "")).strip()
+        cidade = str(row.get(colunas_origem.get("CIDADE"), "")).strip()
 
         if not nome or not numero:
             print(f"⚠ Linha {index + 2} ignorada - falta NOME ou TELEFONE")
@@ -370,8 +429,8 @@ def disparar():
             df.to_excel(ARQUIVO_PLANILHA, index=False)
             continue
 
-        mensagem_botoes = criar_mensagem(nome, modelo, periodo)
-        mensagem_fallback = criar_mensagem_fallback(nome, modelo, periodo)
+        mensagem_botoes = criar_mensagem(nome, modelo, periodo, cidade)
+        mensagem_fallback = criar_mensagem_fallback(nome, modelo, periodo, cidade)
 
         print(f"📤 Enviando para: {nome} - {numero}")
 
