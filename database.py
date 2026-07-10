@@ -208,6 +208,7 @@ class AgendamentoRevisao(Base):
 
     nome = Column(String, nullable=True)
     cpf = Column(String, index=True)
+    cidade = Column(String, index=True, nullable=True)
 
     modelo = Column(String, index=True, nullable=True)
     placa = Column(String, index=True, nullable=True)
@@ -466,6 +467,7 @@ def migrar_colunas_sances():
     }
 
     novas_colunas = {
+        "cidade": "VARCHAR",
         "km_atual": "VARCHAR",
         "placa": "VARCHAR",
         "chassi": "VARCHAR",

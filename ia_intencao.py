@@ -124,7 +124,6 @@ def normalizar_opcao_menu(texto):
         "agendar": "AGENDAR_REVISAO",
         "agendar_revisao": "AGENDAR_REVISAO",
         "marcar_revisao": "AGENDAR_REVISAO",
-        "revisao": "AGENDAR_REVISAO",
 
         "reagendar": "REAGENDAR_AGENDAMENTO",
         "reagendar_agendamento": "REAGENDAR_AGENDAMENTO",
@@ -157,8 +156,12 @@ def normalizar_opcao_menu(texto):
         "catalogo": "ATACADO_TABELA",
         "catálogo": "ATACADO_TABELA",
         "catalogo_atacado": "ATACADO_TABELA",
+        "catalogo_de_atacado": "ATACADO_TABELA",
+        "quero_catalogo": "ATACADO_TABELA",
+        "quero_catalogo_de_atacado": "ATACADO_TABELA",
         "catálogo_atacado": "ATACADO_TABELA",
         "receber_catalogo": "ATACADO_TABELA",
+        "receber_catalogo_de_atacado": "ATACADO_TABELA",
         "receber_catálogo": "ATACADO_TABELA",
 
         "atacado_consultor": "ATACADO_CONSULTOR",
@@ -1574,8 +1577,23 @@ def detectar_intencao_regras(texto_normalizado):
     if texto_pede_humano_intencao(texto_normalizado):
         return "atendimento_humano", 0.99
 
+    if texto_parece_acompanhar_garantia(texto_normalizado):
+        return "acompanhar_garantia", 0.98
+
+    if texto_parece_solicitacao_garantia(texto_normalizado):
+        return "garantia", 0.97
+
     if texto_parece_valor_pecas(texto_normalizado):
         return "orcamento", 0.99
+
+    if texto_parece_valor_revisao(texto_normalizado):
+        return "valor_revisao", 0.98
+
+    if texto_parece_duvida_manual(texto_normalizado):
+        return "duvidas", 0.99
+
+    if texto_parece_garantia(texto_normalizado):
+        return "duvidas", 0.98
 
     if texto_parece_consulta_pecas(texto_normalizado):
         return "pecas", 0.97
@@ -1591,21 +1609,6 @@ def detectar_intencao_regras(texto_normalizado):
 
     if texto_parece_acessorios(texto_normalizado):
         return "acessorios", 0.97
-
-    if texto_parece_acompanhar_garantia(texto_normalizado):
-        return "acompanhar_garantia", 0.98
-
-    if texto_parece_solicitacao_garantia(texto_normalizado):
-        return "garantia", 0.97
-
-    if texto_parece_valor_revisao(texto_normalizado):
-        return "valor_revisao", 0.98
-
-    if texto_parece_duvida_manual(texto_normalizado):
-        return "duvidas", 0.99
-
-    if texto_parece_garantia(texto_normalizado):
-        return "duvidas", 0.98
 
     if any(p in texto_normalizado for p in [
         "garantia cobre",
