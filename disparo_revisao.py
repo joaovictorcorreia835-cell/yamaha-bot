@@ -18,7 +18,9 @@ ZAPI_TOKEN = os.getenv("ZAPI_TOKEN", "").strip()
 ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "").strip()
 
 ARQUIVO_PLANILHA = "templates/data/clientes.xlsx"
-INTERVALO_ENTRE_ENVIOS = 90
+INTERVALO_ENTRE_ENVIOS = 60
+LIMITE_ENVIOS_POR_LOTE = 25
+INTERVALO_ENTRE_LOTES = 30 * 60
 
 URL_BASE = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}"
 
@@ -126,6 +128,47 @@ def mapear_colunas_origem(df):
         )
         for campo, opcoes in CABECALHOS_ORIGEM.items()
     }
+
+
+def ha_proximo_cliente_apto(
+    df,
+    indice_atual,
+    colunas_origem,
+    telefones_enviados_nesta_execucao,
+):
+    """Verifica se ainda existe outro cliente válido aguardando disparo."""
+    posicao_atual = df.index.get_loc(indice_atual)
+
+    for _, row in df.iloc[posicao_atual + 1 :].iterrows():
+        status_envio = str(row.get("STATUS_ENVIO", "")).strip().upper()
+        status_retorno = str(row.get("STATUS_RETORNO", "")).strip().upper()
+
+        if status_envio not in STATUS_ENVIO_PERMITIDOS:
+            continue
+
+        if status_retorno in [
+            "RESPONDEU",
+            "AGENDOU",
+            "NAO_INTERESSADO",
+            "NÃO_INTERESSADO",
+        ]:
+            continue
+
+        nome = str(row.get(colunas_origem["NOME"], "")).strip()
+        numero = normalizar_telefone(row.get(colunas_origem["TELEFONE"], ""))
+        modelo = str(row.get(colunas_origem["MODELO"], "")).strip()
+        periodo = str(row.get(colunas_origem["PERIODO_REVISAO"], "")).strip()
+
+        if (
+            nome
+            and telefone_valido(numero)
+            and numero not in telefones_enviados_nesta_execucao
+            and modelo
+            and periodo
+        ):
+            return True
+
+    return False
 
 
 # ==========================================
@@ -367,6 +410,7 @@ def disparar():
     df = garantir_colunas(df)
 
     telefones_enviados_nesta_execucao = set()
+    envios_no_lote = 0
 
     for index, row in df.iterrows():
         status_envio = str(row.get("STATUS_ENVIO", "")).strip().upper()
@@ -457,6 +501,7 @@ def disparar():
             df.at[index, "ID_ENVIO"] = id_envio
 
             telefones_enviados_nesta_execucao.add(numero)
+            envios_no_lote += 1
 
             print("✅ Enviado com sucesso:", nome)
 
@@ -470,7 +515,22 @@ def disparar():
 
         df.to_excel(ARQUIVO_PLANILHA, index=False)
 
-        time.sleep(INTERVALO_ENTRE_ENVIOS)
+        if enviado and ha_proximo_cliente_apto(
+            df,
+            index,
+            colunas_origem,
+            telefones_enviados_nesta_execucao,
+        ):
+            if envios_no_lote >= LIMITE_ENVIOS_POR_LOTE:
+                print(
+                    "⏸️ Limite de 25 mensagens atingido. "
+                    "Aguardando 30 minutos para o próximo lote..."
+                )
+                time.sleep(INTERVALO_ENTRE_LOTES)
+                envios_no_lote = 0
+            else:
+                print("⏳ Aguardando 60 segundos para o próximo envio...")
+                time.sleep(INTERVALO_ENTRE_ENVIOS)
 
     print("===================================")
     print("✅ Disparo finalizado")

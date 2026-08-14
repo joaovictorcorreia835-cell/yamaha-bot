@@ -64,6 +64,20 @@ except Exception as e:
 # ==========================================
 app = Flask(__name__)
 
+database_url = os.environ.get("DATABASE_URL")
+
+if not database_url:
+    database_url = "sqlite:///motos.db"
+
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace(
+        "postgres://",
+        "postgresql://",
+        1
+    )
+
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+
 try:
     criar_banco()
     print("[INFO] Banco verificado/criado com sucesso.", flush=True)
@@ -148,11 +162,25 @@ def env_int(nome, padrao):
         return padrao
 
 
+def env_bool(nome, padrao=False):
+    valor_padrao = "true" if padrao else "false"
+    return str(os.getenv(nome, valor_padrao)).strip().lower() in [
+        "1",
+        "true",
+        "sim",
+        "yes",
+        "on",
+    ]
+
+
 TEMPO_INATIVIDADE = env_int("TEMPO_INATIVIDADE", 43200)
 ARQUIVO_FOLLOWUP = os.getenv("ARQUIVO_FOLLOWUP", "clientes_disparo.xlsx").strip()
 INTERVALO_WORKER_FOLLOWUP = env_int("INTERVALO_WORKER_FOLLOWUP", 300)
+INTERVALO_DISPARO_CLIENTES = env_int("INTERVALO_DISPARO_CLIENTES", 60)
 FOLLOWUP_1_HORAS = env_int("FOLLOWUP_1_HORAS", 48)
 FOLLOWUP_2_DIAS = env_int("FOLLOWUP_2_DIAS", 5)
+MENSAGENS_PECAS_ATIVAS = env_bool("MENSAGENS_PECAS_ATIVAS", False)
+MENSAGENS_BOT_ATIVAS = env_bool("MENSAGENS_BOT_ATIVAS", False)
 
 
 # ==========================================
@@ -1781,6 +1809,7 @@ def processar_followups_inteligentes():
 
 def processar_recuperacao_clientes():
     db = SessionLocal()
+    ultimo_envio = None
 
     try:
         if not gerar_mensagem_recuperacao:
@@ -1822,7 +1851,15 @@ def processar_recuperacao_clientes():
                 if not mensagem:
                     continue
 
+                if ultimo_envio is not None:
+                    tempo_decorrido = time.monotonic() - ultimo_envio
+                    tempo_espera = INTERVALO_DISPARO_CLIENTES - tempo_decorrido
+
+                    if tempo_espera > 0:
+                        time.sleep(tempo_espera)
+
                 retorno_zapi = enviar_mensagem(telefone, mensagem)
+                ultimo_envio = time.monotonic()
 
                 log_info(
                     "RECUPERACAO IA enviada:",
@@ -4333,6 +4370,10 @@ def formatar_botoes_para_texto(botoes=None):
 
 def enviar_mensagem_texto_zapi(telefone, mensagem):
     try:
+        if not MENSAGENS_BOT_ATIVAS:
+            log_info("ENVIO BLOQUEADO: mensagens automáticas do bot estão pausadas.")
+            return False, "MENSAGENS_BOT_PAUSADAS", ""
+
         payload = {
             "phone": telefone,
             "message": mensagem,
@@ -4429,6 +4470,10 @@ def enviar_mensagem_botoes(telefone, mensagem, botoes=None):
 
 def enviar_pdf(telefone, arquivo, legenda=""):
     try:
+        if not MENSAGENS_BOT_ATIVAS:
+            log_info("ENVIO DE PDF BLOQUEADO: mensagens automáticas do bot estão pausadas.")
+            return False
+
         telefone = limpar_telefone(telefone)
 
         if not telefone:
@@ -12012,6 +12057,14 @@ def executar_tarefa_rpa_mock(tipo_tarefa, dados):
 
 
 def executar_tarefa_rpa_inteligente(tipo_rpa, dados):
+    if tipo_rpa in ["envio_pecas", "disparo_atacado"] and not MENSAGENS_PECAS_ATIVAS:
+        return {
+            "ok": False,
+            "status": RPA_CANCELADO,
+            "erro": "Mensagens automáticas de peças estão pausadas.",
+            "resultado": {"acao": "aguardar_reativacao"},
+        }
+
     valido, erro = dados_minimos_rpa(tipo_rpa, dados)
 
     if not valido:
@@ -14365,6 +14418,9 @@ def processar_followups_banco():
             contexto = identificar_contexto_followup(at)
 
             if contexto == "ignorar":
+                continue
+
+            if contexto in ["pecas", "atacado"] and not MENSAGENS_PECAS_ATIVAS:
                 continue
 
             ultima = (

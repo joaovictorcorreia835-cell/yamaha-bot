@@ -93,6 +93,12 @@ services:
       - key: FOLLOWUP_2_DIAS
         value: 5
 
+      - key: MENSAGENS_PECAS_ATIVAS
+        value: false
+
+      - key: MENSAGENS_BOT_ATIVAS
+        value: false
+
       # ==========================================
       # WORKERS
       # ==========================================

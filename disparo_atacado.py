@@ -18,6 +18,9 @@ ZAPI_CLIENT_TOKEN = os.getenv("ZAPI_CLIENT_TOKEN", "").strip()
 
 ARQUIVO_PLANILHA = "templates/data/disparo_atacado.xlsx"
 INTERVALO_ENTRE_ENVIOS = 90
+MENSAGENS_PECAS_ATIVAS = str(
+    os.getenv("MENSAGENS_PECAS_ATIVAS", "false")
+).strip().lower() in ["1", "true", "sim", "yes", "on"]
 
 HORARIO_INICIO = 8
 HORARIO_FIM = 20
@@ -338,6 +341,10 @@ def enviar_mensagem(numero, mensagem_botoes, mensagem_fallback):
 # DISPARO
 # ==========================================
 def disparar():
+    if not MENSAGENS_PECAS_ATIVAS:
+        print("⏸ Mensagens de peças pausadas. Disparo atacado não iniciado.")
+        return
+
     print("===================================")
     print("🚀 Iniciando disparo atacado Z-API...")
     print("===================================")

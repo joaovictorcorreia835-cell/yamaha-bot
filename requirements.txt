@@ -1,4 +1,6 @@
 Flask==3.0.3
+Flask-SQLAlchemy
+Flask-Login
 gunicorn==22.0.0
 
 # =========================================
